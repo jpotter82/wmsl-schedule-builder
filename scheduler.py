@@ -77,13 +77,14 @@ def schedule_games(matchups, cross_division_matchups, team_availability, field_a
         available_divisions = ['A', 'B', 'C']
         random.shuffle(available_divisions)
 
+        # Check each division's matchups for a slot on this day
         for div in available_divisions:
             if not matchups.get(div):  # Skip if no more matchups in this division
                 continue
 
             # Attempt to schedule a game within the division
             for i, (home, away) in enumerate(matchups[div]):
-                # Validate conditions: team availability, weekly game limits, field exclusivity
+                # Check if teams are available on this day and meet weekly limits
                 if (day_of_week in team_availability.get(home, set()) and
                     day_of_week in team_availability.get(away, set()) and
                     weekly_games[home] < 2 and weekly_games[away] < 2 and
