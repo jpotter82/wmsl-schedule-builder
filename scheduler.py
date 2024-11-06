@@ -48,6 +48,12 @@ def generate_matchups():
     }
     return matchups, cross_division_matchups
 
+# Calculate average game count to prioritize teams with fewer games
+def calculate_game_average(game_counts):
+    total_games = sum(game_counts.values())
+    num_teams = len(game_counts)
+    return total_games / num_teams if num_teams > 0 else 0
+
 # Schedule games based on availability and constraints
 def schedule_games(matchups, cross_division_matchups, team_availability, field_availability):
     print("Scheduling games...")
@@ -66,9 +72,13 @@ def schedule_games(matchups, cross_division_matchups, team_availability, field_a
     for date, slot, field in field_availability:
         slot_key = (date, slot, field)
         day_of_week = date.strftime('%a')
+        average_games = calculate_game_average(game_counts)
+
+        print(f"\nProcessing slot on {date.strftime('%Y-%m-%d')} at {slot} on {field} (Avg games: {average_games:.1f})")
 
         # Skip this slot if it’s already used
         if slot_key in used_slots:
+            print(f"  Skipping already used slot on {date.strftime('%Y-%m-%d')} at {slot} on {field}")
             continue
 
         scheduled_for_slot = False
@@ -84,6 +94,13 @@ def schedule_games(matchups, cross_division_matchups, team_availability, field_a
 
             # Attempt to schedule a game within the division
             for i, (home, away) in enumerate(matchups[div]):
+                # Check if teams are within acceptable game range
+                if (game_counts[home] > average_games + 2 or game_counts[away] > average_games + 2):
+                    print(f"  Skipping {home} vs {away} due to excess games")
+                    continue
+                if (game_counts[home] < average_games - 2 or game_counts[away] < average_games - 2):
+                    print(f"  Prioritizing {home} vs {away} due to low games")
+
                 # Check if teams are available on this day and meet weekly limits
                 if (day_of_week in team_availability.get(home, set()) and
                     day_of_week in team_availability.get(away, set()) and
@@ -98,7 +115,7 @@ def schedule_games(matchups, cross_division_matchups, team_availability, field_a
                     weekly_games[away] += 1
                     used_slots.add(slot_key)
                     matchups[div].pop(i)  # Remove scheduled matchup
-                    print(f" - Scheduled: {home} vs {away} on {date.strftime('%Y-%m-%d')} at {slot} ({field})")
+                    print(f"    - Scheduled: {home} vs {away} on {date.strftime('%Y-%m-%d')} at {slot} ({field})")
                     scheduled_for_slot = True
                     break
 
@@ -107,6 +124,7 @@ def schedule_games(matchups, cross_division_matchups, team_availability, field_a
 
         # Reset weekly game count on Sunday night for a fresh start each week
         if date.weekday() == 6:  # Sunday
+            print("Resetting weekly game counts for all teams.")
             for team in weekly_games:
                 weekly_games[team] = 0
 
