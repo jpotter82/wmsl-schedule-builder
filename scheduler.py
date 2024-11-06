@@ -82,13 +82,10 @@ def generate_matchups(division_teams, rules):
         inter_teams = [f'{inter_div}{i+1}' for i in range(8)]
         inter_matchups = list(itertools.product(division_teams, inter_teams))
         random.shuffle(inter_matchups)
-        selected_matchups = inter_matchups[:count]
-        for home, away in selected_matchups:
-            matchups.append((home, away))
-            matchups.append((away, home))
+        selected_matchups = inter_matchups[:count * 2]  # For home/away
+        matchups.extend(selected_matchups)
 
     return matchups
-
 
 def schedule_games(matchups, team_availability, field_availability):
     schedule = []
@@ -103,7 +100,8 @@ def schedule_games(matchups, team_availability, field_availability):
         print(f"Processing slot on {date.strftime('%Y-%m-%d')} at {slot} on {field}")
 
         scheduled_game = False
-        for home, away in matchups:
+        for matchup in matchups:
+            home, away = matchup  # Expect tuple structure here
             if (team_stats[home]['total_games'] < MAX_GAMES and
                 team_stats[away]['total_games'] < MAX_GAMES and
                 day_of_week in team_availability[home] and
