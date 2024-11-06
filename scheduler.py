@@ -45,6 +45,20 @@ def load_field_availability(file_path):
 def can_schedule(game_counts, home, away):
     return game_counts[home] < max_games and game_counts[away] < max_games
 
+# Generate all intra-division and cross-division matchups
+def generate_matchups():
+    matchups = {}
+    for div, teams in divisions.items():
+        matchups[div] = list(itertools.combinations(teams, 2))  # Intra-division matchups
+
+    # Define cross-division matchups based on specified requirements
+    cross_division_matchups = {
+        "A-B": list(itertools.product(divisions['A'], divisions['B'])),
+        "B-C": list(itertools.product(divisions['B'], divisions['C'])),
+        "C-A": list(itertools.product(divisions['C'], divisions['A'])),
+    }
+    return matchups, cross_division_matchups
+
 # Main scheduling function
 def schedule_games(matchups, cross_division_matchups, team_availability, field_availability):
     print("Scheduling games...")
