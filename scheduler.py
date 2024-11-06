@@ -4,18 +4,15 @@ from datetime import datetime, timedelta
 from collections import defaultdict
 
 # Configurable parameters
-start_date = datetime(2025, 4, 7)
-end_date = datetime(2025, 7, 14)
-max_games = 22
-
-# Define divisions and initial team setups
-divisions = {
-    'A': ['A' + str(i) for i in range(1, 9)],
-    'B': ['B' + str(i) for i in range(1, 9)],
-    'C': ['C' + str(i) for i in range(1, 9)]
+MAX_GAMES = 22
+WEEKLY_SINGLE_GAMES_LIMIT = 2  # Maximum single games per team per week
+DIVISION_RULES = {
+    'A': {'intra_min': 2, 'extra': 4},
+    'B': {'intra_min': 2, 'extra': 4},
+    'C': {'intra_min': 2, 'extra': 4},
 }
 
-# Load team availability from CSV
+# Load team availability
 def load_team_availability(file_path):
     availability = {}
     with open(file_path, mode='r') as file:
@@ -23,9 +20,8 @@ def load_team_availability(file_path):
         next(reader)  # Skip header
         for row in reader:
             team = row[0]
-            days = row[1:]  # Take all columns after the team name
-            days = [day.strip() for day in days if day]  # Clean whitespace
-            availability[team] = set(days)
+            days = row[1:]  # Grab days in CSV columns
+            availability[team] = {day.strip() for day in days if day}
     return availability
 
 # Load field availability
@@ -41,33 +37,20 @@ def load_field_availability(file_path):
             field_availability.append((date, slot, field))
     return field_availability
 
-# Track games to ensure no team exceeds 22 games
-def can_schedule(game_counts, home, away):
-    return game_counts[home] < max_games and game_counts[away] < max_games
-
-# Generate all intra-division and cross-division matchups
-def generate_matchups():
-    matchups = {}
-    for div, teams in divisions.items():
-        matchups[div] = list(itertools.combinations(teams, 2))  # Intra-division matchups
-
-    # Define cross-division matchups based on specified requirements
-    cross_division_matchups = {
-        "A-B": list(itertools.product(divisions['A'], divisions['B'])),
-        "B-C": list(itertools.product(divisions['B'], divisions['C'])),
-        "C-A": list(itertools.product(divisions['C'], divisions['A'])),
+# Initialize game counts, home/away, intra/inter-division
+def initialize_team_stats():
+    return {
+        'total_games': 0,
+        'home_games': 0,
+        'away_games': 0,
+        'intra_divisional': 0,
+        'inter_divisional': defaultdict(int)
     }
-    return matchups, cross_division_matchups
 
-# Main scheduling function
-def schedule_games(matchups, cross_division_matchups, team_availability, field_availability):
-    print("Scheduling games...")
+# Function to schedule games with constraints
+def schedule_games(matchups, team_availability, field_availability):
     schedule = []
-    game_counts = defaultdict(int)
-    home_away_counts = defaultdict(lambda: {'home': 0, 'away': 0})
-    inter_division_counts = defaultdict(lambda: defaultdict(int))
-    intra_division_counts = defaultdict(int)
-
+    team_stats = defaultdict(initialize_team_stats)
     current_slot = 0
 
     while current_slot < len(field_availability):
@@ -75,48 +58,35 @@ def schedule_games(matchups, cross_division_matchups, team_availability, field_a
         day_of_week = date.strftime('%a')
         current_slot += 1
 
-        print(f"\nProcessing slot on {date.strftime('%Y-%m-%d')} at {slot} on {field}")
+        print(f"Processing slot on {date.strftime('%Y-%m-%d')} at {slot} on {field}")
 
         scheduled_game = False
-
-        for div in ['A', 'B', 'C']:
-            for _ in range(len(matchups[div])):
-                home, away = matchups[div].pop(0)
-                matchups[div].append((home, away))  # Rotate it to the end if not scheduled
-
-                # Check availability, weekly game constraints, and max game count
-                if (day_of_week in team_availability.get(home, set()) and
-                    day_of_week in team_availability.get(away, set()) and
-                    can_schedule(game_counts, home, away)):
-                    
-                    # Schedule game
-                    schedule.append((date, slot, home, away, field))
-                    game_counts[home] += 1
-                    game_counts[away] += 1
-
-                    # Track home and away games
-                    home_away_counts[home]['home'] += 1
-                    home_away_counts[away]['away'] += 1
-
-                    # Track inter- and intra-divisional games
-                    if div in [home[0], away[0]]:
-                        intra_division_counts[home] += 1
-                        intra_division_counts[away] += 1
-                    else:
-                        inter_division_counts[home][away[0]] += 1
-                        inter_division_counts[away][home[0]] += 1
-
-                    scheduled_game = True
-                    print(f"    - Scheduled: {home} vs {away} on {date.strftime('%Y-%m-%d')} at {slot} ({field})")
-                    break
+        for div in matchups.keys():
             if scheduled_game:
                 break
+            for matchup in matchups[div]:
+                home, away = matchup['teams']
+                if (team_stats[home]['total_games'] < MAX_GAMES and 
+                    team_stats[away]['total_games'] < MAX_GAMES and
+                    day_of_week in team_availability[home] and 
+                    day_of_week in team_availability[away]):
 
-        if not scheduled_game:
-            print("    - No valid games found for this slot.")
+                    if team_stats[home]['total_games'] % 2 == 0:
+                        home, away = away, home  # Alternate home team for balance
 
-    print("Scheduling complete.")
-    return schedule, game_counts, home_away_counts, inter_division_counts, intra_division_counts
+                    schedule.append((date, slot, home, away, field))
+                    team_stats[home]['total_games'] += 1
+                    team_stats[home]['home_games'] += 1
+                    team_stats[away]['total_games'] += 1
+                    team_stats[away]['away_games'] += 1
+                    team_stats[home]['intra_divisional'] += 1 if div == 'intra' else 0
+                    team_stats[away]['intra_divisional'] += 1 if div == 'intra' else 0
+                    team_stats[home]['inter_divisional'][div] += 1 if div != 'intra' else 0
+                    team_stats[away]['inter_divisional'][div] += 1 if div != 'intra' else 0
+                    scheduled_game = True
+                    break
+
+    return schedule, team_stats
 
 # Output schedule to CSV
 def output_schedule_to_csv(schedule, output_file):
@@ -125,34 +95,37 @@ def output_schedule_to_csv(schedule, output_file):
         writer.writerow(["Date", "Time", "Home Team", "Away Team", "Field"])
         for game in schedule:
             writer.writerow([game[0].strftime('%Y-%m-%d'), game[1], game[2], game[3], game[4]])
-    print("Schedule saved successfully.")
 
-# Print summary
-def print_summary(game_counts, home_away_counts, inter_division_counts, intra_division_counts):
-    print("\nSchedule Summary:\n")
-    for team in game_counts:
-        print(f"{team}:")
-        print(f"  - Total games: {game_counts[team]}")
-        print(f"  - Home games: {home_away_counts[team]['home']}")
-        print(f"  - Away games: {home_away_counts[team]['away']}")
-        print(f"  - Intra-division games: {intra_division_counts[team]}")
-        for div, count in inter_division_counts[team].items():
-            print(f"  - Inter-division games with Division {div}: {count}")
-        print()
+# Print summary statistics
+def print_schedule_summary(team_stats):
+    print("Schedule Summary:")
+    for team, stats in team_stats.items():
+        print(f"\nTeam: {team}")
+        print(f"  Total Games: {stats['total_games']}")
+        print(f"  Home Games: {stats['home_games']}")
+        print(f"  Away Games: {stats['away_games']}")
+        print(f"  Intra-Divisional Games: {stats['intra_divisional']}")
+        print("  Inter-Divisional Games:")
+        for div, count in stats['inter_divisional'].items():
+            print(f"    {div.capitalize()} Division: {count}")
 
 # Main function
 def main():
     team_availability = load_team_availability('team_availability.csv')
     field_availability = load_field_availability('field_availability.csv')
 
-    matchups, cross_division_matchups = generate_matchups()
-    schedule, game_counts, home_away_counts, inter_division_counts, intra_division_counts = schedule_games(
-        matchups, cross_division_matchups, team_availability, field_availability
-    )
-    
+    # Example matchups for testing (replace with actual matchups generation)
+    matchups = {
+        'A': [{'teams': ('A1', 'A2')}, {'teams': ('A3', 'A4')}],
+        'B': [{'teams': ('B1', 'B2')}, {'teams': ('B3', 'B4')}],
+        'C': [{'teams': ('C1', 'C2')}, {'teams': ('C3', 'C4')}],
+        'intra': [{'teams': ('A1', 'B1')}, {'teams': ('C1', 'B2')}]
+    }
+
+    schedule, team_stats = schedule_games(matchups, team_availability, field_availability)
     output_schedule_to_csv(schedule, 'softball_schedule.csv')
-    print("Schedule Generation Complete.")
-    print_summary(game_counts, home_away_counts, inter_division_counts, intra_division_counts)
+    print("Schedule Generation Complete")
+    print_schedule_summary(team_stats)
 
 if __name__ == "__main__":
     main()
