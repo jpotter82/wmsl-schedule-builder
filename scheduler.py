@@ -21,12 +21,12 @@ def load_team_availability(file_path):
         next(reader)  # Skip header
         for row in reader:
             team = row[0]
-            days = row[1].split(',')
-            availability[team] = set(day.strip() for day in days)  # Trim whitespace around each day
-            # Debug output to confirm correct loading
+            days = row[1:]  # Take all columns after the team name
+            days = [day.strip() for day in days if day]  # Remove any empty strings or whitespace
+            availability[team] = set(days)  # Store as a set for easy lookup
+            # Debug output to verify parsing
             print(f"Loaded availability for {team}: {availability[team]}")
     return availability
-
 
 # Load field availability from CSV
 def load_field_availability(file_path):
