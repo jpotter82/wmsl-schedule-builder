@@ -1,17 +1,27 @@
 import csv
 import itertools
 import random
-from datetime import datetime, timedelta
+from datetime import datetime
 from collections import defaultdict
 
 # Configurable parameters
 MAX_GAMES = 22
 HOME_AWAY_BALANCE = 11
-WEEKLY_SINGLE_GAMES_LIMIT = 2  # Maximum single games per team per week
 DIVISION_RULES = {
-    'A': {'intra_min': 2, 'extra': 4, 'inter_divisions': ['B']},
-    'B': {'intra_min': 2, 'extra': 4, 'inter_divisions': ['A', 'C']},
-    'C': {'intra_min': 2, 'extra': 4, 'inter_divisions': ['B']}
+    'A': {
+        'intra_min': 14,  # Total A vs A games: 7 A teams * 2 (home/away)
+        'intra_extra': 4,  # Play 4 teams in A a third time
+        'inter': {'B': 4}  # Play 4 different B teams (2 home, 2 away)
+    },
+    'B': {
+        'intra_min': 14,  # Total B vs B games: 7 B teams * 2 (home/away)
+        'inter': {'A': 4, 'C': 4}  # Play 4 A and 4 C teams (2 home, 2 away each)
+    },
+    'C': {
+        'intra_min': 14,  # Total C vs C games: 7 C teams * 2 (home/away)
+        'intra_extra': 4,  # Play 4 teams in C a third time
+        'inter': {'B': 4}  # Play 4 different B teams (2 home, 2 away)
+    }
 }
 
 # Load team availability
@@ -22,7 +32,7 @@ def load_team_availability(file_path):
         next(reader)  # Skip header
         for row in reader:
             team = row[0]
-            days = row[1:]  # Grab days in CSV columns
+            days = row[1:]
             availability[team] = {day.strip() for day in days if day}
     return availability
 
@@ -39,7 +49,7 @@ def load_field_availability(file_path):
             field_availability.append((date, slot, field))
     return field_availability
 
-# Initialize team stats with constraints for tracking
+# Initialize team stats
 def initialize_team_stats():
     return {
         'total_games': 0,
@@ -49,45 +59,37 @@ def initialize_team_stats():
         'inter_divisional': defaultdict(int)
     }
 
-# Generate randomized matchups according to rules
-def generate_matchups():
-    matchups = defaultdict(list)
+# Generate matchups for intra- and inter-divisional games
+def generate_matchups(division_teams, rules):
+    matchups = []
 
-    for div, rules in DIVISION_RULES.items():
-        # Generate intra-divisional games
-        intra_teams = ['A1', 'A2', 'A3', 'A4', 'A5', 'A6', 'A7', 'A8'] if div == 'A' else \
-                      ['B1', 'B2', 'B3', 'B4', 'B5', 'B6', 'B7', 'B8'] if div == 'B' else \
-                      ['C1', 'C2', 'C3', 'C4', 'C5', 'C6', 'C7', 'C8']
-        
-        intra_matchups = list(itertools.combinations(intra_teams, 2))
-        random.shuffle(intra_matchups)
-        
-        # Schedule intra-divisional games twice (one home, one away)
-        for matchup in intra_matchups:
-            home, away = matchup
-            matchups[div].append((home, away))
-            matchups[div].append((away, home))
+    # Intra-divisional matchups
+    intra_matchups = list(itertools.combinations(division_teams, 2))
+    random.shuffle(intra_matchups)
 
-        # Add extra intra-divisional games
-        extra_matchups = random.sample(intra_matchups, rules['extra'])
-        for home, away in extra_matchups:
-            matchups[div].append((home, away))
-            matchups[div].append((away, home))
+    for home, away in intra_matchups:
+        matchups.append((home, away))
+        matchups.append((away, home))
 
-        # Generate inter-divisional games
-        for inter_div in rules['inter_divisions']:
-            inter_teams = ['B1', 'B2', 'B3', 'B4', 'B5', 'B6', 'B7', 'B8'] if inter_div == 'B' else \
-                          ['A1', 'A2', 'A3', 'A4', 'A5', 'A6', 'A7', 'A8'] if inter_div == 'A' else \
-                          ['C1', 'C2', 'C3', 'C4', 'C5', 'C6', 'C7', 'C8']
-            inter_matchups = list(itertools.product(intra_teams, inter_teams))
-            inter_sample = random.sample(inter_matchups, rules['extra'])
-            for home, away in inter_sample:
-                matchups[f"{div}_{inter_div}"].append((home, away))
-                matchups[f"{div}_{inter_div}"].append((away, home))
-    
+    # Extra intra-divisional games
+    if 'intra_extra' in rules:
+        extra_intra = random.sample(intra_matchups, rules['intra_extra'])
+        for home, away in extra_intra:
+            matchups.append((home, away))
+            matchups.append((away, home))
+
+    # Inter-divisional matchups
+    for inter_div, count in rules['inter'].items():
+        inter_teams = [f'{inter_div}{i+1}' for i in range(8)]
+        inter_matchups = list(itertools.product(division_teams, inter_teams))
+        random.shuffle(inter_matchups)
+        selected_inter = inter_matchups[:count]
+        for home, away in selected_inter:
+            matchups.append((home, away))
+            matchups.append((away, home))
+
     return matchups
 
-# Schedule games with constraints
 def schedule_games(matchups, team_availability, field_availability):
     schedule = []
     team_stats = defaultdict(initialize_team_stats)
@@ -96,11 +98,10 @@ def schedule_games(matchups, team_availability, field_availability):
     while current_slot < len(field_availability):
         date, slot, field = field_availability[current_slot]
         day_of_week = date.strftime('%a')
-        week_num = date.isocalendar()[1]
         current_slot += 1
         scheduled_game = False
 
-        # Shuffle divisions to randomize matchups across divisions
+        # Randomize divisions for scheduling balance
         divisions = list(matchups.keys())
         random.shuffle(divisions)
 
@@ -108,36 +109,25 @@ def schedule_games(matchups, team_availability, field_availability):
             if scheduled_game:
                 break
             division_matchups = matchups[div]
-            random.shuffle(division_matchups)  # Shuffle to randomize within division
+            random.shuffle(division_matchups)  # Shuffle matchups
 
-            for matchup in division_matchups:
-                home, away = matchup
-
+            for home, away in division_matchups:
                 # Check constraints
-                if (team_stats[home]['total_games'] < MAX_GAMES and 
+                if (team_stats[home]['total_games'] < MAX_GAMES and
                     team_stats[away]['total_games'] < MAX_GAMES and
-                    day_of_week in team_availability[home] and 
-                    day_of_week in team_availability[away] and
-                    team_stats[home]['total_games'] < MAX_GAMES and
-                    team_stats[away]['total_games'] < MAX_GAMES):
+                    day_of_week in team_availability[home] and
+                    day_of_week in team_availability[away]):
 
                     if team_stats[home]['home_games'] < HOME_AWAY_BALANCE:
-                        home, away = away, home  # Alternate home team for balance
+                        schedule.append((date, slot, home, away, field))
+                    else:
+                        schedule.append((date, slot, away, home, field))
 
-                    # Add game to schedule
-                    schedule.append((date, slot, home, away, field))
+                    # Update stats
                     team_stats[home]['total_games'] += 1
                     team_stats[home]['home_games'] += 1
                     team_stats[away]['total_games'] += 1
                     team_stats[away]['away_games'] += 1
-
-                    if div in DIVISION_RULES:
-                        team_stats[home]['intra_divisional'] += 1
-                        team_stats[away]['intra_divisional'] += 1
-                    else:
-                        team_stats[home]['inter_divisional'][div] += 1
-                        team_stats[away]['inter_divisional'][div] += 1
-                    
                     scheduled_game = True
                     break
 
@@ -168,7 +158,14 @@ def print_schedule_summary(team_stats):
 def main():
     team_availability = load_team_availability('team_availability.csv')
     field_availability = load_field_availability('field_availability.csv')
-    matchups = generate_matchups()
+
+    division_teams = {
+        'A': [f'A{i+1}' for i in range(8)],
+        'B': [f'B{i+1}' for i in range(8)],
+        'C': [f'C{i+1}' for i in range(8)],
+    }
+
+    matchups = {div: generate_matchups(teams, DIVISION_RULES[div]) for div, teams in division_teams.items()}
     schedule, team_stats = schedule_games(matchups, team_availability, field_availability)
     output_schedule_to_csv(schedule, 'softball_schedule.csv')
     print("Schedule Generation Complete")
