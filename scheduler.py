@@ -7,9 +7,20 @@ from collections import defaultdict
 # Configurable parameters
 MAX_GAMES = 22
 DIVISION_RULES = {
-    'A': {'intra': 18, 'inter': {'B': 4}},
-    'B': {'intra': 14, 'inter': {'A': 4, 'C': 4}},
-    'C': {'intra': 18, 'inter': {'B': 4}}
+    'A': {
+        'intra': 18,  # Total intra-division games per team
+        'intra_extra': 4,  # Extra intra-division games to meet the 18 games within the division
+        'inter': {'B': 4}  # Inter-division games (4 different B teams, home/away)
+    },
+    'B': {
+        'intra': 14,  # Total intra-division games per team
+        'inter': {'A': 4, 'C': 4}  # Inter-division games (4 A teams + 4 C teams, home/away)
+    },
+    'C': {
+        'intra': 18,  # Total intra-division games per team
+        'intra_extra': 4,  # Extra intra-division games to meet 18 total
+        'inter': {'B': 4}  # Inter-division games (4 B teams, home/away)
+    }
 }
 
 # Load team availability
@@ -50,23 +61,24 @@ def initialize_team_stats():
 def generate_matchups(division_teams, rules):
     matchups = []
 
-    # Intra-divisional matchups
+    # Generate intra-division matchups
     intra_matchups = list(itertools.combinations(division_teams, 2))
     random.shuffle(intra_matchups)
 
-    # Each intra matchup twice (home/away)
+    # Ensure each intra-division game is played twice (home/away)
     for home, away in intra_matchups:
         matchups.append((home, away))
         matchups.append((away, home))
 
-    # Add extra intra matchups
-    extra_intra = random.choices(intra_matchups, k=rules['intra_extra'])
-    for home, away in extra_intra:
-        matchups.append((home, away))
-        matchups.append((away, home))
+    # Add extra intra matchups if specified
+    if 'intra_extra' in rules:
+        extra_intra = random.choices(intra_matchups, k=rules['intra_extra'])
+        for home, away in extra_intra:
+            matchups.append((home, away))
+            matchups.append((away, home))
 
-    # Inter-divisional matchups
-    for inter_div, count in rules['inter'].items():
+    # Generate inter-division matchups
+    for inter_div, count in rules.get('inter', {}).items():
         inter_teams = [f'{inter_div}{i+1}' for i in range(8)]
         inter_matchups = list(itertools.product(division_teams, inter_teams))
         random.shuffle(inter_matchups)
@@ -76,6 +88,7 @@ def generate_matchups(division_teams, rules):
             matchups.append((away, home))
 
     return matchups
+
 
 def schedule_games(matchups, team_availability, field_availability):
     schedule = []
