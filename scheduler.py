@@ -48,7 +48,7 @@ def initialize_team_stats():
     }
 
 def generate_matchups(division_teams, rules):
-    matchups = defaultdict(list)
+    matchups = []
 
     # Intra-divisional matchups
     intra_matchups = list(itertools.combinations(division_teams, 2))
@@ -56,16 +56,16 @@ def generate_matchups(division_teams, rules):
 
     # Schedule each intra matchup twice for home/away
     for home, away in intra_matchups:
-        matchups['intra'].append((home, away))
-        matchups['intra'].append((away, home))
+        matchups.append((home, away))
+        matchups.append((away, home))
 
     # Add extra intra matchups if required
-    required_intra = rules['intra'] - len(matchups['intra'])
+    required_intra = rules['intra'] - len(intra_matchups)
     if required_intra > 0:
         additional_intra = random.choices(intra_matchups, k=required_intra)
         for home, away in additional_intra:
-            matchups['intra'].append((home, away))
-            matchups['intra'].append((away, home))
+            matchups.append((home, away))
+            matchups.append((away, home))
 
     # Inter-divisional matchups
     for inter_div, count in rules['inter'].items():
@@ -74,12 +74,12 @@ def generate_matchups(division_teams, rules):
         random.shuffle(inter_matchups)
         selected_matchups = inter_matchups[:count]
         for home, away in selected_matchups:
-            matchups[inter_div].append((home, away))
-            matchups[inter_div].append((away, home))
+            matchups.append((home, away))
+            matchups.append((away, home))
 
     return matchups
 
-# Schedule games with constraints
+
 def schedule_games(matchups, team_availability, field_availability):
     schedule = []
     team_stats = defaultdict(initialize_team_stats)
@@ -89,42 +89,33 @@ def schedule_games(matchups, team_availability, field_availability):
         date, slot, field = field_availability[current_slot]
         day_of_week = date.strftime('%a')
         current_slot += 1
+
+        print(f"Processing slot on {date.strftime('%Y-%m-%d')} at {slot} on {field}")
+
         scheduled_game = False
+        for matchup in matchups:
+            home, away = matchup
+            if (team_stats[home]['total_games'] < MAX_GAMES and
+                team_stats[away]['total_games'] < MAX_GAMES and
+                day_of_week in team_availability[home] and
+                day_of_week in team_availability[away]):
 
-        # Shuffle matchups to randomize scheduling
-        divisions = list(matchups.keys())
-        random.shuffle(divisions)
-
-        for div in divisions:
-            if scheduled_game:
-                break
-            random.shuffle(matchups[div])
-
-            for matchup in matchups[div]:
-                home, away = matchup
-
-                if (team_stats[home]['total_games'] < MAX_GAMES and
-                    team_stats[away]['total_games'] < MAX_GAMES and
-                    day_of_week in team_availability[home] and
-                    day_of_week in team_availability[away] and
-                    team_stats[home]['home_games'] < 11 and
-                    team_stats[away]['away_games'] < 11):
-
+                # Alternate home/away distribution logic
+                if team_stats[home]['home_games'] <= team_stats[away]['home_games']:
                     schedule.append((date, slot, home, away, field))
-                    team_stats[home]['total_games'] += 1
-                    team_stats[home]['home_games'] += 1
-                    team_stats[away]['total_games'] += 1
-                    team_stats[away]['away_games'] += 1
+                else:
+                    schedule.append((date, slot, away, home, field))
 
-                    if div == 'intra':
-                        team_stats[home]['intra_games'] += 1
-                        team_stats[away]['intra_games'] += 1
-                    else:
-                        team_stats[home]['inter_games'][div] += 1
-                        team_stats[away]['inter_games'][div] += 1
+                # Update stats
+                team_stats[home]['total_games'] += 1
+                team_stats[home]['home_games'] += 1
+                team_stats[away]['total_games'] += 1
+                team_stats[away]['away_games'] += 1
+                scheduled_game = True
+                break
 
-                    scheduled_game = True
-                    break
+        if not scheduled_game:
+            print(f"No matchup available for slot {date.strftime('%Y-%m-%d')} at {slot}")
 
     return schedule, team_stats
 
