@@ -54,18 +54,16 @@ def generate_matchups(division_teams, rules):
     intra_matchups = list(itertools.combinations(division_teams, 2))
     random.shuffle(intra_matchups)
 
-    # Schedule each intra matchup twice for home/away
+    # Each intra matchup twice (home/away)
     for home, away in intra_matchups:
         matchups.append((home, away))
         matchups.append((away, home))
 
-    # Add extra intra matchups if required
-    required_intra = rules['intra'] - len(intra_matchups)
-    if required_intra > 0:
-        additional_intra = random.choices(intra_matchups, k=required_intra)
-        for home, away in additional_intra:
-            matchups.append((home, away))
-            matchups.append((away, home))
+    # Add extra intra matchups
+    extra_intra = random.choices(intra_matchups, k=rules['intra_extra'])
+    for home, away in extra_intra:
+        matchups.append((home, away))
+        matchups.append((away, home))
 
     # Inter-divisional matchups
     for inter_div, count in rules['inter'].items():
@@ -78,7 +76,6 @@ def generate_matchups(division_teams, rules):
             matchups.append((away, home))
 
     return matchups
-
 
 def schedule_games(matchups, team_availability, field_availability):
     schedule = []
@@ -93,14 +90,12 @@ def schedule_games(matchups, team_availability, field_availability):
         print(f"Processing slot on {date.strftime('%Y-%m-%d')} at {slot} on {field}")
 
         scheduled_game = False
-        for matchup in matchups:
-            home, away = matchup
+        for home, away in matchups:
             if (team_stats[home]['total_games'] < MAX_GAMES and
                 team_stats[away]['total_games'] < MAX_GAMES and
                 day_of_week in team_availability[home] and
                 day_of_week in team_availability[away]):
 
-                # Alternate home/away distribution logic
                 if team_stats[home]['home_games'] <= team_stats[away]['home_games']:
                     schedule.append((date, slot, home, away, field))
                 else:
