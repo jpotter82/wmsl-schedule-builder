@@ -5,7 +5,7 @@ from collections import defaultdict
 
 # Configurable parameters
 MAX_GAMES = 22
-WEEKLY_SINGLE_GAMES_LIMIT = 2  # Max single games per team per week
+HOME_AWAY_BALANCE = 11  # Max home or away games per team
 
 # Division rules with inter- and intra-divisional game requirements
 DIVISION_RULES = {
@@ -29,7 +29,7 @@ def load_team_availability(file_path):
         next(reader)  # Skip header
         for row in reader:
             team = row[0]
-            days = row[1:]  # Grab days in CSV columns
+            days = row[1:]
             availability[team] = {day.strip() for day in days if day}
     return availability
 
@@ -67,7 +67,7 @@ def initialize_team_stats():
         'inter_divisional': defaultdict(int)  # Track games per division
     }
 
-# Check inter-division game compliance
+# Check if inter-division games can be scheduled
 def can_schedule_inter_division(team, opp_team, team_stats, team_div, opp_div):
     return (team_stats[team]['inter_divisional'][opp_div] < DIVISION_RULES[team_div]['inter_min'] and 
             team_stats[opp_team]['inter_divisional'][team_div] < DIVISION_RULES[opp_div]['inter_min'])
