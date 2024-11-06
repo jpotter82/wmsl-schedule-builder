@@ -1,11 +1,12 @@
 import csv
-import itertools
-from datetime import datetime, timedelta
+import random
+from datetime import datetime
 from collections import defaultdict
 
 # Configurable parameters
 MAX_GAMES = 22
-HOME_AWAY_BALANCE = 11  # Max home or away games per team
+HOME_AWAY_BALANCE = 11  # Maximum home or away games per team
+WEEKLY_GAME_LIMIT = 2   # Max games per team per week
 
 # Division rules with inter- and intra-divisional game requirements
 DIVISION_RULES = {
@@ -46,15 +47,19 @@ def load_field_availability(file_path):
             field_availability.append((date, slot, field))
     return field_availability
 
-# Generate matchups
+# Generate matchups for each division
 def generate_matchups():
-    matchups = {'A': {'intra': [], 'inter': []}, 'B': {'intra': [], 'inter': []}, 'C': {'intra': [], 'inter': []}}
+    matchups = {'A': [], 'B': [], 'C': [], 'AB': [], 'BC': []}
     for div, teams in divisions.items():
-        matchups[div]['intra'] = list(itertools.combinations(teams, 2))
+        intra_matchups = list(itertools.combinations(teams, 2))
+        random.shuffle(intra_matchups)
+        matchups[div].extend(intra_matchups)
 
-    matchups['A']['inter'] = list(itertools.product(divisions['A'], divisions['B']))
-    matchups['B']['inter'] = list(itertools.product(divisions['B'], divisions['A'])) + list(itertools.product(divisions['B'], divisions['C']))
-    matchups['C']['inter'] = list(itertools.product(divisions['C'], divisions['B']))
+    # Inter-divisional matchups
+    matchups['AB'] = list(itertools.product(divisions['A'], divisions['B']))
+    matchups['BC'] = list(itertools.product(divisions['B'], divisions['C']))
+    random.shuffle(matchups['AB'])
+    random.shuffle(matchups['BC'])
     return matchups
 
 # Initialize team stats
@@ -64,7 +69,8 @@ def initialize_team_stats():
         'home_games': 0,
         'away_games': 0,
         'intra_divisional': 0,
-        'inter_divisional': defaultdict(int)  # Track games per division
+        'inter_divisional': defaultdict(int),
+        'weekly_games': defaultdict(int)  # Track games per week to limit to WEEKLY_GAME_LIMIT
     }
 
 # Check if inter-division games can be scheduled
@@ -76,55 +82,25 @@ def can_schedule_inter_division(team, opp_team, team_stats, team_div, opp_div):
 def schedule_games(matchups, team_availability, field_availability):
     schedule = []
     team_stats = defaultdict(initialize_team_stats)
-    current_slot = 0
+    scheduled_matchups = set()  # Track scheduled matchups to avoid repeats
 
-    while current_slot < len(field_availability):
-        date, slot, field = field_availability[current_slot]
+    for date, slot, field in field_availability:
         day_of_week = date.strftime('%a')
-        current_slot += 1
+        week_num = date.isocalendar()[1]
         scheduled_game = False
 
-        print(f"Processing slot on {date.strftime('%Y-%m-%d')} at {slot} on {field}")
-
-        for div, rules in DIVISION_RULES.items():
-            if scheduled_game:
-                break
-            intra_matchups = matchups[div]['intra']
-            inter_matchups = matchups[div]['inter']
-
-            # Schedule intra-division games first
-            for matchup in intra_matchups:
-                home, away = matchup
-                if (team_stats[home]['total_games'] < MAX_GAMES and 
-                    team_stats[away]['total_games'] < MAX_GAMES and
-                    day_of_week in team_availability[home] and 
-                    day_of_week in team_availability[away]):
-
-                    # Balance home/away
-                    if team_stats[home]['home_games'] < team_stats[home]['away_games']:
-                        home, away = away, home
-
-                    # Schedule game
-                    schedule.append((date, slot, home, away, field))
-                    team_stats[home]['total_games'] += 1
-                    team_stats[home]['home_games'] += 1
-                    team_stats[away]['total_games'] += 1
-                    team_stats[away]['away_games'] += 1
-                    team_stats[home]['intra_divisional'] += 1
-                    team_stats[away]['intra_divisional'] += 1
-                    scheduled_game = True
-                    break
-
-            # Schedule inter-division games if no intra matchups scheduled
-            if not scheduled_game:
-                for matchup in inter_matchups:
+        # Try intra-division matchups first
+        for div, games in matchups.items():
+            if div in divisions and not scheduled_game:
+                for matchup in games:
                     home, away = matchup
-                    opp_div = 'B' if div == 'A' else ('A' if div == 'B' else 'C')
                     if (team_stats[home]['total_games'] < MAX_GAMES and 
                         team_stats[away]['total_games'] < MAX_GAMES and
                         day_of_week in team_availability[home] and 
                         day_of_week in team_availability[away] and
-                        can_schedule_inter_division(home, away, team_stats, div, opp_div)):
+                        team_stats[home]['weekly_games'][week_num] < WEEKLY_GAME_LIMIT and
+                        team_stats[away]['weekly_games'][week_num] < WEEKLY_GAME_LIMIT and
+                        matchup not in scheduled_matchups):
 
                         # Balance home/away
                         if team_stats[home]['home_games'] < team_stats[home]['away_games']:
@@ -136,10 +112,41 @@ def schedule_games(matchups, team_availability, field_availability):
                         team_stats[home]['home_games'] += 1
                         team_stats[away]['total_games'] += 1
                         team_stats[away]['away_games'] += 1
-                        team_stats[home]['inter_divisional'][opp_div] += 1
-                        team_stats[away]['inter_divisional'][div] += 1
+                        team_stats[home]['intra_divisional'] += 1
+                        team_stats[away]['intra_divisional'] += 1
+                        team_stats[home]['weekly_games'][week_num] += 1
+                        team_stats[away]['weekly_games'][week_num] += 1
+                        scheduled_matchups.add(matchup)
                         scheduled_game = True
                         break
+
+        # Try inter-division matchups if no intra scheduled
+        if not scheduled_game:
+            inter_matchups = matchups['AB'] if div == 'A' else matchups['BC'] if div == 'B' else []
+            for matchup in inter_matchups:
+                home, away = matchup
+                opp_div = 'B' if div == 'A' else ('A' if div == 'B' else 'C')
+                if (team_stats[home]['total_games'] < MAX_GAMES and 
+                    team_stats[away]['total_games'] < MAX_GAMES and
+                    day_of_week in team_availability[home] and 
+                    day_of_week in team_availability[away] and
+                    can_schedule_inter_division(home, away, team_stats, div, opp_div)):
+
+                    # Balance home/away
+                    if team_stats[home]['home_games'] < team_stats[home]['away_games']:
+                        home, away = away, home
+
+                    # Schedule game
+                    schedule.append((date, slot, home, away, field))
+                    team_stats[home]['total_games'] += 1
+                    team_stats[home]['home_games'] += 1
+                    team_stats[away]['total_games'] += 1
+                    team_stats[away]['away_games'] += 1
+                    team_stats[home]['inter_divisional'][opp_div] += 1
+                    team_stats[away]['inter_divisional'][div] += 1
+                    scheduled_matchups.add(matchup)
+                    scheduled_game = True
+                    break
 
     return schedule, team_stats
 
