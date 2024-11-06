@@ -17,7 +17,6 @@ divisions = {
 
 # Load custom team availability from a CSV file
 def load_team_availability(file_path):
-    print("Loading team availability...")
     availability = {}
     with open(file_path, mode='r') as file:
         reader = csv.reader(file)
@@ -25,13 +24,10 @@ def load_team_availability(file_path):
         for row in reader:
             team, days = row[0], row[1].split(',')
             availability[team] = set(days)
-            print(f" - {team} available on: {', '.join(days)}")
-    print("Team availability loaded.\n")
     return availability
 
 # Load field availability from a CSV file, with AM/PM time formatting
 def load_field_availability(file_path):
-    print("Loading field availability...")
     field_availability = []
     with open(file_path, mode='r') as file:
         reader = csv.reader(file)
@@ -41,12 +37,10 @@ def load_field_availability(file_path):
             slot = datetime.strptime(row[1], '%I:%M %p').strftime('%I:%M %p')
             field = row[2]
             field_availability.append((date, slot, field))
-    print("Field availability loaded.\n")
     return field_availability
 
 # Generate all intra-division and cross-division matchups
 def generate_matchups():
-    print("Generating matchups...")
     matchups = {}
     for div, teams in divisions.items():
         matchups[div] = list(itertools.combinations(teams, 2))
@@ -54,14 +48,13 @@ def generate_matchups():
         "A-B": list(itertools.product(divisions['A'], divisions['B'])),
         "B-C": list(itertools.product(divisions['B'], divisions['C']))
     }
-    print("Matchups generated.\n")
     return matchups, cross_division_matchups
 
-# Helper function to check if a team has already played in a given week
-def has_played_this_week(game_counts, team, current_date):
+# Helper function to check if a team has a double-header scheduled in a given week
+def has_double_header_this_week(game_counts, team, current_date):
     week_start = current_date - timedelta(days=current_date.weekday())
-    return any(game_date >= week_start and game_date < week_start + timedelta(days=7)
-               for game_date in game_counts.get(team, []))
+    games_this_week = [game_date for game_date in game_counts.get(team, []) if week_start <= game_date < week_start + timedelta(days=7)]
+    return len(games_this_week) >= 2
 
 # Schedule games based on availability and requirements
 def schedule_games(matchups, cross_division_matchups, team_availability, field_availability):
@@ -85,14 +78,14 @@ def schedule_games(matchups, cross_division_matchups, team_availability, field_a
             if matchups[div]:
                 home, away = matchups[div][0]
 
-                # Check all scheduling conditions
+                # Check conditions for scheduling
                 if (day_of_week in team_availability.get(home, set()) and
                     day_of_week in team_availability.get(away, set()) and
                     home not in teams_scheduled_today and
                     away not in teams_scheduled_today and
-                    not has_played_this_week(game_counts, home, date) and
-                    not has_played_this_week(game_counts, away, date)):
-                    
+                    not has_double_header_this_week(game_counts, home, date) and
+                    not has_double_header_this_week(game_counts, away, date)):
+
                     # Schedule game and update counts
                     schedule.append((date, slot, home, away, field))
                     game_counts[home].append(date)
@@ -105,15 +98,15 @@ def schedule_games(matchups, cross_division_matchups, team_availability, field_a
                 else:
                     print(f" - Skipping: {home} vs {away} due to unavailability or already scheduled today")
 
-        # Cross-division handling for additional games
+        # Cross-division handling
         if not games_scheduled_this_round and not matchups['A'] and cross_division_matchups['A-B']:
             home, away = cross_division_matchups['A-B'][0]
             if (day_of_week in team_availability.get(home, set()) and
                 day_of_week in team_availability.get(away, set()) and
                 home not in teams_scheduled_today and
                 away not in teams_scheduled_today and
-                not has_played_this_week(game_counts, home, date) and
-                not has_played_this_week(game_counts, away, date)):
+                not has_double_header_this_week(game_counts, home, date) and
+                not has_double_header_this_week(game_counts, away, date)):
 
                 schedule.append((date, slot, home, away, field))
                 game_counts[home].append(date)
