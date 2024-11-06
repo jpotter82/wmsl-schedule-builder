@@ -58,27 +58,31 @@ def schedule_games(matchups, cross_division_matchups, team_availability, field_a
 
     while field_availability and any(game_counts[team] < (single_games + double_headers) for team in game_counts):
         date, slot, field = field_availability[current_slot]
+        day_of_week = date.strftime('%a')  # Get day as a short weekday (e.g., "Mon")
         current_slot = (current_slot + 1) % len(field_availability)
 
         # Try to find a matchup for this slot
         for div in ['A', 'B', 'C']:
             if matchups[div] and game_counts[matchups[div][0][0]] < (single_games + double_headers):
                 home, away = matchups[div].pop(0)
-                if (home in team_availability and date.strftime('%a') in team_availability[home] and
-                        away in team_availability and date.strftime('%a') in team_availability[away]):
+                if (day_of_week in team_availability.get(home, set()) and 
+                    day_of_week in team_availability.get(away, set())):
+                    # Schedule game only if both teams are available on the given day
                     schedule.append((date, slot, home, away, field))
                     game_counts[home] += 1
                     game_counts[away] += 1
                     break
+
         # Cross-division handling
         if not matchups['A'] and cross_division_matchups['A-B']:
             home, away = cross_division_matchups['A-B'].pop(0)
-            if (home in team_availability and date.strftime('%a') in team_availability[home] and
-                    away in team_availability and date.strftime('%a') in team_availability[away]):
+            if (day_of_week in team_availability.get(home, set()) and 
+                day_of_week in team_availability.get(away, set())):
                 schedule.append((date, slot, home, away, field))
                 game_counts[home] += 1
                 game_counts[away] += 1
     return schedule
+
 
 # Output the final schedule to CSV
 def output_schedule_to_csv(schedule, output_file):
