@@ -92,7 +92,7 @@ def schedule_games(matchups, cross_division_matchups, team_availability, field_a
             if not matchups.get(div):  # Skip if no more matchups in this division
                 continue
 
-            # Attempt to schedule a game within the division
+            # First pass: prioritize matchups based on game counts
             for i, (home, away) in enumerate(matchups[div]):
                 # Check if teams are within acceptable game range
                 if (game_counts[home] > average_games + 2 or game_counts[away] > average_games + 2):
@@ -118,6 +118,26 @@ def schedule_games(matchups, cross_division_matchups, team_availability, field_a
                     print(f"    - Scheduled: {home} vs {away} on {date.strftime('%Y-%m-%d')} at {slot} ({field})")
                     scheduled_for_slot = True
                     break
+
+            # Second pass: if no matchup scheduled, use any available
+            if not scheduled_for_slot:
+                for i, (home, away) in enumerate(matchups[div]):
+                    if (day_of_week in team_availability.get(home, set()) and
+                        day_of_week in team_availability.get(away, set()) and
+                        weekly_games[home] < 2 and weekly_games[away] < 2 and
+                        game_counts[home] < total_games and game_counts[away] < total_games):
+                        
+                        # Schedule game without prioritization constraints
+                        schedule.append((date, slot, home, away, field))
+                        game_counts[home] += 1
+                        game_counts[away] += 1
+                        weekly_games[home] += 1
+                        weekly_games[away] += 1
+                        used_slots.add(slot_key)
+                        matchups[div].pop(i)
+                        print(f"    - Fallback Scheduled: {home} vs {away} on {date.strftime('%Y-%m-%d')} at {slot} ({field})")
+                        scheduled_for_slot = True
+                        break
 
             if scheduled_for_slot:
                 break  # Move to the next slot if a game was scheduled for this slot
