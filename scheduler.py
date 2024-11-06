@@ -58,80 +58,51 @@ def calculate_game_average(game_counts):
     num_teams = len(game_counts)
     return total_games / num_teams if num_teams > 0 else 0
 
-# Schedule games based on availability and constraints
+# Scheduling games without stopping early
 def schedule_games(matchups, cross_division_matchups, team_availability, field_availability):
     print("Scheduling games...")
     schedule = []
     game_counts = {team: 0 for team in itertools.chain(*divisions.values())}
-    weekly_games = {team: 0 for team in game_counts}
-    used_slots = set()  # Track used slots for each day and field
+    total_slots = len(field_availability)
+    current_slot = 0
+    unscheduled_rounds = 0  # Keeps track of consecutive unscheduled rounds, but won't stop the loop
 
-    # Shuffle matchups to add randomness to scheduling order
-    for division in matchups.values():
-        random.shuffle(division)
-    for cross_division in cross_division_matchups.values():
-        random.shuffle(cross_division)
-
-    # Iterate over every available field slot independently
-    for date, slot, field in field_availability:
-        slot_key = (date, slot, field)
+    while current_slot < total_slots:
+        date, slot, field = field_availability[current_slot]
         day_of_week = date.strftime('%a')
-        average_games = calculate_game_average(game_counts)
+        current_slot += 1  # Increment slot for the next iteration
+        teams_scheduled_today = set()
 
-        print(f"\nProcessing slot on {date.strftime('%Y-%m-%d')} at {slot} on {field} (Avg games: {average_games:.1f})")
+        print(f"\nProcessing slot on {date.strftime('%Y-%m-%d')} at {slot} on {field} (Avg games: {sum(game_counts.values()) / len(game_counts):.1f})")
 
-        # Skip this slot if it’s already used
-        if slot_key in used_slots:
-            print(f"  Skipping already used slot on {date.strftime('%Y-%m-%d')} at {slot} on {field}")
-            continue
+        scheduled_game = False  # Track if a game was scheduled in this slot
 
-        scheduled_for_slot = False
+        for div in ['A', 'B', 'C']:
+            for _ in range(len(matchups[div])):
+                home, away = matchups[div].pop(0)  # Get the first matchup for the division
+                matchups[div].append((home, away))  # Rotate it to the end if not scheduled
 
-        # Randomize division order for each slot to distribute across divisions
-        available_divisions = ['A', 'B', 'C']
-        random.shuffle(available_divisions)
+                # Check availability and prevent same-day double scheduling
+                if (day_of_week in team_availability.get(home, set()) and
+                    day_of_week in team_availability.get(away, set()) and
+                    home not in teams_scheduled_today and
+                    away not in teams_scheduled_today):
+                    
+                    # Schedule the game
+                    schedule.append((date, slot, home, away, field))
+                    game_counts[home] += 1
+                    game_counts[away] += 1
+                    teams_scheduled_today.update([home, away])
+                    scheduled_game = True
+                    print(f"    - Scheduled: {home} vs {away} on {date.strftime('%Y-%m-%d')} at {slot} ({field})")
+                    break  # Exit the division loop to prevent double booking
+            if scheduled_game:
+                break  # Exit outer loop if a game was scheduled
 
-        # Check each division's matchups for a slot on this day
-        for div in available_divisions:
-            if not matchups.get(div):  # Skip if no more matchups in this division
-                continue
-
-            # Attempt to find a valid game from available matchups
-            for i, (home, away) in enumerate(matchups[div]):
-                # Debug availability of each team for the current date
-                print(f"  Checking availability for {home} vs {away} on {day_of_week}")
-
-                if day_of_week not in team_availability.get(home, set()):
-                    print(f"    Skipping {home} - Not available on {day_of_week}")
-                    continue  # Skip if the home team is unavailable
-                if day_of_week not in team_availability.get(away, set()):
-                    print(f"    Skipping {away} - Not available on {day_of_week}")
-                    continue  # Skip if the away team is unavailable
-
-                # Schedule game and update counts
-                schedule.append((date, slot, home, away, field))
-                game_counts[home] += 1
-                game_counts[away] += 1
-                weekly_games[home] += 1
-                weekly_games[away] += 1
-                used_slots.add(slot_key)
-                matchups[div].pop(i)  # Remove scheduled matchup
-                print(f"    - Scheduled: {home} vs {away} on {date.strftime('%Y-%m-%d')} at {slot} ({field})")
-                scheduled_for_slot = True
-                break  # Exit inner loop after scheduling
-
-            # Stop if a game was scheduled for the slot
-            if scheduled_for_slot:
-                break  # Move to the next slot if a game was scheduled for this slot
-
-        # Reset weekly game count on Sunday night for a fresh start each week
-        if date.weekday() == 6:  # Sunday
-            print("Resetting weekly game counts for all teams.")
-            for team in weekly_games:
-                weekly_games[team] = 0
-
-    print("Scheduling complete.\n")
-    print(f"Final game counts: {game_counts}")
+        if not scheduled_game:
+            print("    - No valid games found for this slot.")
+        
+    print("Scheduling complete.")
     return schedule
 
 # Output the final schedule to CSV
