@@ -61,26 +61,20 @@ def schedule_games(matchups, cross_division_matchups, team_availability, field_a
     print("Scheduling games...")
     schedule = []
     game_counts = {team: [] for team in itertools.chain(*divisions.values())}
-    total_slots = len(field_availability)
-    current_slot = 0
-    unscheduled_rounds = 0
-
     used_slots = set()  # Track used slots for each day and field
 
-    while field_availability and any(len(game_counts[team]) < (single_games + double_headers) for team in game_counts):
-        date, slot, field = field_availability[current_slot]
-        day_of_week = date.strftime('%a')
+    for date, slot, field in field_availability:
         slot_key = (date, slot, field)  # Unique identifier for date, time, and field
-        current_slot = (current_slot + 1) % total_slots
+
+        # Skip this slot if it’s already used
+        if slot_key in used_slots:
+            continue
+
+        day_of_week = date.strftime('%a')
         games_scheduled_this_round = 0
         teams_scheduled_today = set()
 
         print(f"\nAttempting to schedule games on {date.strftime('%Y-%m-%d')} at {slot} ({field})")
-
-        # Ensure slot hasn't been used
-        if slot_key in used_slots:
-            print(f" - Slot {slot_key} already used, skipping.")
-            continue
 
         # Try all available matchups in each division to ensure max usage of slots
         for div in ['A', 'B', 'C']:
@@ -106,8 +100,11 @@ def schedule_games(matchups, cross_division_matchups, team_availability, field_a
                 else:
                     print(f" - Skipping: {home} vs {away} due to unavailability, double-header limit, or already scheduled today")
 
+            if games_scheduled_this_round > 0:
+                break  # Exit after scheduling one game in the slot
+
         # Cross-division handling for additional games if no intra-division matchups available
-        if not games_scheduled_this_round and not matchups['A'] and cross_division_matchups['A-B']:
+        if games_scheduled_this_round == 0 and cross_division_matchups['A-B']:
             for i, (home, away) in enumerate(cross_division_matchups['A-B']):
                 if (day_of_week in team_availability.get(home, set()) and
                     day_of_week in team_availability.get(away, set()) and
@@ -125,15 +122,6 @@ def schedule_games(matchups, cross_division_matchups, team_availability, field_a
                     games_scheduled_this_round += 1
                     print(f" - Scheduled cross-division: {home} vs {away} on {date.strftime('%Y-%m-%d')} at {slot} ({field})")
                     break
-
-        # Check for infinite loop
-        if games_scheduled_this_round == 0:
-            unscheduled_rounds += 1
-            if unscheduled_rounds >= total_slots:
-                print("No more valid games can be scheduled. Exiting loop to prevent infinite repetition.")
-                break
-        else:
-            unscheduled_rounds = 0
 
     print("Scheduling complete.\n")
     print(f"Final game counts: {game_counts}")
