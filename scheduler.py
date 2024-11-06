@@ -62,7 +62,7 @@ def schedule_games(matchups, cross_division_matchups, team_availability, field_a
     for cross_division in cross_division_matchups.values():
         random.shuffle(cross_division)
 
-    # Directly iterate over every slot in the field availability
+    # Iterate over every available field slot independently
     for date, slot, field in field_availability:
         slot_key = (date, slot, field)
         day_of_week = date.strftime('%a')
@@ -73,9 +73,9 @@ def schedule_games(matchups, cross_division_matchups, team_availability, field_a
 
         scheduled_for_slot = False
 
-        # Try scheduling games from mixed divisions for each day
+        # Randomize division order for each slot to distribute across divisions
         available_divisions = ['A', 'B', 'C']
-        random.shuffle(available_divisions)  # Randomize division order each day
+        random.shuffle(available_divisions)
 
         for div in available_divisions:
             if not matchups.get(div):  # Skip if no more matchups in this division
@@ -104,8 +104,8 @@ def schedule_games(matchups, cross_division_matchups, team_availability, field_a
             if scheduled_for_slot:
                 break  # Move to the next slot if a game was scheduled for this slot
 
-        # Reset weekly game count for each team on new week
-        if date.weekday() == 6:  # Reset after Sunday
+        # Reset weekly game count on Sunday night for a fresh start each week
+        if date.weekday() == 6:  # Sunday
             for team in weekly_games:
                 weekly_games[team] = 0
 
