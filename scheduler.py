@@ -27,7 +27,7 @@ def load_team_availability(file_path):
             availability[team] = set(days)
     return availability
 
-# Load field availability from a CSV file
+# Load field availability from a CSV file, with AM/PM time formatting
 def load_field_availability(file_path):
     field_availability = []
     with open(file_path, mode='r') as file:
@@ -35,9 +35,11 @@ def load_field_availability(file_path):
         next(reader)  # Skip header
         for row in reader:
             date = datetime.strptime(row[0], '%Y-%m-%d')
-            slot, field = row[1], row[2]
+            slot = datetime.strptime(row[1], '%I:%M %p').strftime('%I:%M %p')  # Convert to 12-hour AM/PM format
+            field = row[2]
             field_availability.append((date, slot, field))
     return field_availability
+
 
 # Generate all intra-division and cross-division matchups
 def generate_matchups():
