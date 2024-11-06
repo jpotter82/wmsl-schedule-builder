@@ -7,14 +7,14 @@ from collections import defaultdict
 MAX_GAMES = 22
 WEEKLY_SINGLE_GAMES_LIMIT = 2  # Max single games per team per week
 
-# Division rules
+# Division rules with inter- and intra-divisional game requirements
 DIVISION_RULES = {
     'A': {'intra_min': 2, 'extra': 4, 'inter_min': 4, 'inter_divisions': ['B']},
     'B': {'intra_min': 2, 'extra': 4, 'inter_min': 4, 'inter_divisions': ['A', 'C']},
     'C': {'intra_min': 2, 'extra': 4, 'inter_min': 4, 'inter_divisions': ['B']}
 }
 
-# Team initialization
+# Team setup by division
 divisions = {
     'A': ['A' + str(i) for i in range(1, 9)],
     'B': ['B' + str(i) for i in range(1, 9)],
@@ -49,14 +49,12 @@ def load_field_availability(file_path):
 # Generate matchups
 def generate_matchups():
     matchups = {'A': {'intra': [], 'inter': []}, 'B': {'intra': [], 'inter': []}, 'C': {'intra': [], 'inter': []}}
-
     for div, teams in divisions.items():
         matchups[div]['intra'] = list(itertools.combinations(teams, 2))
 
     matchups['A']['inter'] = list(itertools.product(divisions['A'], divisions['B']))
     matchups['B']['inter'] = list(itertools.product(divisions['B'], divisions['A'])) + list(itertools.product(divisions['B'], divisions['C']))
     matchups['C']['inter'] = list(itertools.product(divisions['C'], divisions['B']))
-    
     return matchups
 
 # Initialize team stats
@@ -69,13 +67,10 @@ def initialize_team_stats():
         'inter_divisional': defaultdict(int)  # Track games per division
     }
 
-# Check if inter-division game requirements are met
+# Check inter-division game compliance
 def can_schedule_inter_division(team, opp_team, team_stats, team_div, opp_div):
-    if team_stats[team]['inter_divisional'][opp_div] < DIVISION_RULES[team_div]['inter_min']:
-        return True
-    if team_stats[opp_team]['inter_divisional'][team_div] < DIVISION_RULES[opp_div]['inter_min']:
-        return True
-    return False
+    return (team_stats[team]['inter_divisional'][opp_div] < DIVISION_RULES[team_div]['inter_min'] and 
+            team_stats[opp_team]['inter_divisional'][team_div] < DIVISION_RULES[opp_div]['inter_min'])
 
 # Schedule games with constraints
 def schedule_games(matchups, team_availability, field_availability):
@@ -120,7 +115,7 @@ def schedule_games(matchups, team_availability, field_availability):
                     scheduled_game = True
                     break
 
-            # Schedule inter-division games
+            # Schedule inter-division games if no intra matchups scheduled
             if not scheduled_game:
                 for matchup in inter_matchups:
                     home, away = matchup
