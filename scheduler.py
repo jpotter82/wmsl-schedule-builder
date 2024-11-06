@@ -74,10 +74,9 @@ def schedule_games(matchups, cross_division_matchups, team_availability, field_a
 
         print(f"\nAttempting to schedule games on {date.strftime('%Y-%m-%d')} at {slot} ({field})")
 
+        # Try all available matchups in each division to ensure max usage of slots
         for div in ['A', 'B', 'C']:
-            if matchups[div]:
-                home, away = matchups[div][0]
-
+            for i, (home, away) in enumerate(matchups[div]):
                 # Check conditions for scheduling
                 if (day_of_week in team_availability.get(home, set()) and
                     day_of_week in team_availability.get(away, set()) and
@@ -91,30 +90,31 @@ def schedule_games(matchups, cross_division_matchups, team_availability, field_a
                     game_counts[home].append(date)
                     game_counts[away].append(date)
                     teams_scheduled_today.update([home, away])
-                    matchups[div].pop(0)
+                    matchups[div].pop(i)  # Remove scheduled matchup
                     games_scheduled_this_round += 1
                     print(f" - Scheduled: {home} vs {away} on {date.strftime('%Y-%m-%d')} at {slot} ({field})")
                     break
                 else:
-                    print(f" - Skipping: {home} vs {away} due to unavailability or already scheduled today")
+                    print(f" - Skipping: {home} vs {away} due to unavailability, double-header limit, or already scheduled today")
 
-        # Cross-division handling
+        # Cross-division handling for additional games if no intra-division matchups available
         if not games_scheduled_this_round and not matchups['A'] and cross_division_matchups['A-B']:
-            home, away = cross_division_matchups['A-B'][0]
-            if (day_of_week in team_availability.get(home, set()) and
-                day_of_week in team_availability.get(away, set()) and
-                home not in teams_scheduled_today and
-                away not in teams_scheduled_today and
-                not has_double_header_this_week(game_counts, home, date) and
-                not has_double_header_this_week(game_counts, away, date)):
+            for i, (home, away) in enumerate(cross_division_matchups['A-B']):
+                if (day_of_week in team_availability.get(home, set()) and
+                    day_of_week in team_availability.get(away, set()) and
+                    home not in teams_scheduled_today and
+                    away not in teams_scheduled_today and
+                    not has_double_header_this_week(game_counts, home, date) and
+                    not has_double_header_this_week(game_counts, away, date)):
 
-                schedule.append((date, slot, home, away, field))
-                game_counts[home].append(date)
-                game_counts[away].append(date)
-                teams_scheduled_today.update([home, away])
-                cross_division_matchups['A-B'].pop(0)
-                games_scheduled_this_round += 1
-                print(f" - Scheduled cross-division: {home} vs {away} on {date.strftime('%Y-%m-%d')} at {slot} ({field})")
+                    schedule.append((date, slot, home, away, field))
+                    game_counts[home].append(date)
+                    game_counts[away].append(date)
+                    teams_scheduled_today.update([home, away])
+                    cross_division_matchups['A-B'].pop(i)  # Remove scheduled matchup
+                    games_scheduled_this_round += 1
+                    print(f" - Scheduled cross-division: {home} vs {away} on {date.strftime('%Y-%m-%d')} at {slot} ({field})")
+                    break
 
         # Check for infinite loop
         if games_scheduled_this_round == 0:
