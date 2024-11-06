@@ -62,6 +62,7 @@ def schedule_games(matchups, cross_division_matchups, team_availability, field_a
     schedule = []
     game_counts = {team: [] for team in itertools.chain(*divisions.values())}
     used_slots = set()  # Track used slots for each day and field
+    division_cycle = itertools.cycle(['A', 'B', 'C'])  # Cycle through divisions
 
     for date, slot, field in field_availability:
         slot_key = (date, slot, field)  # Unique identifier for date, time, and field
@@ -76,8 +77,9 @@ def schedule_games(matchups, cross_division_matchups, team_availability, field_a
 
         print(f"\nAttempting to schedule games on {date.strftime('%Y-%m-%d')} at {slot} ({field})")
 
-        # Try all available matchups in each division to ensure max usage of slots
-        for div in ['A', 'B', 'C']:
+        # Attempt to schedule a game for each division in a round-robin fashion
+        for _ in range(3):  # Try scheduling for each division once per slot
+            div = next(division_cycle)
             for i, (home, away) in enumerate(matchups[div]):
                 # Check conditions for scheduling
                 if (day_of_week in team_availability.get(home, set()) and
@@ -96,7 +98,7 @@ def schedule_games(matchups, cross_division_matchups, team_availability, field_a
                     matchups[div].pop(i)  # Remove scheduled matchup
                     games_scheduled_this_round += 1
                     print(f" - Scheduled: {home} vs {away} on {date.strftime('%Y-%m-%d')} at {slot} ({field})")
-                    break
+                    break  # Exit after scheduling one game for the division
                 else:
                     print(f" - Skipping: {home} vs {away} due to unavailability, double-header limit, or already scheduled today")
 
