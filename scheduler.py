@@ -3,8 +3,8 @@ import itertools
 from datetime import datetime, timedelta
 
 # Configurable parameters
-start_date = datetime(2024, 4, 8)
-end_date = datetime(2024, 7, 14)
+start_date = datetime(2025, 4, 7)
+end_date = datetime(2025, 7, 14)
 single_games = 7
 double_headers = 8
 
@@ -148,4 +148,12 @@ def output_schedule_to_csv(schedule, output_file):
 # Main function to execute scheduling process
 def main():
     team_availability = load_team_availability('team_availability.csv')
-    field_availability = load_field_availability('field_availability
+    field_availability = load_field_availability('field_availability.csv')
+
+    matchups, cross_division_matchups = generate_matchups()
+    schedule = schedule_games(matchups, cross_division_matchups, team_availability, field_availability)
+    output_schedule_to_csv(schedule, 'softball_schedule.csv')
+    print("Schedule generation complete.")
+
+if __name__ == "__main__":
+    main()
