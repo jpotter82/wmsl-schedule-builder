@@ -1,27 +1,16 @@
 import csv
 import itertools
 import random
-from datetime import datetime
+from datetime import datetime, timedelta
 from collections import defaultdict
 
 # Configurable parameters
 MAX_GAMES = 22
 HOME_AWAY_BALANCE = 11
 DIVISION_RULES = {
-    'A': {
-        'intra_min': 14,
-        'intra_extra': 4,
-        'inter': {'B': 4}
-    },
-    'B': {
-        'intra_min': 14,
-        'inter': {'A': 4, 'C': 4}
-    },
-    'C': {
-        'intra_min': 14,
-        'intra_extra': 4,
-        'inter': {'B': 4}
-    }
+    'A': {'intra_min': 14, 'intra_extra': 4, 'inter': {'B': 4}},
+    'B': {'intra_min': 14, 'inter': {'A': 4, 'C': 4}},
+    'C': {'intra_min': 14, 'intra_extra': 4, 'inter': {'B': 4}}
 }
 
 # Load team availability
@@ -56,7 +45,8 @@ def initialize_team_stats():
         'home_games': 0,
         'away_games': 0,
         'intra_divisional': 0,
-        'inter_divisional': defaultdict(int)
+        'inter_divisional': defaultdict(int),
+        'weekly_games': defaultdict(int)  # Tracks games per week
     }
 
 # Generate matchups
@@ -96,8 +86,10 @@ def schedule_games(matchups, team_availability, field_availability):
 
     for date, slot, field in field_availability:
         day_of_week = date.strftime('%a')
+        week_num = date.isocalendar()[1]
         scheduled_game = False
 
+        # Shuffle divisions to randomize matchups across divisions
         divisions = list(matchups.keys())
         random.shuffle(divisions)
 
@@ -107,7 +99,15 @@ def schedule_games(matchups, team_availability, field_availability):
             division_matchups = matchups[div]
             random.shuffle(division_matchups)
 
-            for home, away in division_matchups:
+            for matchup in division_matchups:
+                home, away = matchup
+
+                # Weekly constraint: no more than 2 single games or 1 doubleheader
+                if (team_stats[home]['weekly_games'][week_num] >= 2 or
+                    team_stats[away]['weekly_games'][week_num] >= 2):
+                    continue
+
+                # Check scheduling constraints
                 if (team_stats[home]['total_games'] < MAX_GAMES and
                     team_stats[away]['total_games'] < MAX_GAMES and
                     day_of_week in team_availability[home] and
@@ -115,15 +115,19 @@ def schedule_games(matchups, team_availability, field_availability):
                     home not in scheduled_slots[(date, slot)] and
                     away not in scheduled_slots[(date, slot)]):
 
+                    # Alternate home team if needed
                     if team_stats[home]['home_games'] < HOME_AWAY_BALANCE:
                         schedule.append((date, slot, home, away, field))
                     else:
                         schedule.append((date, slot, away, home, field))
 
+                    # Update team stats
                     team_stats[home]['total_games'] += 1
                     team_stats[home]['home_games'] += 1
                     team_stats[away]['total_games'] += 1
                     team_stats[away]['away_games'] += 1
+                    team_stats[home]['weekly_games'][week_num] += 1
+                    team_stats[away]['weekly_games'][week_num] += 1
                     scheduled_slots[(date, slot)].update([home, away])
 
                     if div in DIVISION_RULES:
