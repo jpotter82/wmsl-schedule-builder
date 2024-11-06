@@ -3,8 +3,8 @@ import itertools
 from datetime import datetime, timedelta
 
 # Configurable parameters
-start_date = datetime(2025, 4, 7)
-end_date = datetime(2025, 7, 14)
+start_date = datetime(2024, 4, 7)
+end_date = datetime(2024, 7, 14)
 single_games = 7
 double_headers = 8
 
@@ -63,42 +63,40 @@ def schedule_games(matchups, cross_division_matchups, team_availability, field_a
     game_counts = {team: [] for team in itertools.chain(*divisions.values())}
     used_slots = set()  # Track used slots for each day and field
 
-    # Iterate over each slot to attempt scheduling for all divisions and teams
-    for date, slot, field in field_availability:
-        slot_key = (date, slot, field)
+    # Group slots by week to iterate over weeks effectively
+    for week_start in range(0, len(field_availability), 7):
+        weekly_slots = field_availability[week_start:week_start + 7]  # Slots available this week
+        unscheduled_matchups = {div: matchups[div].copy() for div in divisions}  # Copy matchups for each week
 
-        # Skip this slot if it’s already used
-        if slot_key in used_slots:
-            continue
+        # Attempt to schedule across all days and divisions within the week
+        for date, slot, field in weekly_slots:
+            slot_key = (date, slot, field)
+            day_of_week = date.strftime('%a')
 
-        day_of_week = date.strftime('%a')
-        scheduled_for_slot = False
-
-        # Try to schedule games for all divisions and matchups
-        for div in ['A', 'B', 'C']:
-            if not matchups.get(div):  # Skip if no more matchups in this division
+            # Skip this slot if it’s already used
+            if slot_key in used_slots:
                 continue
 
-            # Attempt to schedule a game within the division
-            for i, (home, away) in enumerate(matchups[div]):
-                if (day_of_week in team_availability.get(home, set()) and
-                    day_of_week in team_availability.get(away, set()) and
-                    not has_double_header_this_week(game_counts, home, date) and
-                    not has_double_header_this_week(game_counts, away, date)):
+            # Try scheduling games across divisions
+            for div in ['A', 'B', 'C']:
+                if not unscheduled_matchups[div]:  # Skip if no more matchups in this division
+                    continue
 
-                    # Schedule game and update counts
-                    schedule.append((date, slot, home, away, field))
-                    game_counts[home].append(date)
-                    game_counts[away].append(date)
-                    used_slots.add(slot_key)
-                    matchups[div].pop(i)  # Remove scheduled matchup
-                    print(f" - Scheduled: {home} vs {away} on {date.strftime('%Y-%m-%d')} at {slot} ({field})")
-                    scheduled_for_slot = True
-                    break
+                # Attempt to schedule a game within the division
+                for i, (home, away) in enumerate(unscheduled_matchups[div]):
+                    if (day_of_week in team_availability.get(home, set()) and
+                        day_of_week in team_availability.get(away, set()) and
+                        not has_double_header_this_week(game_counts, home, date) and
+                        not has_double_header_this_week(game_counts, away, date)):
 
-            # If a game was scheduled, continue to the next division or slot
-            if scheduled_for_slot:
-                break
+                        # Schedule game and update counts
+                        schedule.append((date, slot, home, away, field))
+                        game_counts[home].append(date)
+                        game_counts[away].append(date)
+                        used_slots.add(slot_key)
+                        unscheduled_matchups[div].pop(i)  # Remove scheduled matchup
+                        print(f" - Scheduled: {home} vs {away} on {date.strftime('%Y-%m-%d')} at {slot} ({field})")
+                        break
 
     print("Scheduling complete.\n")
     print(f"Final game counts: {game_counts}")
