@@ -65,14 +65,22 @@ def schedule_games(matchups, cross_division_matchups, team_availability, field_a
     current_slot = 0
     unscheduled_rounds = 0
 
+    used_slots = set()  # Track used slots for each day and field
+
     while field_availability and any(len(game_counts[team]) < (single_games + double_headers) for team in game_counts):
         date, slot, field = field_availability[current_slot]
         day_of_week = date.strftime('%a')
+        slot_key = (date, slot, field)  # Unique identifier for date, time, and field
         current_slot = (current_slot + 1) % total_slots
         games_scheduled_this_round = 0
         teams_scheduled_today = set()
 
         print(f"\nAttempting to schedule games on {date.strftime('%Y-%m-%d')} at {slot} ({field})")
+
+        # Ensure slot hasn't been used
+        if slot_key in used_slots:
+            print(f" - Slot {slot_key} already used, skipping.")
+            continue
 
         # Try all available matchups in each division to ensure max usage of slots
         for div in ['A', 'B', 'C']:
@@ -90,6 +98,7 @@ def schedule_games(matchups, cross_division_matchups, team_availability, field_a
                     game_counts[home].append(date)
                     game_counts[away].append(date)
                     teams_scheduled_today.update([home, away])
+                    used_slots.add(slot_key)  # Mark slot as used
                     matchups[div].pop(i)  # Remove scheduled matchup
                     games_scheduled_this_round += 1
                     print(f" - Scheduled: {home} vs {away} on {date.strftime('%Y-%m-%d')} at {slot} ({field})")
@@ -111,6 +120,7 @@ def schedule_games(matchups, cross_division_matchups, team_availability, field_a
                     game_counts[home].append(date)
                     game_counts[away].append(date)
                     teams_scheduled_today.update([home, away])
+                    used_slots.add(slot_key)  # Mark slot as used
                     cross_division_matchups['A-B'].pop(i)  # Remove scheduled matchup
                     games_scheduled_this_round += 1
                     print(f" - Scheduled cross-division: {home} vs {away} on {date.strftime('%Y-%m-%d')} at {slot} ({field})")
