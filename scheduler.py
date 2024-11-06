@@ -92,40 +92,36 @@ def schedule_games(matchups, cross_division_matchups, team_availability, field_a
             if not matchups.get(div):  # Skip if no more matchups in this division
                 continue
 
-            # First pass: prioritize matchups based on game counts
+            # Attempt to find a valid game from available matchups
             for i, (home, away) in enumerate(matchups[div]):
                 # Check if teams are within acceptable game range
-                if (game_counts[home] > average_games + 2 or game_counts[away] > average_games + 2):
+                if game_counts[home] > average_games + 2 or game_counts[away] > average_games + 2:
                     print(f"  Skipping {home} vs {away} due to excess games")
+                    continue  # Go to next matchup
+
+                # Check if teams are available on this day
+                if day_of_week not in team_availability.get(home, set()) or day_of_week not in team_availability.get(away, set()):
+                    print(f"  Skipping {home} vs {away} due to availability")
                     continue
-                if (game_counts[home] < average_games - 2 or game_counts[away] < average_games - 2):
-                    print(f"  Prioritizing {home} vs {away} due to low games")
 
-                # Check if teams are available on this day and meet weekly limits
-                if (day_of_week in team_availability.get(home, set()) and
-                    day_of_week in team_availability.get(away, set()) and
-                    weekly_games[home] < 2 and weekly_games[away] < 2 and
-                    game_counts[home] < total_games and game_counts[away] < total_games):
+                # Schedule game and update counts
+                schedule.append((date, slot, home, away, field))
+                game_counts[home] += 1
+                game_counts[away] += 1
+                weekly_games[home] += 1
+                weekly_games[away] += 1
+                used_slots.add(slot_key)
+                matchups[div].pop(i)  # Remove scheduled matchup
+                print(f"    - Scheduled: {home} vs {away} on {date.strftime('%Y-%m-%d')} at {slot} ({field})")
+                scheduled_for_slot = True
+                break  # Exit inner loop after scheduling
 
-                    # Schedule game and update counts
-                    schedule.append((date, slot, home, away, field))
-                    game_counts[home] += 1
-                    game_counts[away] += 1
-                    weekly_games[home] += 1
-                    weekly_games[away] += 1
-                    used_slots.add(slot_key)
-                    matchups[div].pop(i)  # Remove scheduled matchup
-                    print(f"    - Scheduled: {home} vs {away} on {date.strftime('%Y-%m-%d')} at {slot} ({field})")
-                    scheduled_for_slot = True
-                    break
-
-            # Second pass: if no matchup scheduled, use any available
+            # Schedule fallback game without any restrictions if needed
             if not scheduled_for_slot:
                 for i, (home, away) in enumerate(matchups[div]):
-                    if (day_of_week in team_availability.get(home, set()) and
+                    if (day_of_week in team_availability.get(home, set()) and 
                         day_of_week in team_availability.get(away, set()) and
-                        weekly_games[home] < 2 and weekly_games[away] < 2 and
-                        game_counts[home] < total_games and game_counts[away] < total_games):
+                        weekly_games[home] < 2 and weekly_games[away] < 2):
                         
                         # Schedule game without prioritization constraints
                         schedule.append((date, slot, home, away, field))
