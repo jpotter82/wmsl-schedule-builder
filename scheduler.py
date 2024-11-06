@@ -47,28 +47,32 @@ def initialize_team_stats():
         'inter_games': defaultdict(int)
     }
 
-# Generate randomized matchups for intra- and inter-divisional games
 def generate_matchups(division_teams, rules):
     matchups = defaultdict(list)
 
     # Intra-divisional matchups
     intra_matchups = list(itertools.combinations(division_teams, 2))
     random.shuffle(intra_matchups)
+
+    # Schedule each intra matchup twice for home/away
     for home, away in intra_matchups:
         matchups['intra'].append((home, away))
         matchups['intra'].append((away, home))
 
-    # Additional intra games to reach the required total
-    extra_intra = random.sample(intra_matchups, rules['intra'] - len(intra_matchups))
-    for home, away in extra_intra:
-        matchups['intra'].append((home, away))
-        matchups['intra'].append((away, home))
+    # Add extra intra matchups if required
+    required_intra = rules['intra'] - len(matchups['intra'])
+    if required_intra > 0:
+        additional_intra = random.choices(intra_matchups, k=required_intra)
+        for home, away in additional_intra:
+            matchups['intra'].append((home, away))
+            matchups['intra'].append((away, home))
 
     # Inter-divisional matchups
     for inter_div, count in rules['inter'].items():
         inter_teams = [f'{inter_div}{i+1}' for i in range(8)]
         inter_matchups = list(itertools.product(division_teams, inter_teams))
-        selected_matchups = random.sample(inter_matchups, count)
+        random.shuffle(inter_matchups)
+        selected_matchups = inter_matchups[:count]
         for home, away in selected_matchups:
             matchups[inter_div].append((home, away))
             matchups[inter_div].append((away, home))
