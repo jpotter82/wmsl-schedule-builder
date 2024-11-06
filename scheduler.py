@@ -1,5 +1,6 @@
 import csv
 import random
+import itertools
 from datetime import datetime
 from collections import defaultdict
 
