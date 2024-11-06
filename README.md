@@ -1,4 +1,4 @@
-Recreational Softball League Scheduler
+WMSL Scheduler
 ======================================
 
 This project provides an automated scheduling solution for a recreational softball league, simplifying the scheduling of games across multiple divisions and accounting for team availability and field constraints. The script is customizable and reusable for future seasons.
