@@ -62,22 +62,21 @@ def schedule_games(matchups, cross_division_matchups, team_availability, field_a
     schedule = []
     game_counts = {team: [] for team in itertools.chain(*divisions.values())}
     used_slots = set()  # Track used slots for each day and field
-    division_cycle = itertools.cycle(['A', 'B', 'C'])  # Cycle through divisions each slot
 
-    # Iterate over each available slot and cycle through divisions for each slot
+    # Iterate over each slot to attempt scheduling for all divisions and teams
     for date, slot, field in field_availability:
         slot_key = (date, slot, field)
 
-        # Skip this slot if it's already used
+        # Skip this slot if it’s already used
         if slot_key in used_slots:
             continue
 
         day_of_week = date.strftime('%a')
         scheduled_for_slot = False
 
-        # Cycle through divisions to ensure even distribution
-        for div in division_cycle:
-            if div not in matchups or not matchups[div]:
+        # Try to schedule games for all divisions and matchups
+        for div in ['A', 'B', 'C']:
+            if not matchups.get(div):  # Skip if no more matchups in this division
                 continue
 
             # Attempt to schedule a game within the division
@@ -97,8 +96,9 @@ def schedule_games(matchups, cross_division_matchups, team_availability, field_a
                     scheduled_for_slot = True
                     break
 
+            # If a game was scheduled, continue to the next division or slot
             if scheduled_for_slot:
-                break  # Move to the next slot if this one is filled
+                break
 
     print("Scheduling complete.\n")
     print(f"Final game counts: {game_counts}")
