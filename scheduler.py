@@ -48,12 +48,6 @@ def generate_matchups():
     }
     return matchups, cross_division_matchups
 
-# Helper function to check if a team has a double-header scheduled in a given week
-def has_double_header_this_week(game_counts, team, current_date):
-    week_start = current_date - timedelta(days=current_date.weekday())
-    games_this_week = [game_date for game_date in game_counts.get(team, []) if week_start <= game_date < week_start + timedelta(days=7)]
-    return len(games_this_week) >= 2
-
 # Schedule games based on availability and constraints
 def schedule_games(matchups, cross_division_matchups, team_availability, field_availability):
     print("Scheduling games...")
@@ -68,7 +62,7 @@ def schedule_games(matchups, cross_division_matchups, team_availability, field_a
     for cross_division in cross_division_matchups.values():
         random.shuffle(cross_division)
 
-    # Iterate over each day's slots to attempt scheduling
+    # Directly iterate over every slot in the field availability
     for date, slot, field in field_availability:
         slot_key = (date, slot, field)
         day_of_week = date.strftime('%a')
@@ -79,12 +73,12 @@ def schedule_games(matchups, cross_division_matchups, team_availability, field_a
 
         scheduled_for_slot = False
 
-        # Randomly select divisions for the day
-        daily_divisions = random.sample(['A', 'B', 'C'], k=3)
+        # Try scheduling games from mixed divisions for each day
+        available_divisions = ['A', 'B', 'C']
+        random.shuffle(available_divisions)  # Randomize division order each day
 
-        # Try scheduling games from mixed divisions for each slot
-        for div in daily_divisions:
-            if not matchups.get(div):
+        for div in available_divisions:
+            if not matchups.get(div):  # Skip if no more matchups in this division
                 continue
 
             # Attempt to schedule a game within the division
