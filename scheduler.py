@@ -3,8 +3,8 @@ import itertools
 from datetime import datetime, timedelta
 
 # Configurable parameters
-start_date = datetime(2024, 4, 7)
-end_date = datetime(2024, 7, 14)
+start_date = datetime(2025, 4, 7)
+end_date = datetime(2025, 7, 14)
 single_games = 7
 double_headers = 8
 
@@ -62,45 +62,43 @@ def schedule_games(matchups, cross_division_matchups, team_availability, field_a
     schedule = []
     game_counts = {team: [] for team in itertools.chain(*divisions.values())}
     used_slots = set()  # Track used slots for each day and field
-    division_cycle = itertools.cycle(['A', 'B', 'C'])  # Cycle through divisions each week
+    division_cycle = itertools.cycle(['A', 'B', 'C'])  # Cycle through divisions each slot
 
-    # Iterate over each day and time slot available
-    for week_start in range(0, len(field_availability), 7):
-        unscheduled_matchups = {div: matchups[div].copy() for div in divisions}
+    # Iterate over each available slot and cycle through divisions for each slot
+    for date, slot, field in field_availability:
+        slot_key = (date, slot, field)
 
-        # Try to schedule each slot in the week across divisions
-        for date, slot, field in field_availability[week_start:week_start + 7]:
-            slot_key = (date, slot, field)
-            
-            # Ensure this slot hasn’t been used yet
-            if slot_key in used_slots:
+        # Skip this slot if it's already used
+        if slot_key in used_slots:
+            continue
+
+        day_of_week = date.strftime('%a')
+        scheduled_for_slot = False
+
+        # Cycle through divisions to ensure even distribution
+        for div in division_cycle:
+            if div not in matchups or not matchups[div]:
                 continue
 
-            day_of_week = date.strftime('%a')
-            scheduled_for_slot = False
+            # Attempt to schedule a game within the division
+            for i, (home, away) in enumerate(matchups[div]):
+                if (day_of_week in team_availability.get(home, set()) and
+                    day_of_week in team_availability.get(away, set()) and
+                    not has_double_header_this_week(game_counts, home, date) and
+                    not has_double_header_this_week(game_counts, away, date)):
 
-            # Try scheduling for each division
-            for div in ['A', 'B', 'C']:
-                for i, (home, away) in enumerate(unscheduled_matchups[div]):
-                    # Check scheduling criteria for each matchup
-                    if (day_of_week in team_availability.get(home, set()) and
-                        day_of_week in team_availability.get(away, set()) and
-                        not has_double_header_this_week(game_counts, home, date) and
-                        not has_double_header_this_week(game_counts, away, date)):
-
-                        # Schedule game, update counts, and mark slot as used
-                        schedule.append((date, slot, home, away, field))
-                        game_counts[home].append(date)
-                        game_counts[away].append(date)
-                        used_slots.add(slot_key)
-                        unscheduled_matchups[div].pop(i)
-                        print(f" - Scheduled: {home} vs {away} on {date.strftime('%Y-%m-%d')} at {slot} ({field})")
-                        scheduled_for_slot = True
-                        break
-
-                # Move to next slot once a game is scheduled for this slot
-                if scheduled_for_slot:
+                    # Schedule game and update counts
+                    schedule.append((date, slot, home, away, field))
+                    game_counts[home].append(date)
+                    game_counts[away].append(date)
+                    used_slots.add(slot_key)
+                    matchups[div].pop(i)  # Remove scheduled matchup
+                    print(f" - Scheduled: {home} vs {away} on {date.strftime('%Y-%m-%d')} at {slot} ({field})")
+                    scheduled_for_slot = True
                     break
+
+            if scheduled_for_slot:
+                break  # Move to the next slot if this one is filled
 
     print("Scheduling complete.\n")
     print(f"Final game counts: {game_counts}")
