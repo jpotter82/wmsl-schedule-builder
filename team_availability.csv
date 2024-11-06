@@ -1,0 +1,5 @@
+Team,AvailableDays
+A1,Mon,Wed
+A2,Mon,Wed,Fri  # A2 can play on Mon, Wed, and Fri (but not on Thu, implicitly)
+B1,Tue,Thu
+C1,Mon,Thu,Sun
