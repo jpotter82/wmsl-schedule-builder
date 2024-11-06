@@ -13,16 +13,20 @@ divisions = {
     'C': ['C' + str(i) for i in range(1, 9)]
 }
 
-# Load team availability from CSV
+# Load custom team availability from a CSV file
 def load_team_availability(file_path):
     availability = {}
     with open(file_path, mode='r') as file:
         reader = csv.reader(file)
-        next(reader)
+        next(reader)  # Skip header
         for row in reader:
-            team, days = row[0], row[1].split(',')
-            availability[team] = set(days)
+            team = row[0]
+            days = row[1].split(',')
+            availability[team] = set(day.strip() for day in days)  # Trim whitespace around each day
+            # Debug output to confirm correct loading
+            print(f"Loaded availability for {team}: {availability[team]}")
     return availability
+
 
 # Load field availability from CSV
 def load_field_availability(file_path):
