@@ -1,11 +1,10 @@
 import csv
 import itertools
 from datetime import datetime, timedelta
+import random
 
 # Configurable parameters
-start_date = datetime(2025, 4, 7)
-end_date = datetime(2025, 7, 14)
-total_games = 22
+total_games = 22  # Target number of games for each team
 
 # Define divisions and initialize team matchups
 divisions = {
@@ -49,57 +48,72 @@ def generate_matchups():
     }
     return matchups, cross_division_matchups
 
+# Helper function to check if a team has a double-header scheduled in a given week
+def has_double_header_this_week(game_counts, team, current_date):
+    week_start = current_date - timedelta(days=current_date.weekday())
+    games_this_week = [game_date for game_date in game_counts.get(team, []) if week_start <= game_date < week_start + timedelta(days=7)]
+    return len(games_this_week) >= 2
+
 # Schedule games based on availability and constraints
 def schedule_games(matchups, cross_division_matchups, team_availability, field_availability):
     print("Scheduling games...")
     schedule = []
     game_counts = {team: 0 for team in itertools.chain(*divisions.values())}
     weekly_games = {team: 0 for team in game_counts}
-    used_slots = set()
-    
-    # Iterate over each week's slots to attempt scheduling
-    for week_start in range(0, len(field_availability), 7):
-        weekly_slots = field_availability[week_start:week_start + 7]
-        for date, slot, field in weekly_slots:
-            slot_key = (date, slot, field)
-            day_of_week = date.strftime('%a')
+    used_slots = set()  # Track used slots for each day and field
 
-            if slot_key in used_slots:
+    # Shuffle matchups to add randomness to scheduling order
+    for division in matchups.values():
+        random.shuffle(division)
+    for cross_division in cross_division_matchups.values():
+        random.shuffle(cross_division)
+
+    # Iterate over each day's slots to attempt scheduling
+    for date, slot, field in field_availability:
+        slot_key = (date, slot, field)
+        day_of_week = date.strftime('%a')
+
+        # Skip this slot if it’s already used
+        if slot_key in used_slots:
+            continue
+
+        scheduled_for_slot = False
+
+        # Randomly select divisions for the day
+        daily_divisions = random.sample(['A', 'B', 'C'], k=3)
+
+        # Try scheduling games from mixed divisions for each slot
+        for div in daily_divisions:
+            if not matchups.get(div):
                 continue
 
-            scheduled_for_slot = False
+            # Attempt to schedule a game within the division
+            for i, (home, away) in enumerate(matchups[div]):
+                # Validate conditions: team availability, weekly game limits, field exclusivity
+                if (day_of_week in team_availability.get(home, set()) and
+                    day_of_week in team_availability.get(away, set()) and
+                    weekly_games[home] < 2 and weekly_games[away] < 2 and
+                    game_counts[home] < total_games and game_counts[away] < total_games):
 
-            # Try to schedule a game for each division in this slot
-            for div in ['A', 'B', 'C']:
-                if not matchups.get(div):
-                    continue
+                    # Schedule game and update counts
+                    schedule.append((date, slot, home, away, field))
+                    game_counts[home] += 1
+                    game_counts[away] += 1
+                    weekly_games[home] += 1
+                    weekly_games[away] += 1
+                    used_slots.add(slot_key)
+                    matchups[div].pop(i)  # Remove scheduled matchup
+                    print(f" - Scheduled: {home} vs {away} on {date.strftime('%Y-%m-%d')} at {slot} ({field})")
+                    scheduled_for_slot = True
+                    break
 
-                # Attempt to schedule a game for a matchup
-                for i, (home, away) in enumerate(matchups[div]):
-                    # Validate conditions: team availability, weekly game limits, field exclusivity
-                    if (day_of_week in team_availability.get(home, set()) and
-                        day_of_week in team_availability.get(away, set()) and
-                        weekly_games[home] < 2 and weekly_games[away] < 2 and
-                        game_counts[home] < total_games and game_counts[away] < total_games):
-                        
-                        # Schedule game and update counts
-                        schedule.append((date, slot, home, away, field))
-                        game_counts[home] += 1
-                        game_counts[away] += 1
-                        weekly_games[home] += 1
-                        weekly_games[away] += 1
-                        used_slots.add(slot_key)
-                        matchups[div].pop(i)
-                        print(f" - Scheduled: {home} vs {away} on {date.strftime('%Y-%m-%d')} at {slot} ({field})")
-                        scheduled_for_slot = True
-                        break
+            if scheduled_for_slot:
+                break  # Move to the next slot if a game was scheduled for this slot
 
-                if scheduled_for_slot:
-                    break  # Move to the next slot if a game was scheduled for this slot
-
-        # Reset weekly game count for each team
-        for team in weekly_games:
-            weekly_games[team] = 0
+        # Reset weekly game count for each team on new week
+        if date.weekday() == 6:  # Reset after Sunday
+            for team in weekly_games:
+                weekly_games[team] = 0
 
     print("Scheduling complete.\n")
     print(f"Final game counts: {game_counts}")
