@@ -9,17 +9,17 @@ MAX_GAMES = 22
 DIVISION_RULES = {
     'A': {
         'intra': 18,  # Total intra-division games per team
-        'intra_extra': 4,  # Extra intra-division games to meet the 18 games within the division
-        'inter': {'B': 4}  # Inter-division games (4 different B teams, home/away)
+        'intra_extra': 4,  # Extra intra-division games to meet the total
+        'inter': {'B': 4}  # Inter-division games with 4 B teams (home/away)
     },
     'B': {
         'intra': 14,  # Total intra-division games per team
-        'inter': {'A': 4, 'C': 4}  # Inter-division games (4 A teams + 4 C teams, home/away)
+        'inter': {'A': 4, 'C': 4}  # Inter-division games with 4 A and 4 C teams
     },
     'C': {
         'intra': 18,  # Total intra-division games per team
-        'intra_extra': 4,  # Extra intra-division games to meet 18 total
-        'inter': {'B': 4}  # Inter-division games (4 B teams, home/away)
+        'intra_extra': 4,  # Extra intra-division games to meet total
+        'inter': {'B': 4}  # Inter-division games with 4 B teams (home/away)
     }
 }
 
@@ -58,10 +58,11 @@ def initialize_team_stats():
         'inter_games': defaultdict(int)
     }
 
+# Generate matchups for intra and inter-division games
 def generate_matchups(division_teams, rules):
     matchups = []
 
-    # Generate intra-division matchups
+    # Intra-division matchups
     intra_matchups = list(itertools.combinations(division_teams, 2))
     random.shuffle(intra_matchups)
 
@@ -77,16 +78,18 @@ def generate_matchups(division_teams, rules):
             matchups.append((home, away))
             matchups.append((away, home))
 
-    # Generate inter-division matchups
+    # Inter-division matchups
     for inter_div, count in rules.get('inter', {}).items():
         inter_teams = [f'{inter_div}{i+1}' for i in range(8)]
         inter_matchups = list(itertools.product(division_teams, inter_teams))
         random.shuffle(inter_matchups)
-        selected_matchups = inter_matchups[:count * 2]  # For home/away
-        matchups.extend(selected_matchups)
+        for home, away in inter_matchups[:count * 2]:  # Double for home/away
+            matchups.append((home, away))
+            matchups.append((away, home))
 
     return matchups
 
+# Schedule games based on matchups and constraints
 def schedule_games(matchups, team_availability, field_availability):
     schedule = []
     team_stats = defaultdict(initialize_team_stats)
@@ -99,9 +102,7 @@ def schedule_games(matchups, team_availability, field_availability):
 
         print(f"Processing slot on {date.strftime('%Y-%m-%d')} at {slot} on {field}")
 
-        scheduled_game = False
-        for matchup in matchups:
-            home, away = matchup  # Expect tuple structure here
+        for home, away in matchups:
             if (team_stats[home]['total_games'] < MAX_GAMES and
                 team_stats[away]['total_games'] < MAX_GAMES and
                 day_of_week in team_availability[home] and
@@ -117,11 +118,7 @@ def schedule_games(matchups, team_availability, field_availability):
                 team_stats[home]['home_games'] += 1
                 team_stats[away]['total_games'] += 1
                 team_stats[away]['away_games'] += 1
-                scheduled_game = True
                 break
-
-        if not scheduled_game:
-            print(f"No matchup available for slot {date.strftime('%Y-%m-%d')} at {slot}")
 
     return schedule, team_stats
 
