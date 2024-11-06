@@ -7,6 +7,7 @@ from collections import defaultdict
 # Configurable parameters
 MAX_GAMES = 22
 WEEKLY_SINGLE_GAMES_LIMIT = 2  # Maximum single games per team per week
+HOME_AWAY_BALANCE = 11
 DIVISION_RULES = {
     'A': {'intra_min': 2, 'extra': 4, 'inter_divisions': ['B']},
     'B': {'intra_min': 2, 'extra': 4, 'inter_divisions': ['A', 'C']},
