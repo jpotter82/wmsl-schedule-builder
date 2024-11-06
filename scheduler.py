@@ -4,8 +4,8 @@ from datetime import datetime, timedelta
 import random
 
 # Configurable parameters
-start_date = datetime(2025, 4, 7)
-end_date = datetime(2025, 7, 14)
+start_date = datetime(2024, 4, 8)
+end_date = datetime(2024, 7, 14)
 single_games = 7
 double_headers = 8
 
