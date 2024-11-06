@@ -3,8 +3,8 @@ import itertools
 from datetime import datetime, timedelta
 
 # Configurable parameters
-start_date = datetime(2025, 4, 7)
-end_date = datetime(2025, 7, 14)
+start_date = datetime(2024, 4, 7)
+end_date = datetime(2024, 7, 14)
 single_games = 7
 double_headers = 8
 
@@ -62,67 +62,55 @@ def schedule_games(matchups, cross_division_matchups, team_availability, field_a
     schedule = []
     game_counts = {team: [] for team in itertools.chain(*divisions.values())}
     used_slots = set()  # Track used slots for each day and field
-    division_cycle = itertools.cycle(['A', 'B', 'C'])  # Cycle through divisions
 
-    for date, slot, field in field_availability:
-        slot_key = (date, slot, field)  # Unique identifier for date, time, and field
+    for div, teams in divisions.items():
+        for week_start in range(0, len(field_availability), 7):
+            unscheduled_teams = teams.copy()  # Track teams that still need a game this week
 
-        # Skip this slot if it’s already used
-        if slot_key in used_slots:
-            continue
+            # Try scheduling each team once per week
+            while unscheduled_teams:
+                for date, slot, field in field_availability[week_start:week_start + 7]:
+                    slot_key = (date, slot, field)  # Unique identifier for date, time, and field
 
-        day_of_week = date.strftime('%a')
-        games_scheduled_this_round = 0
-        teams_scheduled_today = set()
+                    # Skip this slot if it’s already used
+                    if slot_key in used_slots:
+                        continue
 
-        print(f"\nAttempting to schedule games on {date.strftime('%Y-%m-%d')} at {slot} ({field})")
+                    # Schedule each unscheduled team once per week
+                    for i, (home, away) in enumerate(matchups[div]):
+                        if home in unscheduled_teams or away in unscheduled_teams:
+                            day_of_week = date.strftime('%a')
+                            
+                            # Check conditions for scheduling
+                            if (day_of_week in team_availability.get(home, set()) and
+                                day_of_week in team_availability.get(away, set()) and
+                                home not in used_slots and
+                                away not in used_slots and
+                                not has_double_header_this_week(game_counts, home, date) and
+                                not has_double_header_this_week(game_counts, away, date)):
 
-        # Attempt to schedule a game for each division in a round-robin fashion
-        for _ in range(3):  # Try scheduling for each division once per slot
-            div = next(division_cycle)
-            for i, (home, away) in enumerate(matchups[div]):
-                # Check conditions for scheduling
-                if (day_of_week in team_availability.get(home, set()) and
-                    day_of_week in team_availability.get(away, set()) and
-                    home not in teams_scheduled_today and
-                    away not in teams_scheduled_today and
-                    not has_double_header_this_week(game_counts, home, date) and
-                    not has_double_header_this_week(game_counts, away, date)):
+                                # Schedule game and update counts
+                                schedule.append((date, slot, home, away, field))
+                                game_counts[home].append(date)
+                                game_counts[away].append(date)
+                                used_slots.add(slot_key)  # Mark slot as used
+                                matchups[div].pop(i)  # Remove scheduled matchup
+                                print(f" - Scheduled: {home} vs {away} on {date.strftime('%Y-%m-%d')} at {slot} ({field})")
 
-                    # Schedule game and update counts
-                    schedule.append((date, slot, home, away, field))
-                    game_counts[home].append(date)
-                    game_counts[away].append(date)
-                    teams_scheduled_today.update([home, away])
-                    used_slots.add(slot_key)  # Mark slot as used
-                    matchups[div].pop(i)  # Remove scheduled matchup
-                    games_scheduled_this_round += 1
-                    print(f" - Scheduled: {home} vs {away} on {date.strftime('%Y-%m-%d')} at {slot} ({field})")
-                    break  # Exit after scheduling one game for the division
-                else:
-                    print(f" - Skipping: {home} vs {away} due to unavailability, double-header limit, or already scheduled today")
+                                # Remove both teams from unscheduled list for this week
+                                unscheduled_teams.discard(home)
+                                unscheduled_teams.discard(away)
+                                break  # Exit after scheduling one game in the slot
+                            else:
+                                print(f" - Skipping: {home} vs {away} due to unavailability, double-header limit, or already scheduled today")
 
-            if games_scheduled_this_round > 0:
-                break  # Exit after scheduling one game in the slot
+                        # Exit if all teams are scheduled for the week
+                        if not unscheduled_teams:
+                            break
 
-        # Cross-division handling for additional games if no intra-division matchups available
-        if games_scheduled_this_round == 0 and cross_division_matchups['A-B']:
-            for i, (home, away) in enumerate(cross_division_matchups['A-B']):
-                if (day_of_week in team_availability.get(home, set()) and
-                    day_of_week in team_availability.get(away, set()) and
-                    home not in teams_scheduled_today and
-                    away not in teams_scheduled_today and
-                    not has_double_header_this_week(game_counts, home, date) and
-                    not has_double_header_this_week(game_counts, away, date)):
-
-                    schedule.append((date, slot, home, away, field))
-                    game_counts[home].append(date)
-                    game_counts[away].append(date)
-                    teams_scheduled_today.update([home, away])
-                    used_slots.add(slot_key)  # Mark slot as used
-                    cross_division_matchups['A-B'].pop(i)  # Remove scheduled matchup
-                    games_scheduled_this_round += 1
-                    print(f" - Scheduled cross-division: {home} vs {away} on {date.strftime('%Y-%m-%d')} at {slot} ({field})")
+                # If no slots are left in the week but teams are still unscheduled, move to the next week
+                if unscheduled_teams:
+                    print(f"Unable to schedule all teams in division {div} for this week.")
                     break
 
     print("Scheduling complete.\n")
