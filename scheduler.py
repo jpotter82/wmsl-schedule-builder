@@ -87,19 +87,21 @@ def schedule_games(matchups, team_availability, field_availability):
     unscheduled_matchups = matchups[:]
 
     retry_count = 0
-    max_retries = 10000  # Increase retry limit to handle a high number of attempts
+    max_retries = 10000  # Allow for sufficient retries
 
-    while unscheduled_matchups and retry_count < max_retries:
+    while any(stats['total_games'] < MAX_GAMES for stats in team_stats.values()) and retry_count < max_retries:
         progress_made = False
 
         for date, slot, field in field_availability:
             day_of_week = date.strftime('%a')
             week_num = date.isocalendar()[1]
 
-            for matchup in unscheduled_matchups[:]:  # Iterate over a copy of matchups
+            # Shuffle matchups to randomize game scheduling
+            random.shuffle(unscheduled_matchups)
+            for matchup in unscheduled_matchups[:]:
                 home, away = matchup
 
-                # Constraints check
+                # Check constraints for total games and availability
                 if (team_stats[home]['total_games'] < MAX_GAMES and
                     team_stats[away]['total_games'] < MAX_GAMES and
                     day_of_week in team_availability[home] and
@@ -107,15 +109,15 @@ def schedule_games(matchups, team_availability, field_availability):
                     home not in scheduled_slots[(date, slot)] and
                     away not in scheduled_slots[(date, slot)]):
 
-                    # Relax weekly game constraints to ensure all games are scheduled
+                    # Relax weekly constraints dynamically to fill slots
                     if (team_stats[home]['weekly_games'][week_num] < 2 and
                         team_stats[away]['weekly_games'][week_num] < 2) or retry_count > 5000:
 
-                        # Swap home/away if home quota is exceeded
+                        # Ensure home/away balance
                         if team_stats[home]['home_games'] >= HOME_AWAY_BALANCE:
                             home, away = away, home
 
-                        # Schedule the game
+                        # Schedule game
                         schedule.append((date, slot, field, home, home[0], away, away[0]))
                         team_stats[home]['total_games'] += 1
                         team_stats[home]['home_games'] += 1
@@ -125,7 +127,7 @@ def schedule_games(matchups, team_availability, field_availability):
                         team_stats[away]['weekly_games'][week_num] += 1
                         scheduled_slots[(date, slot)].update([home, away])
 
-                        # Remove matchup from unscheduled
+                        # Remove matchup to avoid duplicates
                         unscheduled_matchups.remove(matchup)
                         progress_made = True
                         break
@@ -133,17 +135,14 @@ def schedule_games(matchups, team_availability, field_availability):
             if progress_made:
                 break
 
-        # Retry unscheduled matchups
         if not progress_made:
             retry_count += 1
         else:
-            retry_count = 0  # Reset if progress made
+            retry_count = 0  # Reset if progress was made
 
     if retry_count >= max_retries:
-        print("Warning: Retry limit reached. Some matchups could not be scheduled.")
+        print("Warning: Retr
 
-    # Return the final schedule and team statistics
-    return schedule, team_stats
 
 
 # Output schedule to CSV
