@@ -141,8 +141,14 @@ def schedule_games(matchups, team_availability, field_availability):
             retry_count = 0  # Reset if progress was made
 
     if retry_count >= max_retries:
-        print("Warning: Retr
+        print("Warning: Retry limit reached. Some games may not be fully scheduled.")
 
+    # Ensure 22 games are scheduled per team
+    for team in team_stats:
+        if team_stats[team]['total_games'] < MAX_GAMES:
+            print(f"Team {team} has only {team_stats[team]['total_games']} games scheduled.")
+
+    return schedule, team_stats
 
 
 # Output schedule to CSV
