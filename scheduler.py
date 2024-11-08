@@ -200,7 +200,20 @@ def generate_matchup_table(schedule, division_teams):
 def main():
     team_availability = load_team_availability('team_availability.csv')
     field_availability = load_field_availability('field_availability.csv')
+    
+    # Debug team availability
+    print("\nTeam Availability Debug:")
+    for team, days in team_availability.items():
+        print(f"Team {team}: {', '.join(days)}")
+    if not team_availability:
+        print("ERROR: Team availability is empty!")
 
+    # Debug field availability
+    print("\nField Availability Debug:")
+    for entry in field_availability:
+        print(f"Field Slot: {entry}")
+    if not field_availability:
+        print("ERROR: Field availability is empty!")
     division_teams = {
         'A': [f'A{i+1}' for i in range(8)],
         'B': [f'B{i+1}' for i in range(8)],
