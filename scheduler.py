@@ -100,14 +100,16 @@ def generate_matchups(rules, division_teams):
                 matchups.append((team2, team1))  # Team2 home, Team1 away
 
     # Inter-divisional matchups
-    inter_divisional_games = rules.get('inter', {})
-    for inter_div, count in inter_divisional_games.items():
-        inter_teams = [f'{inter_div}{i+1}' for i in range(8)]
-        inter_matchups = list(itertools.product(division_teams, inter_teams))
-        random.shuffle(inter_matchups)
-        
-        # Add the inter-divisional matchups based on count
-        matchups.extend(inter_matchups[:count])
+    for division, rules_for_division in rules.items():
+        inter_divisional_games = rules_for_division.get('inter', {})
+    
+        for inter_div, count in inter_divisional_games.items():
+            inter_teams = [f'{inter_div}{i+1}' for i in range(8)]  # List of teams from the other division
+            inter_matchups = list(itertools.product(division_teams, inter_teams))
+            random.shuffle(inter_matchups)
+            
+            # Add the inter-divisional matchups based on count
+            matchups.extend(inter_matchups[:count])
 
     # Debug: Check inter-division matchups
     print(f"Inter-division matchups generated: {len(matchups)}")
