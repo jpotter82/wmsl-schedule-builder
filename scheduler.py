@@ -97,6 +97,11 @@ def generate_matchups(division_teams, rules):
     # Debug: Total matchups generated
     print(f"Total matchups generated: {len(matchups)}")
 
+    # Print all matchups
+    print("Generated Matchups:")
+    for matchup in matchups:
+        print(matchup)
+
     return matchups
 
 # Schedule the games
