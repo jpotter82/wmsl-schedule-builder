@@ -99,8 +99,7 @@ def generate_matchups(division_teams, rules):
 
     return matchups
 
-
-# Schedule games
+# Schedule the games
 def schedule_games(matchups, team_availability, field_availability):
     schedule = []
     team_stats = defaultdict(initialize_team_stats)
@@ -112,10 +111,7 @@ def schedule_games(matchups, team_availability, field_availability):
 
     while unscheduled_matchups and retry_count < max_retries:
         progress_made = False
-        
-        # Debugging: show unscheduled matchups before each attempt
-        print(f"Attempt {retry_count + 1}, Unsheduled Matchups: {len(unscheduled_matchups)}")
-        
+
         for date, slot, field in field_availability:
             day_of_week = date.strftime('%a')
             week_num = date.isocalendar()[1]
@@ -130,7 +126,7 @@ def schedule_games(matchups, team_availability, field_availability):
                     day_of_week in team_availability[away] and
                     home not in scheduled_slots[(date, slot)] and
                     away not in scheduled_slots[(date, slot)]):
-
+                    
                     # Relax weekly game constraints to ensure all games are scheduled
                     if (team_stats[home]['weekly_games'][week_num] < 2 and
                         team_stats[away]['weekly_games'][week_num] < 2) or retry_count > 5000:
@@ -149,8 +145,7 @@ def schedule_games(matchups, team_availability, field_availability):
                         team_stats[away]['weekly_games'][week_num] += 1
                         scheduled_slots[(date, slot)].update([home, away])
 
-                        # Remove matchup from unscheduled
-                        unscheduled_matchups.remove(matchup)
+                        # Do NOT remove matchup from unscheduled yet
                         progress_made = True
                         break
 
@@ -165,9 +160,6 @@ def schedule_games(matchups, team_availability, field_availability):
 
     if retry_count >= max_retries:
         print("Warning: Retry limit reached. Some matchups could not be scheduled.")
-    
-    # Final debugging: show remaining unscheduled matchups after loop
-    print(f"Remaining unscheduled matchups: {unscheduled_matchups}")
 
     # Return the final schedule and team statistics
     return schedule, team_stats
