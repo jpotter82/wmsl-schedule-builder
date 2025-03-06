@@ -54,31 +54,52 @@ import itertools
 import random
 
 # Generate Matchups
-def generate_matchups(division_teams, rules):
+def generate_matchups(rules, division_teams):
     matchups = []
+    
+    # Helper function to generate home/away balanced matchups
+    def generate_home_away_matchups(teams, count_per_team):
+        matchups = []
+        for team1, team2 in itertools.combinations(teams, 2):
+            # Generate home/away matchups
+            matchups.append((team1, team2))  # Team1 home, Team2 away
+            matchups.append((team2, team1))  # Team2 home, Team1 away
+        random.shuffle(matchups)  # Shuffle for randomness
+        return matchups[:count_per_team]
 
-    # Intra-divisional games
-    intra_combinations = list(itertools.combinations(division_teams, 2))
-    random.shuffle(intra_combinations)
+    # Intra-divisional matchups
+    for division, rules_for_division in rules.items():
+        intra_extra = rules_for_division['intra_extra']
+        intra_teams = [f'{division}{i+1}' for i in range(8)]
+        
+        # For A and C Divisions: 
+        # 3 times against 4 teams (2 home and away games)
+        # 2 times against 3 teams (1 home and 1 away, random for the other)
+        if division in ['A', 'C']:
+            # 3 times against 4 teams (home/away)
+            teams_3_times = random.sample(intra_teams, 4)
+            for team in teams_3_times:
+                for opponent in teams_3_times:
+                    if team != opponent:
+                        matchups.append((team, opponent))
+                        matchups.append((opponent, team))
 
-    # Number of games for intra-division matchups
-    three_times = rules['intra_extra']['3_times']
-    two_times = rules['intra_extra']['2_times']
+            # 2 times against 3 teams (1 home and 1 away, random for the other)
+            teams_2_times = random.sample(intra_teams, 3)
+            for team in teams_2_times:
+                for opponent in teams_2_times:
+                    if team != opponent:
+                        matchups.append((team, opponent))
+                        matchups.append((opponent, team))
 
-    # Select matchups for 3 games
-    selected_three = intra_combinations[:three_times]
-    for home, away in selected_three:
-        matchups.extend([(home, away), (away, home), (home, away)])  # Repeat 3 times for each pair
+        # For B Division: Play each of the 7 teams only 2 times (1 home and 1 away)
+        elif division == 'B':
+            # 2 times against 7 teams (home and away)
+            for team1, team2 in itertools.combinations(intra_teams, 2):
+                matchups.append((team1, team2))  # Team1 home, Team2 away
+                matchups.append((team2, team1))  # Team2 home, Team1 away
 
-    # Select matchups for 2 games
-    selected_two = intra_combinations[three_times:three_times + two_times]
-    for home, away in selected_two:
-        matchups.extend([(home, away), (away, home)])  # Repeat 2 times for each pair
-
-    # Debug: Check intra-division matchups
-    print(f"Intra-division matchups generated: {len(matchups)}")
-
-    # Inter-divisional games
+    # Inter-divisional matchups
     inter_divisional_games = rules.get('inter', {})
     for inter_div, count in inter_divisional_games.items():
         inter_teams = [f'{inter_div}{i+1}' for i in range(8)]
