@@ -50,7 +50,6 @@ def initialize_team_stats():
         'inter_games': defaultdict(int),  # Tracks how many times they play inter teams
     }
 
-# Generate matchups based on rules
 def generate_matchups(division_teams, rules):
     matchups = []
 
@@ -61,25 +60,35 @@ def generate_matchups(division_teams, rules):
     three_times = rules['intra_extra']['3_times']
     two_times = rules['intra_extra']['2_times']
     
+    # Select matchups for 3 games
     selected_three = intra_combinations[:three_times]
-    selected_two = intra_combinations[three_times:three_times+two_times]
-
     for home, away in selected_three:
-        matchups.extend([(home, away), (away, home), (home, away)])  # 3 games
+        matchups.extend([(home, away), (away, home), (home, away)])  # 3 games for each pair
+    
+    # Select matchups for 2 games
+    selected_two = intra_combinations[three_times:three_times + two_times]
     for home, away in selected_two:
-        matchups.extend([(home, away), (away, home)])  # 2 games
+        matchups.extend([(home, away), (away, home)])  # 2 games for each pair
+    
+    # Debug: Print number of intra-division matchups generated
+    print(f"Intra-division matchups: {len(matchups)}")
     
     # Inter-divisional games
     for inter_div, count in rules['inter'].items():
         inter_teams = [f'{inter_div}{i+1}' for i in range(8)]
         inter_matchups = list(itertools.product(division_teams, inter_teams))
         random.shuffle(inter_matchups)
+        
+        # Repeat inter-division matchups based on the specified count
         matchups.extend(inter_matchups[:count])
     
+    # Debug: Print number of inter-division matchups generated
+    print(f"Inter-division matchups: {len(matchups)}")
+    
     random.shuffle(matchups)
-
-    # Debugging matchups
-    print(f"Generated matchups: {matchups}")
+    
+    # Debug: Total number of matchups
+    print(f"Total matchups generated: {len(matchups)}")
     
     return matchups
 
