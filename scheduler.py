@@ -50,6 +50,10 @@ def initialize_team_stats():
         'inter_games': defaultdict(int),  # Tracks how many times they play inter teams
     }
 
+import itertools
+import random
+
+# Generate Matchups
 def generate_matchups(division_teams, rules):
     matchups = []
 
@@ -57,40 +61,44 @@ def generate_matchups(division_teams, rules):
     intra_combinations = list(itertools.combinations(division_teams, 2))
     random.shuffle(intra_combinations)
 
+    # Number of games for intra-division matchups
     three_times = rules['intra_extra']['3_times']
     two_times = rules['intra_extra']['2_times']
-    
+
     # Select matchups for 3 games
     selected_three = intra_combinations[:three_times]
     for home, away in selected_three:
-        matchups.extend([(home, away), (away, home), (home, away)])  # 3 games for each pair
-    
+        matchups.extend([(home, away), (away, home), (home, away)])  # Repeat 3 times for each pair
+
     # Select matchups for 2 games
     selected_two = intra_combinations[three_times:three_times + two_times]
     for home, away in selected_two:
-        matchups.extend([(home, away), (away, home)])  # 2 games for each pair
-    
-    # Debug: Print number of intra-division matchups generated
-    print(f"Intra-division matchups: {len(matchups)}")
-    
+        matchups.extend([(home, away), (away, home)])  # Repeat 2 times for each pair
+
+    # Debug: Check intra-division matchups
+    print(f"Intra-division matchups generated: {len(matchups)}")
+
     # Inter-divisional games
-    for inter_div, count in rules['inter'].items():
+    inter_divisional_games = rules.get('inter', {})
+    for inter_div, count in inter_divisional_games.items():
         inter_teams = [f'{inter_div}{i+1}' for i in range(8)]
         inter_matchups = list(itertools.product(division_teams, inter_teams))
         random.shuffle(inter_matchups)
         
-        # Repeat inter-division matchups based on the specified count
+        # Add the inter-divisional matchups based on count
         matchups.extend(inter_matchups[:count])
-    
-    # Debug: Print number of inter-division matchups generated
-    print(f"Inter-division matchups: {len(matchups)}")
-    
+
+    # Debug: Check inter-division matchups
+    print(f"Inter-division matchups generated: {len(matchups)}")
+
+    # Shuffle the final matchups list
     random.shuffle(matchups)
-    
-    # Debug: Total number of matchups
+
+    # Debug: Total matchups generated
     print(f"Total matchups generated: {len(matchups)}")
-    
+
     return matchups
+
 
 # Schedule games
 def schedule_games(matchups, team_availability, field_availability):
