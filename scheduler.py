@@ -77,6 +77,10 @@ def generate_matchups(division_teams, rules):
         matchups.extend(inter_matchups[:count])
     
     random.shuffle(matchups)
+
+    # Debugging matchups
+    print(f"Generated matchups: {matchups}")
+    
     return matchups
 
 # Schedule games
@@ -91,7 +95,10 @@ def schedule_games(matchups, team_availability, field_availability):
 
     while unscheduled_matchups and retry_count < max_retries:
         progress_made = False
-
+        
+        # Debugging: show unscheduled matchups before each attempt
+        print(f"Attempt {retry_count + 1}, Unsheduled Matchups: {len(unscheduled_matchups)}")
+        
         for date, slot, field in field_availability:
             day_of_week = date.strftime('%a')
             week_num = date.isocalendar()[1]
@@ -141,6 +148,9 @@ def schedule_games(matchups, team_availability, field_availability):
 
     if retry_count >= max_retries:
         print("Warning: Retry limit reached. Some matchups could not be scheduled.")
+    
+    # Final debugging: show remaining unscheduled matchups after loop
+    print(f"Remaining unscheduled matchups: {unscheduled_matchups}")
 
     # Return the final schedule and team statistics
     return schedule, team_stats
