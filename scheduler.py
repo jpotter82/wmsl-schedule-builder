@@ -255,7 +255,6 @@ def main():
     }
     # Print the entire dictionary
     print("Division Teams:")
-    pprint.pprint(division_teams)
     
     # Or, print each division separately for clarity
     for division, teams in division_teams.items():
