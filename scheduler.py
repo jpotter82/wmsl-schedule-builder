@@ -150,6 +150,8 @@ def schedule_games(matchups, team_availability, field_availability):
                         team_stats[away]['weekly_games'][week_num] += 1
                         scheduled_slots[(date, slot)].update([home, away])
 
+                        # **REMOVE scheduled matchup from the list**
+                        unscheduled_matchups.remove(matchup)
                         # Do NOT remove matchup from unscheduled yet
                         progress_made = True
                         break
