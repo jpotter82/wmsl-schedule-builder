@@ -280,7 +280,7 @@ def main():
         'C': [f'C{i+1}' for i in range(8)],
     }
     # Print the type of DIVISION_RULES to debug
-    print(type(DIVISION_RULES))
+    print(type(division_teams))
     
     matchups = {div: generate_matchups(teams, DIVISION_RULES[div]) for div, teams in division_teams.items()}
     flat_matchups = [match for matches in matchups.values() for match in matches]
