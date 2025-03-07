@@ -58,7 +58,10 @@ import random
 import itertools
 from collections import defaultdict
 
-def generate_matchups(rules, division_teams):
+import random
+import itertools
+
+def generate_matchups(division, rules_for_division, division_teams):
     matchups = []
     
     # Helper function to generate home/away balanced matchups
@@ -71,62 +74,33 @@ def generate_matchups(rules, division_teams):
         random.shuffle(matchups)  # Shuffle for randomness
         return matchups[:count_per_team]
 
-    # Intra-divisional matchups
-    for division, rules_for_division in rules.items():
-        intra_extra = rules_for_division['intra_extra']
-        intra_teams = [f'{division}{i+1}' for i in range(8)]
-        
-        # For A and C Divisions: 
-        # 3 times against 4 teams (2 home and away games)
-        # 2 times against 3 teams (1 home and 1 away, random for the other)
-        if division in ['A', 'C']:
-            # 3 times against 4 teams (home/away)
-            teams_3_times = random.sample(intra_teams, 4)
-            for team in teams_3_times:
-                for opponent in teams_3_times:
-                    if team != opponent:
-                        matchups.append((team, opponent))
-                        matchups.append((opponent, team))
+    intra_extra = rules_for_division['intra_extra']
+    intra_teams = division_teams[division]  # Get teams in the division
+    
+    # A & C Divisions: 4 teams played 3 times (2 home, 1 away or vice versa)
+    if division in ['A', 'C']:
+        random.shuffle(intra_teams)
+        selected_teams = intra_teams[:4]  # Pick 4 teams
+        matchups.extend(generate_home_away_matchups(selected_teams, intra_extra['3_times'] * 2))
+    
+    # A & C Divisions: Remaining 3 teams played 2 times (1 home, 1 away)
+    if division in ['A', 'C']:
+        remaining_teams = intra_teams[4:]
+        matchups.extend(generate_home_away_matchups(remaining_teams, intra_extra['2_times'] * 2))
 
-            # 2 times against 3 teams (1 home and 1 away, random for the other)
-            teams_2_times = random.sample(intra_teams, 3)
-            for team in teams_2_times:
-                for opponent in teams_2_times:
-                    if team != opponent:
-                        matchups.append((team, opponent))
-                        matchups.append((opponent, team))
+    # B Division: Every team plays each other twice (1 home, 1 away)
+    if division == 'B':
+        matchups.extend(generate_home_away_matchups(intra_teams, intra_extra['2_times'] * 2))
 
-        # For B Division: Play each of the 7 teams only 2 times (1 home and 1 away)
-        elif division == 'B':
-            # 2 times against 7 teams (home and away)
-            for team1, team2 in itertools.combinations(intra_teams, 2):
-                matchups.append((team1, team2))  # Team1 home, Team2 away
-                matchups.append((team2, team1))  # Team2 home, Team1 away
-
-    # Inter-divisional matchups
-    inter_divisional_games = rules.get('inter', {})
+    # Inter-divisional games
+    inter_divisional_games = rules_for_division.get('inter', {})
     for inter_div, count in inter_divisional_games.items():
-        inter_teams = [f'{inter_div}{i+1}' for i in range(8)]
-        inter_matchups = list(itertools.product(division_teams, inter_teams))
+        inter_teams = division_teams[inter_div]  # Get teams from the other division
+        inter_matchups = list(itertools.product(intra_teams, inter_teams))
         random.shuffle(inter_matchups)
-        
-        # Add the inter-divisional matchups based on count
         matchups.extend(inter_matchups[:count])
 
-    # Debug: Check inter-division matchups
-    print(f"Inter-division matchups generated: {len(matchups)}")
-
-    # Shuffle the final matchups list
-    random.shuffle(matchups)
-
-    # Debug: Total matchups generated
-    print(f"Total matchups generated: {len(matchups)}")
-
-    # Print all matchups
-    print("Generated Matchups:")
-    for matchup in matchups:
-        print(matchup)
-
+    random.shuffle(matchups)  # Shuffle final matchups list
     return matchups
 
 
