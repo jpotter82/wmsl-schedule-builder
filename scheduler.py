@@ -260,7 +260,7 @@ def main():
     for division, teams in division_teams.items():
         print(f"Division {division}: {teams}")
     
-    matchups = {div: generate_matchups(teams, DIVISION_RULES[div]) for div, teams in division_teams.items()}
+    matchups = {div: generate_matchups(div, DIVISION_RULES[div], division_teams) for div in division_teams}
     flat_matchups = [match for matches in matchups.values() for match in matches]
 
     schedule, team_stats = schedule_games(flat_matchups, team_availability, field_availability)
