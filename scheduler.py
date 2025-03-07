@@ -279,8 +279,13 @@ def main():
         'B': [f'B{i+1}' for i in range(8)],
         'C': [f'C{i+1}' for i in range(8)],
     }
-    # Print the type of DIVISION_RULES to debug
-    print(type(division_teams))
+    # Print the entire dictionary
+    print("Division Teams:")
+    pprint.pprint(division_teams)
+    
+    # Or, print each division separately for clarity
+    for division, teams in division_teams.items():
+        print(f"Division {division}: {teams}")
     
     matchups = {div: generate_matchups(teams, DIVISION_RULES[div]) for div, teams in division_teams.items()}
     flat_matchups = [match for matches in matchups.values() for match in matches]
