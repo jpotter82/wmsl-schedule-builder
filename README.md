@@ -51,6 +51,8 @@ Usage
 
     -   Create or update `team_availability.csv` with team-specific availability.
     -   Create or update `field_availability.csv` with field-specific availability.
+    -   Create or update `team_blackouts.csv` with specific blackout dates by team.
+    -   Create or update `doubleheaders.csv` with the dates you would like to schedule double-headers.
 2.  **Run the Scheduler**:
 
     -   Execute the main script to generate the schedule:
