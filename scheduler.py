@@ -243,6 +243,33 @@ def generate_full_matchups(division_teams):
     return full_matchups
 
 # -------------------------------
+# Home/Away Decision Helper
+# -------------------------------
+def decide_home_away(team1, team2, team_stats):
+    """
+    Decide which team should be home based on current home game counts.
+    If one team is at the home limit (HOME_AWAY_BALANCE) and the other is not, 
+    the latter becomes home. Otherwise, choose the team with fewer home games.
+    If equal, randomize the assignment.
+    """
+    # If one team is already at the limit, force the other as home (if possible)
+    if team_stats[team1]['home_games'] >= HOME_AWAY_BALANCE and team_stats[team2]['home_games'] < HOME_AWAY_BALANCE:
+        return team2, team1
+    if team_stats[team2]['home_games'] >= HOME_AWAY_BALANCE and team_stats[team1]['home_games'] < HOME_AWAY_BALANCE:
+        return team1, team2
+    # Otherwise, choose the team with fewer home games
+    if team_stats[team1]['home_games'] < team_stats[team2]['home_games']:
+        return team1, team2
+    elif team_stats[team2]['home_games'] < team_stats[team1]['home_games']:
+        return team2, team1
+    else:
+        # If equal, randomize the decision
+        if random.random() < 0.5:
+            return team1, team2
+        else:
+            return team2, team1
+
+# -------------------------------
 # Scheduling functions
 # -------------------------------
 def schedule_games(matchups, team_availability, field_availability, team_blackouts, doubleheader_dates):
@@ -267,32 +294,28 @@ def schedule_games(matchups, team_availability, field_availability, team_blackou
             week_num = date.isocalendar()[1]
             game_date = date.date()
             for matchup in unscheduled_matchups[:]:
-                home, away = matchup
+                # Unpack the matchup (order from generation is now considered unordered)
+                t1, t2 = matchup
                 # Check team day-of-week availability.
-                if day_of_week not in team_availability.get(home, set()) or day_of_week not in team_availability.get(away, set()):
+                if day_of_week not in team_availability.get(t1, set()) or day_of_week not in team_availability.get(t2, set()):
                     continue
                 # Check team blackout dates.
-                if game_date in team_blackouts.get(home, set()) or game_date in team_blackouts.get(away, set()):
+                if game_date in team_blackouts.get(t1, set()) or game_date in team_blackouts.get(t2, set()):
                     continue
                 # Check if teams are already scheduled in this specific slot.
-                if home in scheduled_slots[(date, slot)] or away in scheduled_slots[(date, slot)]:
+                if t1 in scheduled_slots[(date, slot)] or t2 in scheduled_slots[(date, slot)]:
                     continue
                 # Check overall game count and weekly limits.
-                if team_stats[home]['total_games'] >= MAX_GAMES or team_stats[away]['total_games'] >= MAX_GAMES:
+                if team_stats[t1]['total_games'] >= MAX_GAMES or team_stats[t2]['total_games'] >= MAX_GAMES:
                     continue
-                if (team_stats[home]['weekly_games'][week_num] >= WEEKLY_GAME_LIMIT or
-                    team_stats[away]['weekly_games'][week_num] >= WEEKLY_GAME_LIMIT):
+                if (team_stats[t1]['weekly_games'][week_num] >= WEEKLY_GAME_LIMIT or
+                    team_stats[t2]['weekly_games'][week_num] >= WEEKLY_GAME_LIMIT):
                     continue
-                # Ensure home/away balance.
-                if team_stats[home]['home_games'] >= HOME_AWAY_BALANCE:
-                    if team_stats[away]['home_games'] < HOME_AWAY_BALANCE:
-                        home, away = away, home
-                    else:
-                        continue
-
+                
+                # Decide on home/away based on current counts.
+                home, away = decide_home_away(t1, t2, team_stats)
+                
                 # Enforce per-day limits with doubleheader consideration.
-                # If the day is a doubleheader day, allow up to 2 games per team,
-                # but if a team already has a game on that day, the new opponent must differ.
                 if game_date in doubleheader_dates:
                     if len(team_games_by_date[home][game_date]) >= 2 or len(team_games_by_date[away][game_date]) >= 2:
                         continue
@@ -307,7 +330,7 @@ def schedule_games(matchups, team_availability, field_availability, team_blackou
                     if len(team_games_by_date[home][game_date]) >= 1 or len(team_games_by_date[away][game_date]) >= 1:
                         continue
 
-                # Schedule the game.
+                # All constraints passed -- schedule the game.
                 schedule.append((date, slot, field, home, home[0], away, away[0]))
                 team_stats[home]['total_games'] += 1
                 team_stats[home]['home_games'] += 1
