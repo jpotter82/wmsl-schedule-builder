@@ -10,17 +10,18 @@ from prettytable import PrettyTable
 # -------------------------------
 MAX_GAMES = 22
 HOME_AWAY_BALANCE = 11
-WEEKLY_GAME_LIMIT = 2  # max games per team per week
-MAX_RETRIES = 10000    # scheduling backtracking limit
-MIN_GAP = 2            # minimum days between game dates
-MIN_DOUBLE_HEADERS = 5  # minimum number of doubleheader sessions per team
+WEEKLY_GAME_LIMIT = 2      # max games per team per week
+MAX_RETRIES = 10000        # scheduling backtracking limit
+MIN_GAP = 2                # minimum days between game dates
+MIN_DOUBLE_HEADERS = 5     # minimum number of doubleheader sessions per team (each session = 2 games)
 
-# For inter–division scheduling:
-# In Division A, only teams A5–A8 play inter–division games.
-# In Division C, only teams C1–C4 play inter–division games.
-INTER_DIVISION_GAMES_A = 4  # Each eligible A team (A5-A8) plays 4 inter–division games
-INTER_DIVISION_GAMES_C = 4  # Each eligible C team (C1-C4) plays 4 inter–division games
-# For balance, the corresponding B teams will get:
+# Inter–division scheduling constraints:
+# In Division A, only teams A5-A8 play inter–division games (vs. B)
+# In Division C, only teams C1-C4 play inter–division games (vs. B)
+INTER_DIVISION_GAMES_A = 4  # each eligible A team (A5-A8) plays 4 inter–division games
+INTER_DIVISION_GAMES_C = 4  # each eligible C team (C1-C4) plays 4 inter–division games
+
+# For balance:
 # For A vs B: total games = 4 * 4 = 16, so each B team gets 16/8 = 2 games.
 # For B vs C: total games = 4 * 4 = 16, so each B team gets 16/8 = 2 games.
 
@@ -32,10 +33,10 @@ def min_gap_ok(team, d, team_game_days):
     Check if scheduling a game for team on date 'd' is allowed given the MIN_GAP constraint.
     Allows a game on the same day if it creates a doubleheader (but no more than 2 games per day).
     """
-    # Allow if already a game on d but not more than 1 (i.e. a doubleheader is allowed)
+    # Allow if already a game on d but not more than 1 (i.e. one game already is fine – a second game makes a session)
     if team_game_days[team].get(d, 0) >= 2:
         return False
-    # For other dates, enforce the gap constraint
+    # Enforce the gap constraint for other dates.
     for gd in team_game_days[team]:
         if gd != d and abs((d - gd).days) < MIN_GAP:
             return False
@@ -218,7 +219,6 @@ def generate_full_matchups(division_teams):
     # For these 4 teams, each plays INTER_DIVISION_GAMES_C games.
     # To balance, each B team gets:
     degree_B_from_C = (len(eligible_C) * INTER_DIVISION_GAMES_C) // len(division_teams['B'])
-    # Here, we consider B as the "from" side.
     inter_BC = generate_inter_division_matchups_custom(division_teams['B'], eligible_C,
                                                        degree_B_from_C, INTER_DIVISION_GAMES_C)
     full_matchups.extend(inter_BC)
@@ -227,7 +227,7 @@ def generate_full_matchups(division_teams):
     return full_matchups
 
 # -------------------------------
-# Home/Away Helper (optional – see note below)
+# Home/Away Helper (optional)
 # -------------------------------
 def decide_home_away(t1, t2, team_stats):
     if team_stats[t1]['home_games'] >= HOME_AWAY_BALANCE and team_stats[t2]['home_games'] < HOME_AWAY_BALANCE:
@@ -256,7 +256,8 @@ def schedule_games(matchups, team_availability, field_availability):
     used_slots = {}
     # Record games per team per day (date -> count)
     team_game_days = defaultdict(lambda: defaultdict(int))
-    # Count of doubleheader sessions (days with exactly 2 games) per team.
+    # Count of doubleheader sessions per team.
+    # Note: Each doubleheader session represents 2 games on the same day.
     doubleheader_count = defaultdict(int)
     
     unscheduled_matchups = matchups[:]
@@ -300,7 +301,8 @@ def schedule_games(matchups, team_availability, field_availability):
                 for team in (home, away):
                     prev = team_game_days[team].get(date.date(), 0)
                     team_game_days[team][date.date()] = prev + 1
-                    # If this scheduling makes it a doubleheader (exactly 2 games on that day), record it.
+                    # If this scheduling makes it a doubleheader session (exactly 2 games on that day),
+                    # count that as one session.
                     if prev == 1:
                         doubleheader_count[team] += 1
                 unscheduled_matchups.remove(matchup)
@@ -315,10 +317,14 @@ def schedule_games(matchups, team_availability, field_availability):
     if unscheduled_matchups:
         print("Warning: Retry limit reached. Some matchups could not be scheduled.")
     
-    # Warn if any team did not reach the minimum doubleheader count.
+    # Warn if any team did not reach the minimum doubleheader session count.
+    # Note: Each session corresponds to 2 games on the same day.
     for team in team_stats:
         if doubleheader_count[team] < MIN_DOUBLE_HEADERS:
-            print(f"Warning: Team {team} has only {doubleheader_count[team]} doubleheader sessions, less than the minimum required {MIN_DOUBLE_HEADERS}.")
+            required_games = MIN_DOUBLE_HEADERS * 2
+            actual_games = doubleheader_count[team] * 2
+            print(f"Warning: Team {team} has {actual_games} doubleheader games (i.e. {doubleheader_count[team]} sessions), "
+                  f"less than the minimum required {required_games} games (i.e. {MIN_DOUBLE_HEADERS} sessions).")
     
     return schedule, team_stats
 
