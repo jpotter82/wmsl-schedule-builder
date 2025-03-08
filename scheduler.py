@@ -61,6 +61,31 @@ def load_field_availability(file_path):
     field_availability.sort(key=lambda x: x[0])
     return field_availability
 
+def load_team_blackouts(file_path):
+    """
+    Loads blackout dates from a CSV file.
+    The CSV is expected to have: Team, Date1, Date2, Date3, ...
+    Dates must be in the format YYYY-MM-DD.
+    Returns a dict mapping team to a set of datetime.date objects.
+    """
+    blackouts = {}
+    with open(file_path, mode='r') as file:
+        reader = csv.reader(file)
+        next(reader)  # Skip header
+        for row in reader:
+            team = row[0].strip()
+            dates = set()
+            for d in row[1:]:
+                d = d.strip()
+                if d:
+                    try:
+                        dt = datetime.strptime(d, '%Y-%m-%d').date()
+                        dates.add(dt)
+                    except Exception as e:
+                        print(f"Error parsing blackout date '{d}' for team {team}: {e}")
+            blackouts[team] = dates
+    return blackouts
+
 # -------------------------------
 # Intra-division matchup generation
 # -------------------------------
@@ -205,7 +230,7 @@ def decide_home_away(t1, t2, team_stats):
 # -------------------------------
 # Scheduling functions (updated for doubleheaders)
 # -------------------------------
-def schedule_games(matchups, team_availability, field_availability):
+def schedule_games(matchups, team_availability, field_availability, team_blackouts):
     schedule = []
     team_stats = defaultdict(lambda: {
         'total_games': 0,
@@ -230,10 +255,15 @@ def schedule_games(matchups, team_availability, field_availability):
                 continue
             day_of_week = date.strftime('%a')
             week_num = date.isocalendar()[1]
+            # Check blackout for this date once (date part only)
+            game_date = date.date()
             for matchup in unscheduled_matchups[:]:
                 home, away = matchup
                 # Check team availability.
                 if day_of_week not in team_availability.get(home, set()) or day_of_week not in team_availability.get(away, set()):
+                    continue
+                # Check team blackout dates
+                if game_date in team_blackouts.get(home, set()) or game_date in team_blackouts.get(away, set()):
                     continue
                 if team_stats[home]['total_games'] >= MAX_GAMES or team_stats[away]['total_games'] >= MAX_GAMES:
                     continue
