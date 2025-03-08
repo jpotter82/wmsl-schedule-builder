@@ -132,8 +132,8 @@ def generate_bipartite_regular_matchups(teams1, teams2, degree):
     """
     teams1_order = teams1[:]
     random.shuffle(teams1_order)
-    assignment = {team: [] for team in teams1_order}
-    capacity = {team: degree for team in teams2}
+    assignment = {t: [] for t in teams1_order}
+    capacity = {t: degree for t in teams2}
     
     def backtrack(i):
         if i == len(teams1_order):
@@ -161,9 +161,8 @@ def generate_bipartite_regular_matchups(teams1, teams2, degree):
 
 def generate_inter_division_matchups(division_from, division_to, teams_from, teams_to):
     """
-    Generate inter-division matchups between teams_from and teams_to as a bipartite regular graph.
-    Each team in teams_from will have 'degree' inter games against teams in teams_to and vice versa.
-    Then randomly assign home/away.
+    Generate inter-division matchups between teams_from and teams_to.
+    A and C teams do not play each other.
     """
     degree = 4
     edges = generate_bipartite_regular_matchups(teams_from, teams_to, degree)
@@ -183,15 +182,12 @@ def generate_full_matchups(division_teams):
     
     # Intra-division games:
     for div, teams in division_teams.items():
-        intra = generate_intra_division_matchups(div, teams)
-        full_matchups.extend(intra)
+        full_matchups.extend(generate_intra_division_matchups(div, teams))
     
     # Inter-division games:
     # A and C do NOT play.
-    # A vs B:
     inter_AB = generate_inter_division_matchups('A', 'B', division_teams['A'], division_teams['B'])
     full_matchups.extend(inter_AB)
-    # B vs C:
     inter_BC = generate_inter_division_matchups('B', 'C', division_teams['B'], division_teams['C'])
     full_matchups.extend(inter_BC)
     
@@ -209,19 +205,21 @@ def schedule_games(matchups, team_availability, field_availability):
         'away_games': 0,
         'weekly_games': defaultdict(int)
     })
-    scheduled_slots = defaultdict(set)  # key: (date, slot) -> set of teams
+    # We now use a dictionary to mark whether a given slot (date, slot) is used.
+    used_slots = {}
     unscheduled_matchups = matchups[:]
     retry_count = 0
     while unscheduled_matchups and retry_count < MAX_RETRIES:
         progress_made = False
         for date, slot, field in field_availability:
+            # If this slot is already used, skip it.
+            if used_slots.get((date, slot), False):
+                continue
             day_of_week = date.strftime('%a')
             week_num = date.isocalendar()[1]
             for matchup in unscheduled_matchups[:]:
                 home, away = matchup
                 if day_of_week not in team_availability.get(home, set()) or day_of_week not in team_availability.get(away, set()):
-                    continue
-                if home in scheduled_slots[(date, slot)] or away in scheduled_slots[(date, slot)]:
                     continue
                 if team_stats[home]['total_games'] >= MAX_GAMES or team_stats[away]['total_games'] >= MAX_GAMES:
                     continue
@@ -240,7 +238,7 @@ def schedule_games(matchups, team_availability, field_availability):
                 team_stats[away]['away_games'] += 1
                 team_stats[home]['weekly_games'][week_num] += 1
                 team_stats[away]['weekly_games'][week_num] += 1
-                scheduled_slots[(date, slot)].update([home, away])
+                used_slots[(date, slot)] = True   # mark this slot as used
                 unscheduled_matchups.remove(matchup)
                 progress_made = True
                 break
