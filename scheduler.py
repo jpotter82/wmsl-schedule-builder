@@ -5,28 +5,25 @@ from datetime import datetime, timedelta
 from collections import defaultdict
 from prettytable import PrettyTable
 
-# CONFIGURABLE PARAMETERS
+# Configurable parameters
 MAX_GAMES = 22
 HOME_AWAY_BALANCE = 11
-WEEKLY_GAME_LIMIT = 2   # max games per team per week
-MAX_RETRIES = 10000     # scheduling backtracking limit
-MIN_GAP = 2             # minimum days between games (for different days)
-# (Note: Back-to-back games on the same day are allowed only if slots are consecutive)
+WEEKLY_GAME_LIMIT = 2  # max games per team per week
+MAX_RETRIES = 10000    # scheduling backtracking limit
+MIN_GAP = 2            # minimum days between games on different days
 
 # -------------------------------
 # Helper Functions
 # -------------------------------
 def min_gap_ok(team, d, team_game_days):
     """
-    For a given team and candidate date d, if the team already played on d, the
-    consecutive slot check is handled externally. For games on different days,
-    ensure the gap from the most recent game is at least MIN_GAP.
+    Returns True if team has no game scheduled on a day less than MIN_GAP days before d.
+    (For games on the same day, consecutive slots are checked separately.)
     """
-    prior_dates = [gd for gd in team_game_days[team] if gd < d]
-    if not prior_dates:
-        return True
-    last_date = max(prior_dates)
-    return (d - last_date).days >= MIN_GAP
+    for gd in team_game_days[team]:
+        if gd != d and (d - gd).days < MIN_GAP:
+            return False
+    return True
 
 def is_legal(matchup):
     """
@@ -46,7 +43,7 @@ def load_team_availability(file_path):
     avail = {}
     with open(file_path, mode='r') as f:
         reader = csv.reader(f)
-        next(reader)
+        next(reader)  # skip header
         for row in reader:
             team = row[0].strip()
             days = [d.strip() for d in row[1:] if d.strip()]
@@ -57,7 +54,7 @@ def load_field_availability(file_path):
     slots = []
     with open(file_path, mode='r') as f:
         reader = csv.reader(f)
-        next(reader)
+        next(reader)  # skip header
         for row in reader:
             dt = datetime.strptime(row[0].strip(), '%Y-%m-%d')
             slot = row[1].strip()
@@ -83,20 +80,6 @@ def load_team_blackouts(file_path):
             blackouts[team] = dates
     return blackouts
 
-def load_doubleheader_dates(file_path):
-    dh = set()
-    with open(file_path, mode='r') as f:
-        reader = csv.reader(f)
-        next(reader)
-        for row in reader:
-            d = row[0].strip()
-            if d:
-                try:
-                    dh.add(datetime.strptime(d, '%Y-%m-%d').date())
-                except Exception as e:
-                    print(f"Error parsing doubleheader date '{d}': {e}")
-    return dh
-
 # -------------------------------
 # Matchup Generation Functions
 # -------------------------------
@@ -113,17 +96,17 @@ def assign_intra_division_weights(teams, two_game_count, three_game_count):
             assignment[(t1, t2)] = 2
             count2[t1] += 1
             count2[t2] += 1
-            if backtrack(i + 1):
+            if backtrack(i+1):
                 return True
             count2[t1] -= 1
             count2[t2] -= 1
             del assignment[(t1, t2)]
         assignment[(t1, t2)] = 3
-        if backtrack(i + 1):
+        if backtrack(i+1):
             return True
         del assignment[(t1, t2)]
         return False
-
+    
     if backtrack(0):
         return assignment
     else:
@@ -151,66 +134,100 @@ def generate_intra_division_matchups(division, teams):
             m.append((t1, t2))
             m.append((t2, t1))
         return m
-    elif division in ['A', 'C']:
+    elif division in ['A','C']:
         two_game_count = 3
         three_game_count = (len(teams) - 1) - two_game_count
-        weight_assignment = assign_intra_division_weights(teams, two_game_count, three_game_count)
-        return generate_intra_matchups(teams, weight_assignment)
+        assign = assign_intra_division_weights(teams, two_game_count, three_game_count)
+        return generate_intra_matchups(teams, assign)
     else:
         raise Exception("Unknown division")
 
-def generate_bipartite_regular_matchups(teams1, teams2, degree):
-    teams1_order = teams1[:]
-    random.shuffle(teams1_order)
-    assignment = {t: [] for t in teams1_order}
-    capacity = {t: degree for t in teams2}
+# For inter-division matchups, we now implement an uneven bipartite matching function.
+def generate_uneven_bipartite_matchups(teams_left, teams_right, left_degree, right_degree):
+    """
+    Generates a bipartite assignment such that each team in teams_left appears exactly left_degree times,
+    and each team in teams_right appears exactly right_degree times.
+    Requires len(teams_left)*left_degree == len(teams_right)*right_degree.
+    Uses backtracking search.
+    Returns a list of matchups (each is a tuple from teams_left, teams_right).
+    """
+    total = len(teams_left) * left_degree
+    if total != len(teams_right) * right_degree:
+        raise Exception("Uneven bipartite matching: degree condition not met.")
+    # We'll build an assignment: for each team in teams_left, assign a list of teams from teams_right.
+    assignment = {}
+    # Track remaining capacity for each team on the right.
+    capacity = {t: right_degree for t in teams_right}
+    teams_left_order = teams_left[:]
+    random.shuffle(teams_left_order)
+    matchups = []
     
     def backtrack(i):
-        if i == len(teams1_order):
+        if i == len(teams_left_order):
             return True
-        team = teams1_order[i]
-        available = [t for t in teams2 if capacity[t] > 0]
-        for combo in itertools.combinations(available, degree):
+        team = teams_left_order[i]
+        # Try all combinations of size left_degree from teams_right that have capacity left.
+        available = [t for t in teams_right if capacity[t] > 0]
+        for combo in itertools.combinations(available, left_degree):
             assignment[team] = list(combo)
             for t in combo:
                 capacity[t] -= 1
-            if backtrack(i + 1):
+            if backtrack(i+1):
                 return True
             for t in combo:
                 capacity[t] += 1
         return False
     
-    if backtrack(0):
-        edges = []
-        for team in teams1_order:
-            for opp in assignment[team]:
-                edges.append((team, opp))
-        return edges
-    else:
-        raise Exception("Bipartite matching failed.")
+    if not backtrack(0):
+        raise Exception("Uneven bipartite matching failed.")
+    # Build matchup list.
+    for team in teams_left_order:
+        for opp in assignment[team]:
+            matchups.append((team, opp))
+    return matchups
 
 def generate_inter_division_matchups(division_from, division_to, teams_from, teams_to):
-    degree = 4
-    edges = generate_bipartite_regular_matchups(teams_from, teams_to, degree)
-    m = []
+    """
+    For inter-division games.
+    For A vs. B: teams_from are from A, teams_to are from B.
+    For B vs. C: teams_from are from B, teams_to are from C.
+    """
+    # Decide degrees based on our requirements.
+    # For A vs. B: only inter-eligible A teams (A5-A8) are used.
+    # Each A team plays 4 games and each B team plays 2 games.
+    # For B vs. C: only inter-eligible C teams (C1-C4) are used.
+    # Each C team plays 4 games and each B team plays 2 games.
+    if division_from == 'A' and division_to == 'B':
+        left_degree = 4
+        right_degree = 2
+    elif division_from == 'B' and division_to == 'C':
+        left_degree = 2
+        right_degree = 4
+    else:
+        # Default: use degree 4 on both sides (should not happen as A vs C are illegal)
+        left_degree = right_degree = 4
+    edges = generate_uneven_bipartite_matchups(teams_from, teams_to, left_degree, right_degree)
+    # Randomly assign home/away.
+    matchups = []
     for (t1, t2) in edges:
         if random.random() < 0.5:
-            m.append((t1, t2))
+            matchups.append((t1, t2))
         else:
-            m.append((t2, t1))
-    return m
+            matchups.append((t2, t1))
+    return matchups
 
 def generate_full_matchups(division_teams):
     full_matchups = []
-    # Intra-division: all teams play within their division.
+    # Intra-division games: use full division teams.
     for div, teams in division_teams.items():
         full_matchups.extend(generate_intra_division_matchups(div, teams))
-    # Inter-division:
-    # For A vs. B: Only teams A5–A8 play inter-division.
+    # Inter-division games:
+    # A and C do NOT play.
+    # For A vs. B: use only A teams A5-A8.
     teams_A_inter = [team for team in division_teams['A'] if team[1] in "5678"]
     inter_AB = generate_inter_division_matchups('A', 'B', teams_A_inter, division_teams['B'])
     full_matchups.extend(inter_AB)
-    # For B vs. C: Only teams C1–C4 play inter-division.
+    # For B vs. C: use only C teams C1-C4.
     teams_C_inter = [team for team in division_teams['C'] if team[1] in "1234"]
     inter_BC = generate_inter_division_matchups('B', 'C', division_teams['B'], teams_C_inter)
     full_matchups.extend(inter_BC)
@@ -243,11 +260,10 @@ def schedule_standard_games(matchups, team_availability, field_availability, dou
         'away_games': 0,
         'weekly_games': defaultdict(int)
     })
-    # team_day_slots: team -> { date: sorted list of slot indices }
+    # For standard scheduling, track for each team the slot indices (by sorted order) on each date.
     team_day_slots = defaultdict(lambda: defaultdict(list))
     used_slots = {}
     unscheduled = matchups[:]
-    
     # Process only slots on dates not in doubleheader_dates.
     standard_slots = [s for s in field_availability if s[0].date() not in doubleheader_dates]
     # Group slots by date.
@@ -273,16 +289,15 @@ def schedule_standard_games(matchups, team_availability, field_availability, dou
                         continue
                     if team_stats[home]['total_games'] >= MAX_GAMES or team_stats[away]['total_games'] >= MAX_GAMES:
                         continue
-                    if (team_stats[home]['weekly_games'][week_num] >= WEEKLY_GAME_LIMIT or
+                    if (team_stats[home]['weekly_games'][week_num] >= WEEKLY_GAME_LIMIT or 
                         team_stats[away]['weekly_games'][week_num] >= WEEKLY_GAME_LIMIT):
                         continue
-                    # Check if the team already played on d.
+                    # Check consecutive slot rule.
                     valid = True
                     for team in (home, away):
                         if d in team_day_slots[team]:
-                            last_index = max(team_day_slots[team][d])
-                            # Allow consecutive game only.
-                            if idx != last_index + 1:
+                            last_idx = max(team_day_slots[team][d])
+                            if idx != last_idx + 1:
                                 valid = False
                                 break
                     if not valid:
@@ -354,7 +369,7 @@ def generate_matchup_table(schedule, division_teams):
     print(table)
 
 # -------------------------------
-# Main Scheduling Function
+# Main Function
 # -------------------------------
 def main():
     team_availability = load_team_availability('team_availability.csv')
