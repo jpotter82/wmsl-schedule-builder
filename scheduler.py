@@ -50,61 +50,36 @@ def initialize_team_stats():
         'inter_games': defaultdict(int),  # Tracks how many times they play inter teams
     }
 
-import itertools
-import random
-
-# Generate Matchups
-import random
-import itertools
-from collections import defaultdict
-
-import random
-import itertools
-
-def generate_matchups(division, rules_for_division, division_teams):
+# Generate matchups based on rules
+def generate_matchups(division_teams, rules):
     matchups = []
-    
-    # Helper function to generate home/away balanced matchups
-    def generate_home_away_matchups(teams, count_per_team):
-        matchups = []
-        for team1, team2 in itertools.combinations(teams, 2):
-            # Generate home/away matchups
-            matchups.append((team1, team2))  # Team1 home, Team2 away
-            matchups.append((team2, team1))  # Team2 home, Team1 away
-        random.shuffle(matchups)  # Shuffle for randomness
-        return matchups[:count_per_team]
 
-    intra_extra = rules_for_division['intra_extra']
-    intra_teams = division_teams[division]  # Get teams in the division
-    
-    # A & C Divisions: 4 teams played 3 times (2 home, 1 away or vice versa)
-    if division in ['A', 'C']:
-        random.shuffle(intra_teams)
-        selected_teams = intra_teams[:4]  # Pick 4 teams
-        matchups.extend(generate_home_away_matchups(selected_teams, intra_extra['3_times'] * 2))
-    
-    # A & C Divisions: Remaining 3 teams played 2 times (1 home, 1 away)
-    if division in ['A', 'C']:
-        remaining_teams = intra_teams[4:]
-        matchups.extend(generate_home_away_matchups(remaining_teams, intra_extra['2_times'] * 2))
+    # Intra-divisional games
+    intra_combinations = list(itertools.combinations(division_teams, 2))
+    random.shuffle(intra_combinations)
 
-    # B Division: Every team plays each other twice (1 home, 1 away)
-    if division == 'B':
-        matchups.extend(generate_home_away_matchups(intra_teams, intra_extra['2_times'] * 2))
+    three_times = rules['intra_extra']['3_times']
+    two_times = rules['intra_extra']['2_times']
+    
+    selected_three = intra_combinations[:three_times]
+    selected_two = intra_combinations[three_times:three_times+two_times]
 
+    for home, away in selected_three:
+        matchups.extend([(home, away), (away, home), (home, away)])  # 3 games
+    for home, away in selected_two:
+        matchups.extend([(home, away), (away, home)])  # 2 games
+    
     # Inter-divisional games
-    inter_divisional_games = rules_for_division.get('inter', {})
-    for inter_div, count in inter_divisional_games.items():
-        inter_teams = division_teams[inter_div]  # Get teams from the other division
-        inter_matchups = list(itertools.product(intra_teams, inter_teams))
+    for inter_div, count in rules['inter'].items():
+        inter_teams = [f'{inter_div}{i+1}' for i in range(8)]
+        inter_matchups = list(itertools.product(division_teams, inter_teams))
         random.shuffle(inter_matchups)
         matchups.extend(inter_matchups[:count])
-
-    random.shuffle(matchups)  # Shuffle final matchups list
+    
+    random.shuffle(matchups)
     return matchups
 
-
-# Schedule the games
+# Schedule games
 def schedule_games(matchups, team_availability, field_availability):
     schedule = []
     team_stats = defaultdict(initialize_team_stats)
@@ -131,7 +106,7 @@ def schedule_games(matchups, team_availability, field_availability):
                     day_of_week in team_availability[away] and
                     home not in scheduled_slots[(date, slot)] and
                     away not in scheduled_slots[(date, slot)]):
-                    
+
                     # Relax weekly game constraints to ensure all games are scheduled
                     if (team_stats[home]['weekly_games'][week_num] < 2 and
                         team_stats[away]['weekly_games'][week_num] < 2) or retry_count > 5000:
@@ -150,9 +125,8 @@ def schedule_games(matchups, team_availability, field_availability):
                         team_stats[away]['weekly_games'][week_num] += 1
                         scheduled_slots[(date, slot)].update([home, away])
 
-                        # **REMOVE scheduled matchup from the list**
+                        # Remove matchup from unscheduled
                         unscheduled_matchups.remove(matchup)
-                        # Do NOT remove matchup from unscheduled yet
                         progress_made = True
                         break
 
@@ -255,14 +229,8 @@ def main():
         'B': [f'B{i+1}' for i in range(8)],
         'C': [f'C{i+1}' for i in range(8)],
     }
-    # Print the entire dictionary
-    print("Division Teams:")
-    
-    # Or, print each division separately for clarity
-    for division, teams in division_teams.items():
-        print(f"Division {division}: {teams}")
-    
-    matchups = {div: generate_matchups(div, DIVISION_RULES[div], division_teams) for div in division_teams}
+
+    matchups = {div: generate_matchups(teams, DIVISION_RULES[div]) for div, teams in division_teams.items()}
     flat_matchups = [match for matches in matchups.values() for match in matches]
 
     schedule, team_stats = schedule_games(flat_matchups, team_availability, field_availability)
