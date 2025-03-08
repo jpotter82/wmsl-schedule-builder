@@ -13,6 +13,27 @@ MAX_RETRIES = 10000    # scheduling backtracking limit
 MIN_GAP = 2            # minimum days between game dates
 
 # -------------------------------
+# Helper Functions
+# -------------------------------
+def min_gap_ok(team, d, team_game_days):
+    """Return True if 'team' has no game scheduled within MIN_GAP days before date d."""
+    for gd in team_game_days[team]:
+        if gd != d and (d - gd).days < MIN_GAP:
+            return False
+    return True
+
+def is_legal(matchup):
+    """
+    Returns True if the matchup is legal.
+    Illegal: pairing an A–team with a C–team.
+    Assumes team names begin with their division letter.
+    """
+    a, b = matchup
+    if (a[0]=='A' and b[0]=='C') or (a[0]=='C' and b[0]=='A'):
+        return False
+    return True
+
+# -------------------------------
 # Data loading functions
 # -------------------------------
 def load_team_availability(file_path):
@@ -191,7 +212,7 @@ def schedule_games(matchups, team_availability, field_availability):
         'away_games': 0,
         'weekly_games': defaultdict(int)
     })
-    # Dictionary to mark each slot as used; key is (date, slot, field)
+    # Use a dictionary keyed by (date, slot, field) to mark each slot as used.
     used_slots = {}
     # New dictionary to record the dates (as date objects) on which a team has played.
     team_game_days = defaultdict(set)
@@ -200,7 +221,6 @@ def schedule_games(matchups, team_availability, field_availability):
     while unscheduled_matchups and retry_count < MAX_RETRIES:
         progress_made = False
         for date, slot, field in field_availability:
-            # Check if this specific slot (including field) is used.
             if used_slots.get((date, slot, field), False):
                 continue
             day_of_week = date.strftime('%a')
@@ -209,14 +229,12 @@ def schedule_games(matchups, team_availability, field_availability):
                 home, away = matchup
                 if day_of_week not in team_availability.get(home, set()) or day_of_week not in team_availability.get(away, set()):
                     continue
-                # Check maximum total games and weekly game limits.
                 if team_stats[home]['total_games'] >= MAX_GAMES or team_stats[away]['total_games'] >= MAX_GAMES:
                     continue
                 if (team_stats[home]['weekly_games'][week_num] >= WEEKLY_GAME_LIMIT or
                     team_stats[away]['weekly_games'][week_num] >= WEEKLY_GAME_LIMIT):
                     continue
-                # Check the minimum gap: ensure each candidate team has no game scheduled
-                # within MIN_GAP days (using date.date() since team_game_days stores date objects).
+                # Enforce the minimum gap between game dates.
                 if not (min_gap_ok(home, date.date(), team_game_days) and min_gap_ok(away, date.date(), team_game_days)):
                     continue
                 if team_stats[home]['home_games'] >= HOME_AWAY_BALANCE:
@@ -224,7 +242,6 @@ def schedule_games(matchups, team_availability, field_availability):
                         home, away = away, home
                     else:
                         continue
-                # Assign game to this slot.
                 schedule.append((date, slot, field, home, home[0], away, away[0]))
                 team_stats[home]['total_games'] += 1
                 team_stats[home]['home_games'] += 1
@@ -232,9 +249,7 @@ def schedule_games(matchups, team_availability, field_availability):
                 team_stats[away]['away_games'] += 1
                 team_stats[home]['weekly_games'][week_num] += 1
                 team_stats[away]['weekly_games'][week_num] += 1
-                # Mark this slot as used.
                 used_slots[(date, slot, field)] = True
-                # Record that both teams played on this date.
                 team_game_days[home].add(date.date())
                 team_game_days[away].add(date.date())
                 unscheduled_matchups.remove(matchup)
