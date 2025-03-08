@@ -352,4 +352,76 @@ def output_schedule_to_csv(schedule, output_file):
         writer.writerow(["Date", "Time", "Diamond", "Home Team", "Home Division", "Away Team", "Away Division"])
         for game in schedule:
             date, slot, field, home, home_div, away, away_div = game
-            writer.writerow([date.strftime('
+            writer.writerow([date.strftime('%Y-%m-%d'), slot, field, home, home_div, away, away_div])
+
+def print_schedule_summary(team_stats):
+    table = PrettyTable()
+    table.field_names = ["Division", "Team", "Total Games", "Home Games", "Away Games"]
+    for team, stats in sorted(team_stats.items()):
+        division = team[0]
+        table.add_row([division, team, stats['total_games'], stats['home_games'], stats['away_games']])
+    print("\nSchedule Summary:")
+    print(table)
+
+def generate_matchup_table(schedule, division_teams):
+    matchup_count = defaultdict(lambda: defaultdict(int))
+    for game in schedule:
+        home_team = game[3]
+        away_team = game[5]
+        matchup_count[home_team][away_team] += 1
+        matchup_count[away_team][home_team] += 1
+    all_teams = sorted([team for teams in division_teams.values() for team in teams])
+    table = PrettyTable()
+    table.field_names = ["Team"] + all_teams
+    for team in all_teams:
+        row = [team] + [matchup_count[team][opp] for opp in all_teams]
+        table.add_row(row)
+    print("\nMatchup Table:")
+    print(table)
+
+# -------------------------------
+# Main function
+# -------------------------------
+def main():
+    team_availability = load_team_availability('team_availability.csv')
+    field_availability = load_field_availability('field_availability.csv')
+    team_blackouts = load_team_blackouts('team_blackouts.csv')
+    doubleheader_dates = load_doubleheader_dates('doubleheaders.csv')
+    
+    print("\nTeam Availability Debug:")
+    for team, days in team_availability.items():
+        print(f"Team {team}: {', '.join(days)}")
+    if not team_availability:
+        print("ERROR: Team availability is empty!")
+    
+    print("\nField Availability Debug:")
+    for entry in field_availability:
+        print(f"Field Slot: {entry}")
+    if not field_availability:
+        print("ERROR: Field availability is empty!")
+    
+    print("\nTeam Blackouts Debug:")
+    for team, dates in team_blackouts.items():
+        print(f"Team {team} Blackouts: {', '.join(str(d) for d in dates)}")
+        
+    print("\nDoubleheader Dates Debug:")
+    for d in sorted(doubleheader_dates):
+        print(d)
+    
+    division_teams = {
+        'A': [f'A{i+1}' for i in range(8)],
+        'B': [f'B{i+1}' for i in range(8)],
+        'C': [f'C{i+1}' for i in range(8)]
+    }
+    
+    matchups = generate_full_matchups(division_teams)
+    print(f"\nTotal generated matchups (unscheduled): {len(matchups)}")
+    
+    schedule, team_stats = schedule_games(matchups, team_availability, field_availability, team_blackouts, doubleheader_dates)
+    output_schedule_to_csv(schedule, 'softball_schedule.csv')
+    print("\nSchedule Generation Complete")
+    print_schedule_summary(team_stats)
+    generate_matchup_table(schedule, division_teams)
+
+if __name__ == "__main__":
+    main()
