@@ -10,6 +10,7 @@ MAX_GAMES = 22
 HOME_AWAY_BALANCE = 11
 WEEKLY_GAME_LIMIT = 2  # max games per team per week
 MAX_RETRIES = 10000    # scheduling backtracking limit
+MIN_GAP = 2            # minimum days between game dates
 
 # -------------------------------
 # Data loading functions
@@ -41,7 +42,6 @@ def load_field_availability(file_path):
 # -------------------------------
 # Intra-division matchup generation
 # -------------------------------
-
 def assign_intra_division_weights(teams, two_game_count, three_game_count):
     pairs = list(itertools.combinations(sorted(teams), 2))
     count2 = {team: 0 for team in teams}
@@ -49,12 +49,8 @@ def assign_intra_division_weights(teams, two_game_count, three_game_count):
     
     def backtrack(i):
         if i == len(pairs):
-            if all(count2[team] == two_game_count for team in teams):
-                return True
-            else:
-                return False
+            return all(count2[team] == two_game_count for team in teams)
         team1, team2 = pairs[i]
-        # Option 1: assign weight 2 if both teams need it.
         if count2[team1] < two_game_count and count2[team2] < two_game_count:
             assignment[(team1, team2)] = 2
             count2[team1] += 1
@@ -64,7 +60,6 @@ def assign_intra_division_weights(teams, two_game_count, three_game_count):
             count2[team1] -= 1
             count2[team2] -= 1
             del assignment[(team1, team2)]
-        # Option 2: assign weight 3.
         assignment[(team1, team2)] = 3
         if backtrack(i + 1):
             return True
@@ -100,7 +95,7 @@ def generate_intra_division_matchups(division, teams):
         return matchups
     elif division in ['A', 'C']:
         two_game_count = 3
-        three_game_count = (len(teams) - 1) - two_game_count  # 7-3 = 4
+        three_game_count = (len(teams) - 1) - two_game_count  # For 8 teams: 7-3 = 4
         weight_assignment = assign_intra_division_weights(teams, two_game_count, three_game_count)
         return generate_intra_matchups(teams, weight_assignment)
     else:
@@ -171,6 +166,21 @@ def generate_full_matchups(division_teams):
     return full_matchups
 
 # -------------------------------
+# Home/Away Helper
+# -------------------------------
+def decide_home_away(t1, t2, team_stats):
+    if team_stats[t1]['home_games'] >= HOME_AWAY_BALANCE and team_stats[t2]['home_games'] < HOME_AWAY_BALANCE:
+        return t2, t1
+    if team_stats[t2]['home_games'] >= HOME_AWAY_BALANCE and team_stats[t1]['home_games'] < HOME_AWAY_BALANCE:
+        return t1, t2
+    if team_stats[t1]['home_games'] < team_stats[t2]['home_games']:
+        return t1, t2
+    elif team_stats[t2]['home_games'] < team_stats[t1]['home_games']:
+        return t2, t1
+    else:
+        return (t1, t2) if random.random() < 0.5 else (t2, t1)
+
+# -------------------------------
 # Scheduling functions
 # -------------------------------
 def schedule_games(matchups, team_availability, field_availability):
@@ -181,14 +191,16 @@ def schedule_games(matchups, team_availability, field_availability):
         'away_games': 0,
         'weekly_games': defaultdict(int)
     })
-    # Now we use a dictionary to mark each slot (date, slot, field) as used.
+    # Dictionary to mark each slot as used; key is (date, slot, field)
     used_slots = {}
+    # New dictionary to record the dates (as date objects) on which a team has played.
+    team_game_days = defaultdict(set)
     unscheduled_matchups = matchups[:]
     retry_count = 0
     while unscheduled_matchups and retry_count < MAX_RETRIES:
         progress_made = False
         for date, slot, field in field_availability:
-            # Check if this specific slot is used (date, slot, field).
+            # Check if this specific slot (including field) is used.
             if used_slots.get((date, slot, field), False):
                 continue
             day_of_week = date.strftime('%a')
@@ -197,16 +209,22 @@ def schedule_games(matchups, team_availability, field_availability):
                 home, away = matchup
                 if day_of_week not in team_availability.get(home, set()) or day_of_week not in team_availability.get(away, set()):
                     continue
+                # Check maximum total games and weekly game limits.
                 if team_stats[home]['total_games'] >= MAX_GAMES or team_stats[away]['total_games'] >= MAX_GAMES:
                     continue
                 if (team_stats[home]['weekly_games'][week_num] >= WEEKLY_GAME_LIMIT or
                     team_stats[away]['weekly_games'][week_num] >= WEEKLY_GAME_LIMIT):
+                    continue
+                # Check the minimum gap: ensure each candidate team has no game scheduled
+                # within MIN_GAP days (using date.date() since team_game_days stores date objects).
+                if not (min_gap_ok(home, date.date(), team_game_days) and min_gap_ok(away, date.date(), team_game_days)):
                     continue
                 if team_stats[home]['home_games'] >= HOME_AWAY_BALANCE:
                     if team_stats[away]['home_games'] < HOME_AWAY_BALANCE:
                         home, away = away, home
                     else:
                         continue
+                # Assign game to this slot.
                 schedule.append((date, slot, field, home, home[0], away, away[0]))
                 team_stats[home]['total_games'] += 1
                 team_stats[home]['home_games'] += 1
@@ -214,7 +232,11 @@ def schedule_games(matchups, team_availability, field_availability):
                 team_stats[away]['away_games'] += 1
                 team_stats[home]['weekly_games'][week_num] += 1
                 team_stats[away]['weekly_games'][week_num] += 1
-                used_slots[(date, slot, field)] = True  # Mark this slot (date, slot, field) as used.
+                # Mark this slot as used.
+                used_slots[(date, slot, field)] = True
+                # Record that both teams played on this date.
+                team_game_days[home].add(date.date())
+                team_game_days[away].add(date.date())
                 unscheduled_matchups.remove(matchup)
                 progress_made = True
                 break
