@@ -43,11 +43,6 @@ def load_field_availability(file_path):
 # -------------------------------
 
 def assign_intra_division_weights(teams, two_game_count, three_game_count):
-    """
-    For a given list of teams, assign each pairing (edge) a weight (2 or 3) such that
-    each team ends up with exactly 'two_game_count' edges of weight 2 and the remaining
-    edges (i.e. len(teams)-1 - two_game_count) get weight 3.
-    """
     pairs = list(itertools.combinations(sorted(teams), 2))
     count2 = {team: 0 for team in teams}
     assignment = {}
@@ -82,11 +77,6 @@ def assign_intra_division_weights(teams, two_game_count, three_game_count):
         raise Exception("No valid intra-division assignment found.")
 
 def generate_intra_matchups(teams, weight_assignment):
-    """
-    Build matchup list from weight assignment.
-    For weight==2: add one game at each team's home.
-    For weight==3: add two balanced games plus one extra game (randomly home/away).
-    """
     matchups = []
     for (team1, team2), weight in weight_assignment.items():
         if weight == 2:
@@ -102,12 +92,6 @@ def generate_intra_matchups(teams, weight_assignment):
     return matchups
 
 def generate_intra_division_matchups(division, teams):
-    """
-    For divisions A and C, split the 7 opponents such that:
-      - 3 opponents are played 2 times (home & away)
-      - 4 opponents are played 3 times (with one extra game decided randomly)
-    For division B, every opponent is played 2 times.
-    """
     if division == 'B':
         matchups = []
         for team1, team2 in itertools.combinations(sorted(teams), 2):
@@ -126,10 +110,6 @@ def generate_intra_division_matchups(division, teams):
 # Inter-division matchup generation
 # -------------------------------
 def generate_bipartite_regular_matchups(teams1, teams2, degree):
-    """
-    Given two lists of teams (assumed equal size), generate a bipartite graph in which
-    each team in teams1 and teams2 appears exactly 'degree' times.
-    """
     teams1_order = teams1[:]
     random.shuffle(teams1_order)
     assignment = {t: [] for t in teams1_order}
@@ -160,10 +140,6 @@ def generate_bipartite_regular_matchups(teams1, teams2, degree):
         raise Exception("No valid bipartite regular matching found.")
 
 def generate_inter_division_matchups(division_from, division_to, teams_from, teams_to):
-    """
-    Generate inter-division matchups between teams_from and teams_to.
-    A and C teams do not play each other.
-    """
     degree = 4
     edges = generate_bipartite_regular_matchups(teams_from, teams_to, degree)
     matchups = []
@@ -205,15 +181,15 @@ def schedule_games(matchups, team_availability, field_availability):
         'away_games': 0,
         'weekly_games': defaultdict(int)
     })
-    # We now use a dictionary to mark whether a given slot (date, slot) is used.
+    # Now we use a dictionary to mark each slot (date, slot, field) as used.
     used_slots = {}
     unscheduled_matchups = matchups[:]
     retry_count = 0
     while unscheduled_matchups and retry_count < MAX_RETRIES:
         progress_made = False
         for date, slot, field in field_availability:
-            # If this slot is already used, skip it.
-            if used_slots.get((date, slot), False):
+            # Check if this specific slot is used (date, slot, field).
+            if used_slots.get((date, slot, field), False):
                 continue
             day_of_week = date.strftime('%a')
             week_num = date.isocalendar()[1]
@@ -238,7 +214,7 @@ def schedule_games(matchups, team_availability, field_availability):
                 team_stats[away]['away_games'] += 1
                 team_stats[home]['weekly_games'][week_num] += 1
                 team_stats[away]['weekly_games'][week_num] += 1
-                used_slots[(date, slot)] = True   # mark this slot as used
+                used_slots[(date, slot, field)] = True  # Mark this slot (date, slot, field) as used.
                 unscheduled_matchups.remove(matchup)
                 progress_made = True
                 break
