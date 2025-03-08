@@ -41,8 +41,8 @@ def load_field_availability(file_path):
 def load_team_blackouts(file_path):
     """
     Loads blackout dates from a CSV file.
-    The CSV is expected to have: Team, Date1, Date2, Date3, ...
-    Dates must be in the format YYYY-MM-DD.
+    Expected format: Team, Date1, Date2, Date3, ...
+    Dates must be in YYYY-MM-DD format.
     Returns a dict mapping team to a set of datetime.date objects.
     """
     blackouts = {}
@@ -62,6 +62,26 @@ def load_team_blackouts(file_path):
                         print(f"Error parsing blackout date '{d}' for team {team}: {e}")
             blackouts[team] = dates
     return blackouts
+
+def load_doubleheader_dates(file_path):
+    """
+    Loads doubleheader dates from a CSV file.
+    Expected format: Date (YYYY-MM-DD) per row (after a header).
+    Returns a set of datetime.date objects.
+    """
+    doubleheaders = set()
+    with open(file_path, mode='r') as file:
+        reader = csv.reader(file)
+        next(reader)  # Skip header
+        for row in reader:
+            d = row[0].strip()
+            if d:
+                try:
+                    dt = datetime.strptime(d, '%Y-%m-%d').date()
+                    doubleheaders.add(dt)
+                except Exception as e:
+                    print(f"Error parsing doubleheader date '{d}': {e}")
+    return doubleheaders
 
 # -------------------------------
 # Intra-division matchup generation
@@ -225,7 +245,7 @@ def generate_full_matchups(division_teams):
 # -------------------------------
 # Scheduling functions
 # -------------------------------
-def schedule_games(matchups, team_availability, field_availability, team_blackouts):
+def schedule_games(matchups, team_availability, field_availability, team_blackouts, doubleheader_dates):
     schedule = []
     team_stats = defaultdict(lambda: {
         'total_games': 0,
@@ -233,6 +253,9 @@ def schedule_games(matchups, team_availability, field_availability, team_blackou
         'away_games': 0,
         'weekly_games': defaultdict(int)
     })
+    # Tracks which teams have a game on a given date and their opponent(s)
+    team_games_by_date = defaultdict(lambda: defaultdict(list))
+    
     scheduled_slots = defaultdict(set)  # key: (date, slot) -> set of teams
     unscheduled_matchups = matchups[:]
     retry_count = 0
@@ -242,33 +265,49 @@ def schedule_games(matchups, team_availability, field_availability, team_blackou
         for date, slot, field in field_availability:
             day_of_week = date.strftime('%a')
             week_num = date.isocalendar()[1]
-            # Check blackout for this date once (date part only)
             game_date = date.date()
             for matchup in unscheduled_matchups[:]:
                 home, away = matchup
-                # Check team availability by day-of-week
+                # Check team day-of-week availability.
                 if day_of_week not in team_availability.get(home, set()) or day_of_week not in team_availability.get(away, set()):
                     continue
-                # Check team blackout dates
+                # Check team blackout dates.
                 if game_date in team_blackouts.get(home, set()) or game_date in team_blackouts.get(away, set()):
                     continue
-                # Check if teams are already scheduled in this slot
+                # Check if teams are already scheduled in this specific slot.
                 if home in scheduled_slots[(date, slot)] or away in scheduled_slots[(date, slot)]:
                     continue
-                # Check overall game limits and weekly limits
+                # Check overall game count and weekly limits.
                 if team_stats[home]['total_games'] >= MAX_GAMES or team_stats[away]['total_games'] >= MAX_GAMES:
                     continue
                 if (team_stats[home]['weekly_games'][week_num] >= WEEKLY_GAME_LIMIT or
                     team_stats[away]['weekly_games'][week_num] >= WEEKLY_GAME_LIMIT):
                     continue
-                # Ensure home/away balance: if home team reached home limit, swap if away can host.
+                # Ensure home/away balance.
                 if team_stats[home]['home_games'] >= HOME_AWAY_BALANCE:
                     if team_stats[away]['home_games'] < HOME_AWAY_BALANCE:
                         home, away = away, home
                     else:
                         continue
 
-                # Schedule the game
+                # Enforce per-day limits with doubleheader consideration.
+                # If the day is a doubleheader day, allow up to 2 games per team,
+                # but if a team already has a game on that day, the new opponent must differ.
+                if game_date in doubleheader_dates:
+                    if len(team_games_by_date[home][game_date]) >= 2 or len(team_games_by_date[away][game_date]) >= 2:
+                        continue
+                    if len(team_games_by_date[home][game_date]) == 1:
+                        if team_games_by_date[home][game_date][0] == away:
+                            continue
+                    if len(team_games_by_date[away][game_date]) == 1:
+                        if team_games_by_date[away][game_date][0] == home:
+                            continue
+                else:
+                    # Non-doubleheader day: allow only one game per team.
+                    if len(team_games_by_date[home][game_date]) >= 1 or len(team_games_by_date[away][game_date]) >= 1:
+                        continue
+
+                # Schedule the game.
                 schedule.append((date, slot, field, home, home[0], away, away[0]))
                 team_stats[home]['total_games'] += 1
                 team_stats[home]['home_games'] += 1
@@ -277,6 +316,9 @@ def schedule_games(matchups, team_availability, field_availability, team_blackou
                 team_stats[home]['weekly_games'][week_num] += 1
                 team_stats[away]['weekly_games'][week_num] += 1
                 scheduled_slots[(date, slot)].update([home, away])
+                # Record opponent for the day.
+                team_games_by_date[home][game_date].append(away)
+                team_games_by_date[away][game_date].append(home)
                 unscheduled_matchups.remove(matchup)
                 progress_made = True
                 break
@@ -330,6 +372,7 @@ def main():
     team_availability = load_team_availability('team_availability.csv')
     field_availability = load_field_availability('field_availability.csv')
     team_blackouts = load_team_blackouts('team_blackouts.csv')
+    doubleheader_dates = load_doubleheader_dates('doubleheaders.csv')
     
     print("\nTeam Availability Debug:")
     for team, days in team_availability.items():
@@ -346,6 +389,10 @@ def main():
     print("\nTeam Blackouts Debug:")
     for team, dates in team_blackouts.items():
         print(f"Team {team} Blackouts: {', '.join(str(d) for d in dates)}")
+        
+    print("\nDoubleheader Dates Debug:")
+    for d in sorted(doubleheader_dates):
+        print(d)
     
     division_teams = {
         'A': [f'A{i+1}' for i in range(8)],
@@ -356,7 +403,7 @@ def main():
     matchups = generate_full_matchups(division_teams)
     print(f"\nTotal generated matchups (unscheduled): {len(matchups)}")
     
-    schedule, team_stats = schedule_games(matchups, team_availability, field_availability, team_blackouts)
+    schedule, team_stats = schedule_games(matchups, team_availability, field_availability, team_blackouts, doubleheader_dates)
     output_schedule_to_csv(schedule, 'softball_schedule.csv')
     print("\nSchedule Generation Complete")
     print_schedule_summary(team_stats)
