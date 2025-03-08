@@ -13,14 +13,13 @@ HOME_AWAY_BALANCE = 11
 WEEKLY_GAME_LIMIT = 2      # max games per team per week
 MAX_RETRIES = 10000        # scheduling backtracking limit
 MIN_GAP = 2                # minimum days between game dates
-MIN_DOUBLE_HEADERS = 5     # minimum number of doubleheader sessions per team (each session = 2 games)
+MIN_DOUBLE_HEADERS = 4     # minimum number of doubleheader sessions per team (each session = 2 games)
 
 # Inter–division scheduling constraints:
 # In Division A, only teams A5-A8 play inter–division games (vs. B)
 # In Division C, only teams C1-C4 play inter–division games (vs. B)
 INTER_DIVISION_GAMES_A = 4  # each eligible A team (A5-A8) plays 4 inter–division games
 INTER_DIVISION_GAMES_C = 4  # each eligible C team (C1-C4) plays 4 inter–division games
-
 # For balance:
 # For A vs B: total games = 4 * 4 = 16, so each B team gets 16/8 = 2 games.
 # For B vs C: total games = 4 * 4 = 16, so each B team gets 16/8 = 2 games.
@@ -33,10 +32,10 @@ def min_gap_ok(team, d, team_game_days):
     Check if scheduling a game for team on date 'd' is allowed given the MIN_GAP constraint.
     Allows a game on the same day if it creates a doubleheader (but no more than 2 games per day).
     """
-    # Allow if already a game on d but not more than 1 (i.e. one game already is fine – a second game makes a session)
+    # Allow if already a game on d but not more than 1 (i.e. one game is fine; a second creates a session)
     if team_game_days[team].get(d, 0) >= 2:
         return False
-    # Enforce the gap constraint for other dates.
+    # Enforce gap constraint for games on other days.
     for gd in team_game_days[team]:
         if gd != d and abs((d - gd).days) < MIN_GAP:
             return False
@@ -129,12 +128,14 @@ def generate_intra_matchups(teams, weight_assignment):
 
 def generate_intra_division_matchups(division, teams):
     if division == 'B':
+        # For Division B, a simple home/away round-robin gives 14 games per team.
         matchups = []
         for team1, team2 in itertools.combinations(sorted(teams), 2):
             matchups.append((team1, team2))
             matchups.append((team2, team1))
         return matchups
     elif division in ['A', 'C']:
+        # For divisions A and C, use a weighted assignment.
         two_game_count = 3
         three_game_count = (len(teams) - 1) - two_game_count  # For 8 teams: 7-3 = 4
         weight_assignment = assign_intra_division_weights(teams, two_game_count, three_game_count)
@@ -190,7 +191,6 @@ def generate_inter_division_matchups_custom(teams_from, teams_to, degree_from, d
     edges = generate_bipartite_matchups(teams_from, teams_to, degree_from, degree_to)
     matchups = []
     for (t1, t2) in edges:
-        # Randomly decide home/away for each game.
         if random.random() < 0.5:
             matchups.append((t1, t2))
         else:
@@ -207,8 +207,6 @@ def generate_full_matchups(division_teams):
     # Inter-division games with new constraints:
     # Division A: Only A5-A8 play inter-division (vs. B)
     eligible_A = division_teams['A'][4:]  # A5-A8
-    # For these 4 teams, each plays INTER_DIVISION_GAMES_A games.
-    # Total games = 4 * INTER_DIVISION_GAMES_A. To balance, each B team gets:
     degree_B_from_A = (len(eligible_A) * INTER_DIVISION_GAMES_A) // len(division_teams['B'])
     inter_AB = generate_inter_division_matchups_custom(eligible_A, division_teams['B'],
                                                        INTER_DIVISION_GAMES_A, degree_B_from_A)
@@ -216,8 +214,6 @@ def generate_full_matchups(division_teams):
     
     # Division C: Only C1-C4 play inter-division (vs. B)
     eligible_C = division_teams['C'][:4]  # C1-C4
-    # For these 4 teams, each plays INTER_DIVISION_GAMES_C games.
-    # To balance, each B team gets:
     degree_B_from_C = (len(eligible_C) * INTER_DIVISION_GAMES_C) // len(division_teams['B'])
     inter_BC = generate_inter_division_matchups_custom(division_teams['B'], eligible_C,
                                                        degree_B_from_C, INTER_DIVISION_GAMES_C)
@@ -252,12 +248,10 @@ def schedule_games(matchups, team_availability, field_availability):
         'away_games': 0,
         'weekly_games': defaultdict(int)
     })
-    # Mark each slot as used.
-    used_slots = {}
+    used_slots = {}  # Mark each field slot as used.
     # Record games per team per day (date -> count)
     team_game_days = defaultdict(lambda: defaultdict(int))
-    # Count of doubleheader sessions per team.
-    # Note: Each doubleheader session represents 2 games on the same day.
+    # Count doubleheader sessions (each session = 2 games on one day)
     doubleheader_count = defaultdict(int)
     
     unscheduled_matchups = matchups[:]
@@ -282,7 +276,7 @@ def schedule_games(matchups, team_availability, field_availability):
                 # Enforce the minimum gap (allowing doubleheaders).
                 if not (min_gap_ok(home, date.date(), team_game_days) and min_gap_ok(away, date.date(), team_game_days)):
                     continue
-                # Home/Away check (inline; could also use decide_home_away)
+                # Home/Away check.
                 if team_stats[home]['home_games'] >= HOME_AWAY_BALANCE:
                     if team_stats[away]['home_games'] < HOME_AWAY_BALANCE:
                         home, away = away, home
@@ -297,12 +291,10 @@ def schedule_games(matchups, team_availability, field_availability):
                 team_stats[home]['weekly_games'][week_num] += 1
                 team_stats[away]['weekly_games'][week_num] += 1
                 used_slots[(date, slot, field)] = True
-                # Update game day counts and doubleheader count.
+                # Update game day counts and doubleheader sessions.
                 for team in (home, away):
                     prev = team_game_days[team].get(date.date(), 0)
                     team_game_days[team][date.date()] = prev + 1
-                    # If this scheduling makes it a doubleheader session (exactly 2 games on that day),
-                    # count that as one session.
                     if prev == 1:
                         doubleheader_count[team] += 1
                 unscheduled_matchups.remove(matchup)
@@ -317,15 +309,73 @@ def schedule_games(matchups, team_availability, field_availability):
     if unscheduled_matchups:
         print("Warning: Retry limit reached. Some matchups could not be scheduled.")
     
-    # Warn if any team did not reach the minimum doubleheader session count.
-    # Note: Each session corresponds to 2 games on the same day.
+    # Warn if any team did not meet the minimum doubleheader session requirement.
     for team in team_stats:
         if doubleheader_count[team] < MIN_DOUBLE_HEADERS:
             required_games = MIN_DOUBLE_HEADERS * 2
             actual_games = doubleheader_count[team] * 2
-            print(f"Warning: Team {team} has {actual_games} doubleheader games (i.e. {doubleheader_count[team]} sessions), "
-                  f"less than the minimum required {required_games} games (i.e. {MIN_DOUBLE_HEADERS} sessions).")
+            print(f"Warning: Team {team} has {actual_games} doubleheader games "
+                  f"(i.e. {doubleheader_count[team]} sessions), less than the required {required_games} games.")
     
+    return schedule, team_stats, team_game_days, used_slots
+
+def fill_missing_games(schedule, team_stats, team_availability, field_availability, team_game_days, used_slots, division_teams):
+    """
+    After the main scheduling pass, try to fill in extra intra-division games
+    so that every team reaches MAX_GAMES.
+    """
+    missing = {team: MAX_GAMES - stats['total_games'] for team, stats in team_stats.items() if stats['total_games'] < MAX_GAMES}
+    # Generate a pool of potential extra intra-division matchups.
+    extra_matchups = []
+    for div, teams in division_teams.items():
+        for t1, t2 in itertools.product(teams, teams):
+            if t1 != t2:
+                extra_matchups.append((t1, t2))
+    extra_matchups = list(set(extra_matchups))  # Remove duplicates.
+    
+    retry_count = 0
+    while any(m > 0 for m in missing.values()) and retry_count < MAX_RETRIES:
+        progress = False
+        for date, slot, field in field_availability:
+            if used_slots.get((date, slot, field), False):
+                continue
+            day_of_week = date.strftime('%a')
+            week_num = date.isocalendar()[1]
+            for matchup in extra_matchups:
+                home, away = matchup
+                if missing.get(home, 0) <= 0 or missing.get(away, 0) <= 0:
+                    continue
+                if day_of_week not in team_availability.get(home, set()) or day_of_week not in team_availability.get(away, set()):
+                    continue
+                if (team_stats[home]['weekly_games'][week_num] >= WEEKLY_GAME_LIMIT or
+                    team_stats[away]['weekly_games'][week_num] >= WEEKLY_GAME_LIMIT):
+                    continue
+                if not (min_gap_ok(home, date.date(), team_game_days) and min_gap_ok(away, date.date(), team_game_days)):
+                    continue
+                # Schedule the extra game.
+                schedule.append((date, slot, field, home, home[0], away, away[0]))
+                team_stats[home]['total_games'] += 1
+                team_stats[away]['total_games'] += 1
+                team_stats[home]['home_games'] += 1
+                team_stats[away]['away_games'] += 1
+                team_stats[home]['weekly_games'][week_num] += 1
+                team_stats[away]['weekly_games'][week_num] += 1
+                used_slots[(date, slot, field)] = True
+                for team in (home, away):
+                    prev = team_game_days[team].get(date.date(), 0)
+                    team_game_days[team][date.date()] = prev + 1
+                missing[home] -= 1
+                missing[away] -= 1
+                progress = True
+                break
+            if progress:
+                break
+        if not progress:
+            retry_count += 1
+        else:
+            retry_count = 0
+    if any(m > 0 for m in missing.values()):
+        print("Warning: Could not fill all missing games for some teams.")
     return schedule, team_stats
 
 def output_schedule_to_csv(schedule, output_file):
@@ -389,7 +439,14 @@ def main():
     matchups = generate_full_matchups(division_teams)
     print(f"\nTotal generated matchups (unscheduled): {len(matchups)}")
     
-    schedule, team_stats = schedule_games(matchups, team_availability, field_availability)
+    schedule, team_stats, team_game_days, used_slots = schedule_games(matchups, team_availability, field_availability)
+    
+    # Check if any team hasn't reached MAX_GAMES and attempt to fill missing games.
+    teams_missing = [team for team, stats in team_stats.items() if stats['total_games'] < MAX_GAMES]
+    if teams_missing:
+        print(f"\nFilling missing games for teams: {teams_missing}")
+        schedule, team_stats = fill_missing_games(schedule, team_stats, team_availability, field_availability, team_game_days, used_slots, division_teams)
+    
     output_schedule_to_csv(schedule, 'softball_schedule.csv')
     print("\nSchedule Generation Complete")
     print_schedule_summary(team_stats)
