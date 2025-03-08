@@ -128,7 +128,7 @@ def generate_intra_matchups(teams, weight_assignment):
 
 def generate_intra_division_matchups(division, teams):
     if division == 'B':
-        # For Division B, a simple home/away round-robin.
+        # For Division B, a simple home/away round-robin gives 14 games per team.
         matchups = []
         for team1, team2 in itertools.combinations(sorted(teams), 2):
             matchups.append((team1, team2))
@@ -238,7 +238,7 @@ def decide_home_away(t1, t2, team_stats):
         return (t1, t2) if random.random() < 0.5 else (t2, t1)
 
 # -------------------------------
-# Scheduling functions (updated for doubleheaders with debug output)
+# Scheduling functions (updated for doubleheaders)
 # -------------------------------
 def schedule_games(matchups, team_availability, field_availability):
     schedule = []
@@ -248,7 +248,7 @@ def schedule_games(matchups, team_availability, field_availability):
         'away_games': 0,
         'weekly_games': defaultdict(int)
     })
-    used_slots = {}  # Marks each field slot as used.
+    used_slots = {}  # Mark each field slot as used.
     # Record games per team per day (date -> count)
     team_game_days = defaultdict(lambda: defaultdict(int))
     # Count doubleheader sessions (each session = 2 games on one day)
@@ -258,37 +258,31 @@ def schedule_games(matchups, team_availability, field_availability):
     retry_count = 0
     while unscheduled_matchups and retry_count < MAX_RETRIES:
         progress_made = False
-        # Process each field slot.
         for date, slot, field in field_availability:
             if used_slots.get((date, slot, field), False):
                 continue
             day_of_week = date.strftime('%a')
             week_num = date.isocalendar()[1]
-            slot_id = f"{date.strftime('%Y-%m-%d')} {slot} {field}"
-            found_matchup = False
             for matchup in unscheduled_matchups[:]:
                 home, away = matchup
                 # Check team availability.
-                if day_of_week not in team_availability.get(home, set()):
+                if day_of_week not in team_availability.get(home, set()) or day_of_week not in team_availability.get(away, set()):
                     continue
-                if day_of_week not in team_availability.get(away, set()):
-                    continue
-                # Check total games limit.
                 if team_stats[home]['total_games'] >= MAX_GAMES or team_stats[away]['total_games'] >= MAX_GAMES:
                     continue
-                # Check weekly game limits.
-                if team_stats[home]['weekly_games'][week_num] >= WEEKLY_GAME_LIMIT or team_stats[away]['weekly_games'][week_num] >= WEEKLY_GAME_LIMIT:
+                if (team_stats[home]['weekly_games'][week_num] >= WEEKLY_GAME_LIMIT or
+                    team_stats[away]['weekly_games'][week_num] >= WEEKLY_GAME_LIMIT):
                     continue
-                # Enforce minimum gap (allowing doubleheaders).
+                # Enforce the minimum gap (allowing doubleheaders).
                 if not (min_gap_ok(home, date.date(), team_game_days) and min_gap_ok(away, date.date(), team_game_days)):
                     continue
-                # Home/Away balance check.
+                # Home/Away check.
                 if team_stats[home]['home_games'] >= HOME_AWAY_BALANCE:
                     if team_stats[away]['home_games'] < HOME_AWAY_BALANCE:
                         home, away = away, home
                     else:
                         continue
-                # If all conditions are met, schedule the game.
+                # Schedule the game.
                 schedule.append((date, slot, field, home, home[0], away, away[0]))
                 team_stats[home]['total_games'] += 1
                 team_stats[home]['home_games'] += 1
@@ -305,11 +299,7 @@ def schedule_games(matchups, team_availability, field_availability):
                         doubleheader_count[team] += 1
                 unscheduled_matchups.remove(matchup)
                 progress_made = True
-                found_matchup = True
                 break
-            if not found_matchup:
-                # Debug message: this slot was skipped because no eligible matchup was found.
-                print(f"Debug: Slot {slot_id} was not used because no eligible matchup met the constraints.")
             if progress_made:
                 break
         if not progress_made:
