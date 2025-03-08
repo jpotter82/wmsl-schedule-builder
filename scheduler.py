@@ -9,7 +9,17 @@ from prettytable import PrettyTable
 MAX_GAMES = 22
 HOME_AWAY_BALANCE = 11
 WEEKLY_GAME_LIMIT = 2   # max games per team per week
-MIN_GAP = 2             # minimum number of days between game nights
+MIN_GAP = 2             # minimum days between game nights
+
+# -------------------------------
+# HELPER FOR MIN GAP (NEW)
+# -------------------------------
+def min_gap_ok(team, d, team_game_days):
+    """Return True if team has no game scheduled within MIN_GAP days before d."""
+    for gd in team_game_days[team]:
+        if gd != d and (d - gd).days < MIN_GAP:
+            return False
+    return True
 
 # -------------------------------
 # DATA LOADING FUNCTIONS
@@ -139,7 +149,7 @@ def generate_bipartite_regular_matchups(teams1, teams2, degree):
         if i == len(teams1_order):
             return True
         team = teams1_order[i]
-        available = [t for t in teams2 if capacity[t]>0]
+        available = [t for t in teams2 if capacity[t] > 0]
         for combo in itertools.combinations(available, degree):
             assign[team] = list(combo)
             for t in combo:
@@ -197,12 +207,7 @@ def decide_home_away(t1, t2, team_stats):
 # PERFECT MATCHING FOR LATE ROUND
 # -------------------------------
 def find_alternative_pairing(teams, early_pairing):
-    """
-    Given a list of teams (even number) and a dict early_pairing: team->opponent,
-    find a perfect matching (list of (a,b) pairs) on teams such that for each pair (a,b),
-    b != early_pairing.get(a) and a != early_pairing.get(b).
-    Returns a list of pairs, or None if no such matching exists.
-    """
+    """Given a list of teams and their early opponents, find a perfect matching for late round."""
     teams = list(teams)
     n = len(teams)
     if n % 2 != 0:
@@ -212,7 +217,6 @@ def find_alternative_pairing(teams, early_pairing):
     def backtrack():
         if len(used) == n:
             return True
-        # pick first unused team
         for a in teams:
             if a not in used:
                 break
@@ -220,11 +224,10 @@ def find_alternative_pairing(teams, early_pairing):
         for b in teams:
             if b in used:
                 continue
-            # Ensure alternative pairing constraint:
             if early_pairing.get(a) == b or early_pairing.get(b) == a:
                 continue
             used.add(b)
-            pairing.append((a,b))
+            pairing.append((a, b))
             if backtrack():
                 return True
             pairing.pop()
@@ -245,7 +248,7 @@ def schedule_doubleheader_for_date(d, early_slots, late_slots, unscheduled, team
     week_num = early_slots[0][0].isocalendar()[1]
     # Phase 1: Schedule early round games.
     early_matchups = {}
-    used_matchups = []
+    used = []
     for slot in early_slots:
         candidate = None
         for matchup in unscheduled:
@@ -254,18 +257,15 @@ def schedule_doubleheader_for_date(d, early_slots, late_slots, unscheduled, team
                 continue
             if d in team_blackouts.get(a, set()) or d in team_blackouts.get(b, set()):
                 continue
-            # Ensure neither team is already scheduled in the early round on d.
             if a in early_matchups or b in early_matchups:
                 continue
             candidate = matchup
             break
         if candidate is None:
-            # Unable to fill this early slot; break out.
             break
         unscheduled.remove(candidate)
         a, b = candidate
         home, away = decide_home_away(a, b, team_stats)
-        # Record the early game for this slot.
         game = (slot[0], slot[1], slot[2], home, home[0], away, away[0])
         scheduled_games.append(game)
         early_matchups[home] = away
@@ -278,19 +278,15 @@ def schedule_doubleheader_for_date(d, early_slots, late_slots, unscheduled, team
         team_stats[away]['away_games'] += 1
         team_stats[home]['weekly_games'][week_num] += 1
         team_stats[away]['weekly_games'][week_num] += 1
-        used_matchups.append(candidate)
-    # If we did not fill all early slots, we cannot force a full doubleheader.
-    if len(early_matchups) * 1 != len(early_slots):
-        return scheduled_games  # return what was scheduled (may be incomplete)
-    # Phase 2: The set S of teams scheduled in early round
+        used.append(candidate)
+    # If early round isn't complete, return what was scheduled.
+    if len(early_matchups) != len(early_slots):
+        return scheduled_games
+    # Phase 2: Late round.
     S = set(early_matchups.keys())
-    # Find an alternative pairing on S.
     alt_pairs = find_alternative_pairing(S, early_matchups)
-    if alt_pairs is None or len(alt_pairs) < len(late_slots):
-        # If no valid complete pairing is found, try to assign as many as possible.
-        alt_pairs = alt_pairs or []
-        # (This could be improved further.)
-    # Now assign alt_pairs to late_slots (up to the number available).
+    if alt_pairs is None:
+        return scheduled_games
     for i, slot in enumerate(late_slots):
         if i >= len(alt_pairs):
             break
@@ -320,7 +316,7 @@ def schedule_non_doubleheaders(unscheduled, slots_by_date, doubleheader_dates, t
         day_str = slots[0][0].strftime('%a')
         week_num = slots[0][0].isocalendar()[1]
         for slot in slots:
-            cand = None
+            candidate = None
             for matchup in unscheduled:
                 a, b = matchup
                 if day_str not in team_availability.get(a, set()) or day_str not in team_availability.get(b, set()):
@@ -329,11 +325,11 @@ def schedule_non_doubleheaders(unscheduled, slots_by_date, doubleheader_dates, t
                     continue
                 if not (min_gap_ok(a, d, team_game_days) and min_gap_ok(b, d, team_game_days)):
                     continue
-                cand = matchup
+                candidate = matchup
                 break
-            if cand:
-                unscheduled.remove(cand)
-                a, b = cand
+            if candidate:
+                unscheduled.remove(candidate)
+                a, b = candidate
                 home, away = decide_home_away(a, b, team_stats)
                 game = (slot[0], slot[1], slot[2], home, home[0], away, away[0])
                 scheduled.append(game)
@@ -345,7 +341,7 @@ def schedule_non_doubleheaders(unscheduled, slots_by_date, doubleheader_dates, t
                 team_stats[away]['away_games'] += 1
                 team_stats[home]['weekly_games'][week_num] += 1
                 team_stats[away]['weekly_games'][week_num] += 1
-    return scheduled
+    return scheduled, unscheduled
 
 # -------------------------------
 # MAIN SCHEDULING FUNCTION
@@ -364,11 +360,10 @@ def schedule_games(matchups, field_slots, team_availability, team_blackouts, dou
 
     unscheduled = matchups[:]
 
-    # Phase 1: Process doubleheader dates first.
+    # Phase 1: Process doubleheader dates.
     for d in sorted(doubleheader_dates):
         if d not in slots_by_date:
             continue
-        # For simplicity, assume that on a doubleheader day we use the two earliest slots per field.
         # Group slots by field.
         fields = defaultdict(list)
         for slot in slots_by_date[d]:
@@ -378,15 +373,15 @@ def schedule_games(matchups, field_slots, team_availability, team_blackouts, dou
             slots.sort(key=lambda x: x[0])
             if len(slots) < 2:
                 continue
-            # Use the first two slots as early and late.
             early_slot, late_slot = slots[0], slots[1]
             games = schedule_doubleheader_for_date(d, [early_slot], [late_slot], unscheduled, team_availability, team_blackouts, team_game_days, team_stats)
             dh_games.extend(games)
         schedule.extend(dh_games)
 
     # Phase 2: Process non-doubleheader dates.
-    ndh_games = schedule_non_doubleheaders(unscheduled, slots_by_date, doubleheader_dates, team_availability, team_blackouts, team_game_days, team_stats)
+    ndh_games, unscheduled = schedule_non_doubleheaders(unscheduled, slots_by_date, doubleheader_dates, team_availability, team_blackouts, team_game_days, team_stats)
     schedule.extend(ndh_games)
+
     if unscheduled:
         print("Warning: Some matchups could not be scheduled.")
     return schedule, team_stats
