@@ -140,23 +140,20 @@ def generate_intra_division_matchups(division, teams):
         raise Exception("Unknown division")
 
 # -------------------------------
-# Inter-division matchup generation with new constraints
+# Inter-division matchup generation
 # -------------------------------
-def generate_bipartite_matchups(teams_from, teams_to, degree_from, degree_to):
-    total_games = len(teams_from) * degree_from
-    if total_games != len(teams_to) * degree_to:
-        raise Exception(f"Degree mismatch: {len(teams_from)}*{degree_from} != {len(teams_to)}*{degree_to}")
-    assignment = {t: [] for t in teams_from}
-    capacity = {t: degree_to for t in teams_to}
-    teams_from_order = teams_from[:]
-    random.shuffle(teams_from_order)
+def generate_bipartite_regular_matchups(teams1, teams2, degree):
+    teams1_order = teams1[:]
+    random.shuffle(teams1_order)
+    assignment = {t: [] for t in teams1_order}
+    capacity = {t: degree for t in teams2}
     
     def backtrack(i):
-        if i == len(teams_from_order):
+        if i == len(teams1_order):
             return True
-        team = teams_from_order[i]
-        available = [t for t in teams_to if capacity[t] > 0]
-        for combo in itertools.combinations(available, degree_from):
+        team = teams1_order[i]
+        available = [t for t in teams2 if capacity[t] > 0]
+        for combo in itertools.combinations(available, degree):
             assignment[team] = list(combo)
             for t in combo:
                 capacity[t] -= 1
@@ -168,15 +165,16 @@ def generate_bipartite_matchups(teams_from, teams_to, degree_from, degree_to):
     
     if backtrack(0):
         edges = []
-        for team in teams_from:
+        for team in teams1_order:
             for opp in assignment[team]:
                 edges.append((team, opp))
         return edges
     else:
-        raise Exception("No valid bipartite matching found.")
+        raise Exception("No valid bipartite regular matching found.")
 
-def generate_inter_division_matchups_custom(teams_from, teams_to, degree_from, degree_to):
-    edges = generate_bipartite_matchups(teams_from, teams_to, degree_from, degree_to)
+def generate_inter_division_matchups(division_from, division_to, teams_from, teams_to):
+    degree = 4
+    edges = generate_bipartite_regular_matchups(teams_from, teams_to, degree)
     matchups = []
     for (t1, t2) in edges:
         if random.random() < 0.5:
@@ -184,6 +182,9 @@ def generate_inter_division_matchups_custom(teams_from, teams_to, degree_from, d
         else:
             matchups.append((t2, t1))
     return matchups
+# -------------------------------
+# Combine full matchup list
+# -------------------------------
 
 def generate_full_matchups(division_teams):
     full_matchups = []
