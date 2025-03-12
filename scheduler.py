@@ -12,9 +12,9 @@ MAX_GAMES = 22
 HOME_AWAY_BALANCE = 11
 WEEKLY_GAME_LIMIT = 2      # max games per team per week
 MAX_RETRIES = 10000        # scheduling backtracking limit
-MIN_GAP = 2                # minimum days between game dates
+MIN_GAP = 3                # minimum days between game dates
 MIN_DOUBLE_HEADERS = 4     # minimum number of doubleheader sessions per team
-MAX_DOUBLE_HEADERS = 6     # maximum number of doubleheader sessions allowed per team
+MAX_DOUBLE_HEADERS = 5     # maximum number of doubleheader sessions allowed per team
 
 # -------------------------------
 # Helper Functions
