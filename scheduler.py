@@ -358,9 +358,7 @@ def fill_missing_games(schedule, team_stats, doubleheader_count, team_game_days,
                     continue
                 if d in team_blackouts.get(home, set()) or d in team_blackouts.get(away, set()):
                     continue
-                if (team_stats[home]['weekly_games'][week_num] >= WEEKLY_GAME_LIMIT or
-                    team_stats[away]['weekly_games'][week_num] >= WEEKLY_GAME_LIMIT):
-                    continue
+                # WEEKLY_GAME_LIMIT check is relaxed in this phase.
                 if not (min_gap_ok(home, d, team_game_days) and min_gap_ok(away, d, team_game_days)):
                     continue
                 if slot in team_game_slots[home][d] or slot in team_game_slots[away][d]:
