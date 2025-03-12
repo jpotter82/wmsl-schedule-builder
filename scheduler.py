@@ -377,7 +377,7 @@ def schedule_games(matchups, team_availability, field_availability, team_blackou
 # -------------------------------
 # Fill Missing Games Phase (without relaxing timeslot adjacency)
 # -------------------------------
-def fill_missing_games(schedule, team_stats, team_availability, field_availability, team_blackouts, team_game_days, unscheduled_matchups):
+def fill_missing_games(schedule, team_stats, team_availability, field_availability, team_blackouts, team_game_days, unscheduled_matchups, team_slot_usage):
     # Rebuild used_slots from current schedule.
     used_slots = {(game[0], game[1], game[2]) for game in schedule}
     available_slots_by_date = defaultdict(list)
@@ -554,7 +554,7 @@ def main():
 
     # Fill missing games so that every team reaches MAX_GAMES while enforcing all rules.
     schedule, team_stats, team_game_days, unscheduled_matchups = fill_missing_games(
-        schedule, team_stats, team_availability, field_availability, team_blackouts, team_game_days, unscheduled_matchups
+        schedule, team_stats, team_availability, field_availability, team_blackouts, team_game_days, unscheduled_matchups, team_slot_usage
     )
 
     # Final check: warn if any team still does not have MAX_GAMES.
