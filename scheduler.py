@@ -20,7 +20,7 @@ MIN_DOUBLE_HEADERS = 6     # minimum number of doubleheader sessions per team
 # -------------------------------
 def parse_slot(slot):
     """Parses a timeslot string (e.g., '10:30am') into a time object."""
-    return datetime.strptime(slot, '%I:%M%p').time()
+    return datetime.strptime(slot, '%I:%M %p').time()
 
 def min_gap_ok(team, d, team_game_days):
     """
