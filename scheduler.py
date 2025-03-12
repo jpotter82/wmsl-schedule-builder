@@ -13,7 +13,8 @@ HOME_AWAY_BALANCE = 11
 WEEKLY_GAME_LIMIT = 2      # max games per team per week
 MAX_RETRIES = 10000        # scheduling backtracking limit
 MIN_GAP = 2                # minimum days between game dates
-MIN_DOUBLE_HEADERS = 6     # minimum number of doubleheader sessions per team
+MIN_DOUBLE_HEADERS = 4     # minimum number of doubleheader sessions per team
+MAX_DOUBLE_HEADERS = 6     # maximum number of doubleheader sessions allowed per team
 
 # -------------------------------
 # Helper Functions
@@ -67,7 +68,7 @@ def load_field_availability(file_path):
             slot = row[1].strip()
             field = row[2].strip()
             field_availability.append((date, slot, field))
-    # Sort by date and then by parsed timeslot.
+    # Sort by date and then by parsed timeslot
     field_availability.sort(key=lambda x: (x[0], parse_slot(x[1])))
     return field_availability
 
@@ -207,18 +208,14 @@ def generate_inter_division_matchups(division_from, division_to, teams_from, tea
 # -------------------------------
 def generate_full_matchups(division_teams):
     full_matchups = []
-    
     # Intra-division games:
     for div, teams in division_teams.items():
         full_matchups.extend(generate_intra_division_matchups(div, teams))
-    
-    # Inter-division games:
-    # A and C do NOT play.
+    # Inter-division games: A and C do NOT play.
     inter_AB = generate_inter_division_matchups('A', 'B', division_teams['A'], division_teams['B'])
     full_matchups.extend(inter_AB)
     inter_BC = generate_inter_division_matchups('B', 'C', division_teams['B'], division_teams['C'])
     full_matchups.extend(inter_BC)
-    
     random.shuffle(full_matchups)
     return full_matchups
 
@@ -238,7 +235,7 @@ def decide_home_away(t1, t2, team_stats):
         return (t1, t2) if random.random() < 0.5 else (t2, t1)
 
 # -------------------------------
-# Scheduling functions (updated for doubleheaders, timeslot constraints, and different opponents)
+# Scheduling functions (updated for doubleheaders, timeslot constraints, and opponent diversity)
 # -------------------------------
 def schedule_games(matchups, team_availability, field_availability, team_blackouts):
     schedule = []
@@ -251,10 +248,10 @@ def schedule_games(matchups, team_availability, field_availability, team_blackou
     used_slots = {}  # Mark each (date, slot, field) as used.
     team_game_days = defaultdict(lambda: defaultdict(int))  # For each team: date -> count of games
     doubleheader_count = defaultdict(int)  # Count of doubleheader sessions per team
-    # Track, for each team and date, the indices (in that day's sorted slot list) already used.
+    # For each team on each day, track the indices (in that day's sorted slot list) already used.
     team_slot_usage = defaultdict(lambda: defaultdict(set))
-    # New: track opponents played by each team on a given day.
-    team_opponents = defaultdict(lambda: defaultdict(set))
+    # For each team and date, record the opponent in the (first) game of the day.
+    game_opponents = defaultdict(lambda: {})
     
     # Build available_slots_by_date: for each date (as date object), a sorted list of unique slots.
     available_slots_by_date = defaultdict(list)
@@ -295,26 +292,35 @@ def schedule_games(matchups, team_availability, field_availability, team_blackou
                 # Enforce the minimum gap (allowing doubleheaders).
                 if not (min_gap_ok(home, d, team_game_days) and min_gap_ok(away, d, team_game_days)):
                     continue
-                # Check timeslot usage: ensure that a team is not scheduled twice in the same slot,
+                # Check timeslot usage: ensure that a team is not scheduled twice in the same slot
                 # and if already scheduled on that day, the new slot must be immediately adjacent.
                 valid_for_both = True
                 for team in (home, away):
+                    # If already two games are scheduled that day, skip.
+                    if team_game_days[team].get(d, 0) >= 2:
+                        valid_for_both = False
+                        break
                     if candidate_index in team_slot_usage[team][d]:
                         valid_for_both = False
                         break
                     if team_slot_usage[team][d]:
-                        # The candidate index must be adjacent to at least one already used index.
                         if not any(abs(candidate_index - idx) == 1 for idx in team_slot_usage[team][d]):
                             valid_for_both = False
                             break
-                if not valid_for_both:
-                    continue
-                # NEW: If a team already has a game today, ensure the opponent is different.
-                for team, opp in ((home, away), (away, home)):
-                    if team_game_days[team].get(d, 0) >= 1:
-                        if opp in team_opponents[team][d]:
+                        # Candidate game would form a doubleheader session.
+                        # Check maximum doubleheaders.
+                        if doubleheader_count[team] >= MAX_DOUBLE_HEADERS:
                             valid_for_both = False
                             break
+                        # Ensure different opponents: if team already has a game that day,
+                        # then the candidate opponent must differ from the stored opponent.
+                        if d in game_opponents[team]:
+                            if team == home and game_opponents[team][d] == away:
+                                valid_for_both = False
+                                break
+                            if team == away and game_opponents[team][d] == home:
+                                valid_for_both = False
+                                break
                 if not valid_for_both:
                     continue
                 # Home/Away check.
@@ -332,18 +338,22 @@ def schedule_games(matchups, team_availability, field_availability, team_blackou
                 team_stats[home]['weekly_games'][week_num] += 1
                 team_stats[away]['weekly_games'][week_num] += 1
                 used_slots[(date, slot, field)] = True
-                # Update game day counts and doubleheader sessions.
+                # Update game day counts.
                 for team in (home, away):
                     prev = team_game_days[team].get(d, 0)
                     team_game_days[team][d] = prev + 1
-                    if prev == 1:
+                    # If this is the first game of the day for a team, record its opponent.
+                    if prev == 0:
+                        if team == home:
+                            game_opponents[team][d] = away
+                        else:
+                            game_opponents[team][d] = home
+                    # If this is the second game, count as a doubleheader.
+                    elif prev == 1:
                         doubleheader_count[team] += 1
                 # Update timeslot usage.
                 for team in (home, away):
                     team_slot_usage[team][d].add(candidate_index)
-                # Update opponent info.
-                team_opponents[home][d].add(away)
-                team_opponents[away][d].add(home)
                 unscheduled_matchups.remove(matchup)
                 progress_made = True
                 break
@@ -366,6 +376,9 @@ def schedule_games(matchups, team_availability, field_availability, team_blackou
     
     return schedule, team_stats, team_game_days
 
+# -------------------------------
+# Output and Debugging Functions
+# -------------------------------
 def output_schedule_to_csv(schedule, output_file):
     with open(output_file, mode='w', newline='') as file:
         writer = csv.writer(file)
@@ -447,7 +460,6 @@ def main():
     print("\nSchedule Generation Complete")
     print_schedule_summary(team_stats)
     generate_matchup_table(schedule, division_teams)
-    # New debugging output: table of teams and number of doubleheader days.
     print_doubleheader_days(team_game_days)
 
 if __name__ == "__main__":
