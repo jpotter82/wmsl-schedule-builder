@@ -5,13 +5,15 @@ from datetime import datetime, timedelta
 from collections import defaultdict
 from prettytable import PrettyTable
 
+# -------------------------------
 # Configurable parameters
+# -------------------------------
 MAX_GAMES = 22
 HOME_AWAY_BALANCE = 11
 WEEKLY_GAME_LIMIT = 2      # max games per team per week
 MAX_RETRIES = 10000        # scheduling backtracking limit
 MIN_GAP = 2                # minimum days between game dates
-MIN_DOUBLE_HEADERS = 4     # minimum number of doubleheader sessions per team
+MIN_DOUBLE_HEADERS = 4     # minimum number of doubleheader sessions per team (each session = 2 games)
 MAX_DOUBLE_HEADERS = 5     # maximum allowed doubleheader days per team
 
 # -------------------------------
@@ -28,7 +30,7 @@ def is_legal(matchup):
     """
     Returns True if the matchup is legal.
     Illegal: pairing an A–team with a C–team.
-    Assumes team names begin with their division letter.
+    (Assumes team names begin with their division letter.)
     """
     a, b = matchup
     if (a[0]=='A' and b[0]=='C') or (a[0]=='C' and b[0]=='A'):
@@ -59,9 +61,8 @@ def load_field_availability(file_path):
             slot = row[1].strip()  # e.g., "10:30 PM"
             field = row[2].strip()
             field_availability.append((date, slot, field))
-    # Sort by a custom key that prioritizes Sundays.
-    # In Python, Monday=0,...,Sunday=6. We set Sunday as top priority (0) and others as 1.
-    field_availability.sort(key=lambda x: ((0 if x[0].weekday() == 6 else 1),
+    # Custom sort: Prioritize Sundays (weekday()==6 -> Sunday) then by date then by time.
+    field_availability.sort(key=lambda x: ((0 if x[0].weekday()==6 else 1),
                                            x[0],
                                            datetime.strptime(x[1].strip(), "%I:%M %p")))
     return field_availability
@@ -69,8 +70,8 @@ def load_field_availability(file_path):
 def load_team_blackouts(file_path):
     """
     Loads blackout dates from a CSV file.
-    The CSV is expected to have: Team, Date1, Date2, Date3, ...
-    Dates must be in the format YYYY-MM-DD.
+    CSV format: Team, Date1, Date2, Date3, ...
+    Dates must be in YYYY-MM-DD format.
     Returns a dict mapping team to a set of date objects.
     """
     blackouts = {}
@@ -106,13 +107,13 @@ def assign_intra_division_weights(teams, two_game_count, three_game_count):
             assignment[(team1, team2)] = 2
             count2[team1] += 1
             count2[team2] += 1
-            if backtrack(i + 1):
+            if backtrack(i+1):
                 return True
             count2[team1] -= 1
             count2[team2] -= 1
             del assignment[(team1, team2)]
         assignment[(team1, team2)] = 3
-        if backtrack(i + 1):
+        if backtrack(i+1):
             return True
         del assignment[(team1, team2)]
         return False
@@ -168,7 +169,7 @@ def generate_bipartite_regular_matchups(teams1, teams2, degree):
             assignment[team] = list(combo)
             for t in combo:
                 capacity[t] -= 1
-            if backtrack(i + 1):
+            if backtrack(i+1):
                 return True
             for t in combo:
                 capacity[t] += 1
@@ -195,10 +196,8 @@ def generate_inter_division_matchups(division_from, division_to, teams_from, tea
 # -------------------------------
 def generate_full_matchups(division_teams):
     full_matchups = []
-    # Intra-division games:
     for div, teams in division_teams.items():
         full_matchups.extend(generate_intra_division_matchups(div, teams))
-    # Inter-division games (A and C do NOT play):
     inter_AB = generate_inter_division_matchups('A', 'B', division_teams['A'], division_teams['B'])
     full_matchups.extend(inter_AB)
     inter_BC = generate_inter_division_matchups('B', 'C', division_teams['B'], division_teams['C'])
@@ -232,14 +231,13 @@ def schedule_games(matchups, team_availability, field_availability, team_blackou
         'away_games': 0,
         'weekly_games': defaultdict(int)
     })
-    used_slots = {}  # key: (date, slot, field)
+    used_slots = {}  # (date, slot, field) -> True
     team_game_days = defaultdict(lambda: defaultdict(int))  # team -> date -> count of games
     team_game_slots = defaultdict(lambda: defaultdict(list))  # team -> date -> list of timeslot strings scheduled
     team_doubleheader_opponents = defaultdict(lambda: defaultdict(set))  # team -> date -> set(opponents)
     doubleheader_count = defaultdict(int)  # team -> number of days with 2 games
 
     # Build mapping: date -> sorted list of timeslot strings available.
-    # We use "%I:%M %p" to correctly parse 12-hour format with AM/PM.
     timeslots_by_date = defaultdict(list)
     for date, slot, field in field_availability:
         d = date.date()
@@ -273,6 +271,8 @@ def schedule_games(matchups, team_availability, field_availability, team_blackou
                     continue
                 if slot in team_game_slots[home][d] or slot in team_game_slots[away][d]:
                     continue
+                # If a team already has a game today, the new game must be in the immediate next timeslot.
+                valid_slot = True
                 for team in (home, away):
                     if team_game_slots[team][d]:
                         current = team_game_slots[team][d][0]
@@ -280,40 +280,52 @@ def schedule_games(matchups, team_availability, field_availability, team_blackou
                         try:
                             idx = sorted_slots.index(current)
                         except ValueError:
-                            continue
+                            valid_slot = False
+                            break
                         if idx+1 >= len(sorted_slots):
-                            continue
+                            valid_slot = False
+                            break
                         required_slot = sorted_slots[idx+1]
                         if slot != required_slot:
-                            continue
+                            valid_slot = False
+                            break
+                if not valid_slot:
+                    continue
+                # Enforce doubleheader limits and ensure different opponents on a doubleheader day.
+                can_double = True
                 for team, opp in ((home, away), (away, home)):
                     if team_game_days[team][d] == 1:
                         if doubleheader_count[team] >= MAX_DOUBLE_HEADERS:
+                            can_double = False
                             break
                         if team_doubleheader_opponents[team][d] and opp in team_doubleheader_opponents[team][d]:
+                            can_double = False
                             break
-                else:
-                    if team_stats[home]['home_games'] >= HOME_AWAY_BALANCE:
-                        if team_stats[away]['home_games'] < HOME_AWAY_BALANCE:
-                            home, away = away, home
-                        else:
-                            continue
-                    schedule.append((date, slot, field, home, home[0], away, away[0]))
-                    for team in (home, away):
-                        team_stats[team]['total_games'] += 1
-                        team_stats[team]['weekly_games'][week_num] += 1
-                        team_game_slots[team][d].append(slot)
-                        team_game_days[team][d] += 1
-                    team_stats[home]['home_games'] += 1
-                    team_stats[away]['away_games'] += 1
-                    for team, opp in ((home, away), (away, home)):
-                        if team_game_days[team][d] == 2:
-                            doubleheader_count[team] += 1
-                            team_doubleheader_opponents[team][d].add(opp)
-                    used_slots[(date, slot, field)] = True
-                    unscheduled.remove(matchup)
-                    progress_made = True
-                    break
+                if not can_double:
+                    continue
+                # Home/Away balancing.
+                if team_stats[home]['home_games'] >= HOME_AWAY_BALANCE:
+                    if team_stats[away]['home_games'] < HOME_AWAY_BALANCE:
+                        home, away = away, home
+                    else:
+                        continue
+                # Schedule the game.
+                schedule.append((date, slot, field, home, home[0], away, away[0]))
+                for team in (home, away):
+                    team_stats[team]['total_games'] += 1
+                    team_stats[team]['weekly_games'][week_num] += 1
+                    team_game_slots[team][d].append(slot)
+                    team_game_days[team][d] += 1
+                team_stats[home]['home_games'] += 1
+                team_stats[away]['away_games'] += 1
+                for team, opp in ((home, away), (away, home)):
+                    if team_game_days[team][d] == 2:
+                        doubleheader_count[team] += 1
+                        team_doubleheader_opponents[team][d].add(opp)
+                used_slots[(date, slot, field)] = True
+                unscheduled.remove(matchup)
+                progress_made = True
+                break
             if progress_made:
                 break
         if not progress_made:
@@ -321,18 +333,99 @@ def schedule_games(matchups, team_availability, field_availability, team_blackou
         else:
             retry_count = 0
     if unscheduled:
-        print("Warning: Retry limit reached. Some predetermined matchups could not be scheduled.")
+        print("Warning: Retry limit reached in primary scheduling. Some predetermined matchups could not be scheduled.")
     
-    missing = [team for team, stats in team_stats.items() if stats['total_games'] < MAX_GAMES]
-    if missing:
-        print("Critical: The following teams did not reach the required {} games: {}".format(MAX_GAMES, missing))
-    under_dh = [team for team, count in doubleheader_count.items() if count < MIN_DOUBLE_HEADERS]
-    if under_dh:
-        print("Critical: The following teams did not meet the minimum doubleheader sessions ({} required): {}".format(MIN_DOUBLE_HEADERS, under_dh))
-    return schedule, team_stats, doubleheader_count
+    return schedule, team_stats, doubleheader_count, team_game_days, team_game_slots, team_doubleheader_opponents, used_slots, timeslots_by_date, unscheduled
+
+def fill_missing_games(schedule, team_stats, doubleheader_count, team_game_days, team_game_slots,
+                       team_doubleheader_opponents, used_slots, timeslots_by_date, unscheduled,
+                       team_availability, team_blackouts, field_availability):
+    retry_count = 0
+    while any(stats['total_games'] < MAX_GAMES for stats in team_stats.values()) and retry_count < MAX_RETRIES:
+        progress = False
+        for date, slot, field in field_availability:
+            if used_slots.get((date, slot, field), False):
+                continue
+            d = date.date()
+            day_of_week = date.strftime('%a')
+            week_num = date.isocalendar()[1]
+            for matchup in unscheduled[:]:
+                home, away = matchup
+                # Only consider if at least one team is missing games.
+                if team_stats[home]['total_games'] >= MAX_GAMES and team_stats[away]['total_games'] >= MAX_GAMES:
+                    continue
+                if day_of_week not in team_availability.get(home, set()) or day_of_week not in team_availability.get(away, set()):
+                    continue
+                if d in team_blackouts.get(home, set()) or d in team_blackouts.get(away, set()):
+                    continue
+                if (team_stats[home]['weekly_games'][week_num] >= WEEKLY_GAME_LIMIT or
+                    team_stats[away]['weekly_games'][week_num] >= WEEKLY_GAME_LIMIT):
+                    continue
+                if not (min_gap_ok(home, d, team_game_days) and min_gap_ok(away, d, team_game_days)):
+                    continue
+                if slot in team_game_slots[home][d] or slot in team_game_slots[away][d]:
+                    continue
+                valid_slot = True
+                for team in (home, away):
+                    if team_game_slots[team][d]:
+                        current = team_game_slots[team][d][0]
+                        sorted_slots = timeslots_by_date[d]
+                        try:
+                            idx = sorted_slots.index(current)
+                        except ValueError:
+                            valid_slot = False
+                            break
+                        if idx+1 >= len(sorted_slots):
+                            valid_slot = False
+                            break
+                        required_slot = sorted_slots[idx+1]
+                        if slot != required_slot:
+                            valid_slot = False
+                            break
+                if not valid_slot:
+                    continue
+                can_double = True
+                for team, opp in ((home, away), (away, home)):
+                    if team_game_days[team][d] == 1:
+                        if doubleheader_count[team] >= MAX_DOUBLE_HEADERS:
+                            can_double = False
+                            break
+                        if team_doubleheader_opponents[team][d] and opp in team_doubleheader_opponents[team][d]:
+                            can_double = False
+                            break
+                if not can_double:
+                    continue
+                if team_stats[home]['home_games'] >= HOME_AWAY_BALANCE:
+                    if team_stats[away]['home_games'] < HOME_AWAY_BALANCE:
+                        home, away = away, home
+                    else:
+                        continue
+                schedule.append((date, slot, field, home, home[0], away, away[0]))
+                for team in (home, away):
+                    team_stats[team]['total_games'] += 1
+                    team_stats[team]['weekly_games'][week_num] += 1
+                    team_game_slots[team][d].append(slot)
+                    team_game_days[team][d] += 1
+                team_stats[home]['home_games'] += 1
+                team_stats[away]['away_games'] += 1
+                for team, opp in ((home, away), (away, home)):
+                    if team_game_days[team][d] == 2:
+                        doubleheader_count[team] += 1
+                        team_doubleheader_opponents[team][d].add(opp)
+                used_slots[(date, slot, field)] = True
+                unscheduled.remove(matchup)
+                progress = True
+                break
+            if progress:
+                break
+        if not progress:
+            retry_count += 1
+        else:
+            retry_count = 0
+    return schedule, team_stats, doubleheader_count, unscheduled
 
 def output_schedule_to_csv(schedule, output_file):
-    # Sort schedule by date, time, then field
+    # Sort schedule by date, then by time (parsed as 12-hour) then by field.
     sorted_schedule = sorted(schedule, key=lambda game: (
         game[0],
         datetime.strptime(game[1].strip(), "%I:%M %p"),
@@ -344,7 +437,6 @@ def output_schedule_to_csv(schedule, output_file):
         for game in sorted_schedule:
             date, slot, field, home, home_div, away, away_div = game
             writer.writerow([date.strftime('%Y-%m-%d'), slot, field, home, home_div, away, away_div])
-
 
 def print_schedule_summary(team_stats):
     table = PrettyTable()
@@ -411,7 +503,28 @@ def main():
     matchups = generate_full_matchups(division_teams)
     print(f"\nTotal generated matchups (unscheduled): {len(matchups)}")
     
-    schedule, team_stats, doubleheader_count = schedule_games(matchups, team_availability, field_availability, team_blackouts)
+    # Primary scheduling pass.
+    (schedule, team_stats, doubleheader_count, team_game_days, team_game_slots,
+     team_doubleheader_opponents, used_slots, timeslots_by_date, unscheduled) = schedule_games(
+        matchups, team_availability, field_availability, team_blackouts
+    )
+    
+    # Fill missing games if some teams haven't reached MAX_GAMES.
+    if any(stats['total_games'] < MAX_GAMES for stats in team_stats.values()):
+        print("Filling missing games...")
+        (schedule, team_stats, doubleheader_count, unscheduled) = fill_missing_games(
+            schedule, team_stats, doubleheader_count, team_game_days, team_game_slots,
+            team_doubleheader_opponents, used_slots, timeslots_by_date, unscheduled,
+            team_availability, team_blackouts, field_availability
+        )
+    
+    # Final checks.
+    missing = [team for team, stats in team_stats.items() if stats['total_games'] < MAX_GAMES]
+    if missing:
+        print("Critical: The following teams did not reach the required {} games: {}".format(MAX_GAMES, missing))
+    under_dh = [team for team, count in doubleheader_count.items() if count < MIN_DOUBLE_HEADERS]
+    if under_dh:
+        print("Critical: The following teams did not meet the minimum doubleheader sessions ({} required): {}".format(MIN_DOUBLE_HEADERS, under_dh))
     
     output_schedule_to_csv(schedule, 'softball_schedule.csv')
     print("\nSchedule Generation Complete")
