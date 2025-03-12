@@ -68,6 +68,37 @@ C1,2025-03-25,2025-04-05,2025-04-12
         <label for="teamBlackouts">Team Blackouts CSV</label>
         <input type="file" class="form-control-file" id="teamBlackouts" name="team_blackouts" accept=".csv" required>
       </div>
+
+      <!-- Parameter inputs -->
+      <div class="form-group">
+        <label for="maxGames">Max Games</label>
+        <input type="number" class="form-control" id="maxGames" name="max_games" value="22" required>
+      </div>
+      <div class="form-group">
+        <label for="homeAwayBalance">Home/Away Balance</label>
+        <input type="number" class="form-control" id="homeAwayBalance" name="home_away_balance" value="11" required>
+      </div>
+      <div class="form-group">
+        <label for="weeklyGameLimit">Weekly Game Limit</label>
+        <input type="number" class="form-control" id="weeklyGameLimit" name="weekly_game_limit" value="2" required>
+      </div>
+      <div class="form-group">
+        <label for="maxRetries">Max Retries</label>
+        <input type="number" class="form-control" id="maxRetries" name="max_retries" value="20000" required>
+      </div>
+      <div class="form-group">
+        <label for="minGap">Min Gap (days)</label>
+        <input type="number" class="form-control" id="minGap" name="min_gap" value="2" required>
+      </div>
+      <div class="form-group">
+        <label for="minDoubleHeaders">Min Doubleheaders (days)</label>
+        <input type="number" class="form-control" id="minDoubleHeaders" name="min_double_headers" value="4" required>
+      </div>
+      <div class="form-group">
+        <label for="maxDoubleHeaders">Max Doubleheaders (days)</label>
+        <input type="number" class="form-control" id="maxDoubleHeaders" name="max_double_headers" value="5" required>
+      </div>
+
       <button type="submit" class="btn btn-primary">Generate Schedule</button>
     </form>
 
@@ -86,12 +117,12 @@ C1,2025-03-25,2025-04-05,2025-04-12
 
   <script>
     // This example uses jQuery to handle the form submission.
-    // In a real implementation, you'd send the files to your backend (via AJAX or form POST),
+    // In a real implementation, you'd send the files and parameter values to your backend,
     // which would run the schedule-generation script and then return the generated schedule file.
     $('#scheduleForm').on('submit', function(e) {
       e.preventDefault();
       alert('Schedule creation initiated. Please wait...');
-      
+
       // Simulate processing delay
       setTimeout(function() {
         // Replace this with the real URL/path of your generated schedule file.
