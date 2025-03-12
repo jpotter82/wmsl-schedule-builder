@@ -13,19 +13,19 @@ HOME_AWAY_BALANCE = 11
 WEEKLY_GAME_LIMIT = 2      # max games per team per week
 MAX_RETRIES = 10000        # scheduling backtracking limit
 MIN_GAP = 2                # minimum days between game dates
-MIN_DOUBLE_HEADERS = 6     # minimum number of doubleheader sessions per team
+MIN_DOUBLE_HEADERS = 4     # minimum number of doubleheader sessions per team
 
 # -------------------------------
 # Helper Functions
 # -------------------------------
 def parse_slot(slot):
-    """Parses a timeslot string (e.g., '10:30am') into a time object."""
+    """Parses a timeslot string (e.g., '6:30 PM') into a time object."""
     return datetime.strptime(slot, '%I:%M %p').time()
 
 def min_gap_ok(team, d, team_game_days):
     """
     Return True if 'team' has no game scheduled within MIN_GAP days before date d.
-    (Note: This check is independent of timeslot ordering.)
+    (This check is independent of timeslot ordering.)
     """
     for gd in team_game_days[team]:
         if gd != d and (d - gd).days < MIN_GAP:
@@ -67,7 +67,7 @@ def load_field_availability(file_path):
             slot = row[1].strip()
             field = row[2].strip()
             field_availability.append((date, slot, field))
-    # Sort by date first and then by parsed timeslot
+    # Sort by date and then by parsed timeslot
     field_availability.sort(key=lambda x: (x[0], parse_slot(x[1])))
     return field_availability
 
@@ -251,7 +251,7 @@ def schedule_games(matchups, team_availability, field_availability, team_blackou
     used_slots = {}  # Mark each (date, slot, field) as used.
     team_game_days = defaultdict(lambda: defaultdict(int))  # For each team: date -> count of games
     doubleheader_count = defaultdict(int)  # Count of doubleheader sessions per team
-    # New: track for each team on each day, the indices (in the day's sorted slot list) already used.
+    # Track, for each team and date, the indices (in that day's sorted slot list) already used.
     team_slot_usage = defaultdict(lambda: defaultdict(set))
     
     # Build available_slots_by_date: for each date (as date object), a sorted list of unique slots.
@@ -293,16 +293,16 @@ def schedule_games(matchups, team_availability, field_availability, team_blackou
                 # Enforce the minimum gap (allowing doubleheaders).
                 if not (min_gap_ok(home, d, team_game_days) and min_gap_ok(away, d, team_game_days)):
                     continue
-                # Check timeslot usage to avoid a team being scheduled twice in the same slot
-                # and ensure that if a team is already playing that day, the new slot must be consecutive.
+                # Check timeslot usage: ensure that a team is not scheduled twice in the same slot
+                # and if already scheduled on that day, the new slot must be immediately adjacent.
                 valid_for_both = True
                 for team in (home, away):
                     if candidate_index in team_slot_usage[team][d]:
                         valid_for_both = False
                         break
                     if team_slot_usage[team][d]:
-                        scheduled_index = next(iter(team_slot_usage[team][d]))
-                        if abs(candidate_index - scheduled_index) != 1:
+                        # If team already has a slot, the candidate index must be adjacent to at least one.
+                        if not any(abs(candidate_index - idx) == 1 for idx in team_slot_usage[team][d]):
                             valid_for_both = False
                             break
                 if not valid_for_both:
@@ -322,7 +322,7 @@ def schedule_games(matchups, team_availability, field_availability, team_blackou
                 team_stats[home]['weekly_games'][week_num] += 1
                 team_stats[away]['weekly_games'][week_num] += 1
                 used_slots[(date, slot, field)] = True
-                # Update game day counts and doubleheader count.
+                # Update game day counts and doubleheader sessions.
                 for team in (home, away):
                     prev = team_game_days[team].get(d, 0)
                     team_game_days[team][d] = prev + 1
@@ -351,7 +351,7 @@ def schedule_games(matchups, team_availability, field_availability, team_blackou
                   f"(i.e. {doubleheader_count[team]} sessions), less than the required {required_games} games "
                   f"(i.e. {MIN_DOUBLE_HEADERS} sessions).")
     
-    return schedule, team_stats
+    return schedule, team_stats, team_game_days
 
 def output_schedule_to_csv(schedule, output_file):
     with open(output_file, mode='w', newline='') as file:
@@ -384,6 +384,16 @@ def generate_matchup_table(schedule, division_teams):
         row = [team] + [matchup_count[team][opp] for opp in all_teams]
         table.add_row(row)
     print("\nMatchup Table:")
+    print(table)
+
+def print_doubleheader_days(team_game_days):
+    """Prints a table of teams and the number of days on which they played 2 games."""
+    table = PrettyTable()
+    table.field_names = ["Team", "Doubleheader Days"]
+    for team, day_dict in sorted(team_game_days.items()):
+        dh_days = sum(1 for d, cnt in day_dict.items() if cnt == 2)
+        table.add_row([team, dh_days])
+    print("\nDoubleheader Days:")
     print(table)
 
 # -------------------------------
@@ -419,11 +429,13 @@ def main():
     matchups = generate_full_matchups(division_teams)
     print(f"\nTotal generated matchups (unscheduled): {len(matchups)}")
     
-    schedule, team_stats = schedule_games(matchups, team_availability, field_availability, team_blackouts)
+    schedule, team_stats, team_game_days = schedule_games(matchups, team_availability, field_availability, team_blackouts)
     output_schedule_to_csv(schedule, 'softball_schedule.csv')
     print("\nSchedule Generation Complete")
     print_schedule_summary(team_stats)
     generate_matchup_table(schedule, division_teams)
+    # New debugging output: table of teams and number of doubleheader days.
+    print_doubleheader_days(team_game_days)
 
 if __name__ == "__main__":
     main()
