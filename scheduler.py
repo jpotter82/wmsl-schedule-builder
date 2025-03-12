@@ -332,12 +332,19 @@ def schedule_games(matchups, team_availability, field_availability, team_blackou
     return schedule, team_stats, doubleheader_count
 
 def output_schedule_to_csv(schedule, output_file):
+    # Sort schedule by date, time, then field
+    sorted_schedule = sorted(schedule, key=lambda game: (
+        game[0],
+        datetime.strptime(game[1].strip(), "%I:%M %p"),
+        game[2]
+    ))
     with open(output_file, mode='w', newline='') as file:
         writer = csv.writer(file)
         writer.writerow(["Date", "Time", "Diamond", "Home Team", "Home Division", "Away Team", "Away Division"])
-        for game in schedule:
+        for game in sorted_schedule:
             date, slot, field, home, home_div, away, away_div = game
             writer.writerow([date.strftime('%Y-%m-%d'), slot, field, home, home_div, away, away_div])
+
 
 def print_schedule_summary(team_stats):
     table = PrettyTable()
