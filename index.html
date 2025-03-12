@@ -6,16 +6,54 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <!-- Bootstrap CSS -->
   <link href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css" rel="stylesheet">
+  <style>
+    pre { background: #f8f9fa; padding: 15px; border: 1px solid #ddd; }
+  </style>
 </head>
 <body>
   <div class="container">
     <h1 class="mt-5">Softball Schedule Generator</h1>
-    <p class="lead">Please upload the following CSV files:</p>
-    <ul>
-      <li><strong>team_availability.csv</strong> – Contains each team’s available days.</li>
-      <li><strong>field_availability.csv</strong> – Lists available field slots with dates, times, and diamond names.</li>
-      <li><strong>team_blackouts.csv</strong> – Lists blackout dates for each team.</li>
-    </ul>
+    <p class="lead">Use the form below to upload your CSV files and generate a schedule.</p>
+
+    <div class="card mb-4">
+      <div class="card-header">
+        <strong>Required CSV Files and File Layouts</strong>
+      </div>
+      <div class="card-body">
+        <h5>1. team_availability.csv</h5>
+        <p>This file should list each team and the days they are available to play. The first column is the team name. The following columns list the abbreviated day names (e.g., Mon, Tue, Wed, etc.).</p>
+        <p><strong>Example Layout:</strong></p>
+        <pre>
+Team,Mon,Tue,Wed,Thu,Fri,Sat,Sun
+A1,Mon,Wed,Fri
+A2,Tue,Thu,Sat
+B1,Mon,Thu,Sun
+C1,Wed,Fri,Sat
+        </pre>
+        <p><em>Note:</em> You may list only the days each team is available.</p>
+
+        <h5>2. field_availability.csv</h5>
+        <p>This file should list the available field slots. Each row must include the date, the timeslot, and the diamond (field) name. Dates should be in the format <code>YYYY-MM-DD</code> and timeslots in a format like <code>6:30 PM</code> (with a space).</p>
+        <p><strong>Example Layout:</strong></p>
+        <pre>
+Date,Time,Diamond
+2025-03-15,6:30 PM,Diamond 1
+2025-03-15,8:00 PM,Diamond 2
+2025-03-16,6:30 PM,Diamond 1
+2025-03-16,8:00 PM,Diamond 2
+        </pre>
+
+        <h5>3. team_blackouts.csv</h5>
+        <p>This file should list any blackout dates during which a team cannot play. The first column is the team name; the subsequent columns are the blackout dates in the format <code>YYYY-MM-DD</code>.</p>
+        <p><strong>Example Layout:</strong></p>
+        <pre>
+Team,Date1,Date2,Date3
+A1,2025-03-20,2025-04-01,
+B1,2025-03-22,,
+C1,2025-03-25,2025-04-05,2025-04-12
+        </pre>
+      </div>
+    </div>
 
     <form id="scheduleForm" enctype="multipart/form-data">
       <div class="form-group">
@@ -48,15 +86,15 @@
 
   <script>
     // This example uses jQuery to handle the form submission.
-    // In a real implementation, you'd send the files to your backend to run the schedule creation.
+    // In a real implementation, you'd send the files to your backend (via AJAX or form POST),
+    // which would run the schedule-generation script and then return the generated schedule file.
     $('#scheduleForm').on('submit', function(e) {
       e.preventDefault();
-      // You could use FormData to send the files via AJAX.
       alert('Schedule creation initiated. Please wait...');
       
-      // Simulate a delay and then display the download link.
+      // Simulate processing delay
       setTimeout(function() {
-        // Replace the following URL with the real URL/path to your generated schedule.
+        // Replace this with the real URL/path of your generated schedule file.
         var scheduleFileUrl = 'softball_schedule.csv';
         $('#downloadLink').attr('href', scheduleFileUrl);
         $('#result').show();
