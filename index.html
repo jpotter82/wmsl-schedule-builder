@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Softball Schedule Generator</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <!-- Bootstrap CSS -->
+  <link href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body>
+  <div class="container">
+    <h1 class="mt-5">Softball Schedule Generator</h1>
+    <p class="lead">Please upload the following CSV files:</p>
+    <ul>
+      <li><strong>team_availability.csv</strong> – Contains each team’s available days.</li>
+      <li><strong>field_availability.csv</strong> – Lists available field slots with dates, times, and diamond names.</li>
+      <li><strong>team_blackouts.csv</strong> – Lists blackout dates for each team.</li>
+    </ul>
+
+    <form id="scheduleForm" enctype="multipart/form-data">
+      <div class="form-group">
+        <label for="teamAvailability">Team Availability CSV</label>
+        <input type="file" class="form-control-file" id="teamAvailability" name="team_availability" accept=".csv" required>
+      </div>
+      <div class="form-group">
+        <label for="fieldAvailability">Field Availability CSV</label>
+        <input type="file" class="form-control-file" id="fieldAvailability" name="field_availability" accept=".csv" required>
+      </div>
+      <div class="form-group">
+        <label for="teamBlackouts">Team Blackouts CSV</label>
+        <input type="file" class="form-control-file" id="teamBlackouts" name="team_blackouts" accept=".csv" required>
+      </div>
+      <button type="submit" class="btn btn-primary">Generate Schedule</button>
+    </form>
+
+    <!-- This section will be shown after the schedule is generated -->
+    <div id="result" class="mt-4" style="display: none;">
+      <h3>Schedule Created</h3>
+      <p>Click the link below to download the finalized schedule:</p>
+      <a id="downloadLink" href="#" class="btn btn-success">Download Schedule</a>
+    </div>
+  </div>
+
+  <!-- jQuery, Popper.js, and Bootstrap JS (required for Bootstrap components) -->
+  <script src="https://code.jquery.com/jquery-3.5.1.slim.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/popper.js@1.16.1/dist/umd/popper.min.js"></script>
+  <script src="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/js/bootstrap.min.js"></script>
+
+  <script>
+    // This example uses jQuery to handle the form submission.
+    // In a real implementation, you'd send the files to your backend to run the schedule creation.
+    $('#scheduleForm').on('submit', function(e) {
+      e.preventDefault();
+      // You could use FormData to send the files via AJAX.
+      alert('Schedule creation initiated. Please wait...');
+      
+      // Simulate a delay and then display the download link.
+      setTimeout(function() {
+        // Replace the following URL with the real URL/path to your generated schedule.
+        var scheduleFileUrl = 'softball_schedule.csv';
+        $('#downloadLink').attr('href', scheduleFileUrl);
+        $('#result').show();
+      }, 2000);
+    });
+  </script>
+</body>
+</html>
