@@ -8,12 +8,13 @@
   <link href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css" rel="stylesheet">
   <style>
     pre { background: #f8f9fa; padding: 15px; border: 1px solid #ddd; }
+    .param-group { margin-bottom: 20px; }
   </style>
 </head>
 <body>
   <div class="container">
     <h1 class="mt-5">Softball Schedule Generator</h1>
-    <p class="lead">Use the form below to upload your CSV files and generate a schedule.</p>
+    <p class="lead">Upload your CSV files and set your scheduling parameters below to generate a schedule.</p>
 
     <div class="card mb-4">
       <div class="card-header">
@@ -30,10 +31,9 @@ A2,Tue,Thu,Sat
 B1,Mon,Thu,Sun
 C1,Wed,Fri,Sat
         </pre>
-        <p><em>Note:</em> You may list only the days each team is available.</p>
 
         <h5>2. field_availability.csv</h5>
-        <p>This file should list the available field slots. Each row must include the date, the timeslot, and the diamond (field) name. Dates should be in the format <code>YYYY-MM-DD</code> and timeslots in a format like <code>6:30 PM</code> (with a space).</p>
+        <p>This file should list the available field slots. Each row must include the date, the timeslot, and the diamond (field) name. Dates should be in the format <code>YYYY-MM-DD</code> and timeslots in a format like <code>6:30 PM</code> (with a space). The schedule is sorted by date/time so that Sundays are given preference.</p>
         <p><strong>Example Layout:</strong></p>
         <pre>
 Date,Time,Diamond
@@ -56,6 +56,7 @@ C1,2025-03-25,2025-04-05,2025-04-12
     </div>
 
     <form id="scheduleForm" enctype="multipart/form-data">
+      <!-- File Inputs -->
       <div class="form-group">
         <label for="teamAvailability">Team Availability CSV</label>
         <input type="file" class="form-control-file" id="teamAvailability" name="team_availability" accept=".csv" required>
@@ -69,34 +70,58 @@ C1,2025-03-25,2025-04-05,2025-04-12
         <input type="file" class="form-control-file" id="teamBlackouts" name="team_blackouts" accept=".csv" required>
       </div>
 
-      <!-- Parameter inputs -->
-      <div class="form-group">
-        <label for="maxGames">Max Games</label>
-        <input type="number" class="form-control" id="maxGames" name="max_games" value="22" required>
+      <!-- Parameter Inputs -->
+      <div class="param-group card mb-3">
+        <div class="card-header"><strong>General Scheduling Constraints</strong></div>
+        <div class="card-body">
+          <div class="form-group">
+            <label for="maxGames">Max Games per Team</label>
+            <input type="number" class="form-control" id="maxGames" name="max_games" value="22" required>
+            <small class="form-text text-muted">Total required games per team (e.g., 22).</small>
+          </div>
+          <div class="form-group">
+            <label for="homeAwayBalance">Home/Away Balance</label>
+            <input type="number" class="form-control" id="homeAwayBalance" name="home_away_balance" value="11" required>
+            <small class="form-text text-muted">Target number of home games per team to balance with away games (e.g., 11 home games).</small>
+          </div>
+          <div class="form-group">
+            <label for="weeklyGameLimit">Weekly Game Limit</label>
+            <input type="number" class="form-control" id="weeklyGameLimit" name="weekly_game_limit" value="2" required>
+            <small class="form-text text-muted">Maximum games a team can play in a week (e.g., 2).</small>
+          </div>
+        </div>
       </div>
-      <div class="form-group">
-        <label for="homeAwayBalance">Home/Away Balance</label>
-        <input type="number" class="form-control" id="homeAwayBalance" name="home_away_balance" value="11" required>
+
+      <div class="param-group card mb-3">
+        <div class="card-header"><strong>Algorithm Settings</strong></div>
+        <div class="card-body">
+          <div class="form-group">
+            <label for="maxRetries">Max Retries</label>
+            <input type="number" class="form-control" id="maxRetries" name="max_retries" value="20000" required>
+            <small class="form-text text-muted">The scheduling backtracking limit (e.g., 20000 attempts before giving up).</small>
+          </div>
+          <div class="form-group">
+            <label for="minGap">Min Gap (days)</label>
+            <input type="number" class="form-control" id="minGap" name="min_gap" value="2" required>
+            <small class="form-text text-muted">Minimum number of days required between games for any team (e.g., 2 days).</small>
+          </div>
+        </div>
       </div>
-      <div class="form-group">
-        <label for="weeklyGameLimit">Weekly Game Limit</label>
-        <input type="number" class="form-control" id="weeklyGameLimit" name="weekly_game_limit" value="2" required>
-      </div>
-      <div class="form-group">
-        <label for="maxRetries">Max Retries</label>
-        <input type="number" class="form-control" id="maxRetries" name="max_retries" value="20000" required>
-      </div>
-      <div class="form-group">
-        <label for="minGap">Min Gap (days)</label>
-        <input type="number" class="form-control" id="minGap" name="min_gap" value="2" required>
-      </div>
-      <div class="form-group">
-        <label for="minDoubleHeaders">Min Doubleheaders (days)</label>
-        <input type="number" class="form-control" id="minDoubleHeaders" name="min_double_headers" value="4" required>
-      </div>
-      <div class="form-group">
-        <label for="maxDoubleHeaders">Max Doubleheaders (days)</label>
-        <input type="number" class="form-control" id="maxDoubleHeaders" name="max_double_headers" value="5" required>
+
+      <div class="param-group card mb-3">
+        <div class="card-header"><strong>Doubleheader Constraints</strong></div>
+        <div class="card-body">
+          <div class="form-group">
+            <label for="minDoubleHeaders">Min Doubleheader Days</label>
+            <input type="number" class="form-control" id="minDoubleHeaders" name="min_double_headers" value="4" required>
+            <small class="form-text text-muted">Minimum number of days a team must play two games (each doubleheader counts as one day; e.g., 4 days equals 8 doubleheader games).</small>
+          </div>
+          <div class="form-group">
+            <label for="maxDoubleHeaders">Max Doubleheader Days</label>
+            <input type="number" class="form-control" id="maxDoubleHeaders" name="max_double_headers" value="5" required>
+            <small class="form-text text-muted">Maximum allowed days a team can play two games (e.g., 5 days).</small>
+          </div>
+        </div>
       </div>
 
       <button type="submit" class="btn btn-primary">Generate Schedule</button>
