@@ -13,7 +13,7 @@ HOME_AWAY_BALANCE = 11
 WEEKLY_GAME_LIMIT = 2      # max games per team per week
 MAX_RETRIES = 10000        # scheduling backtracking limit
 MIN_GAP = 2                # minimum days between game dates
-MIN_DOUBLE_HEADERS = 4     # minimum number of doubleheader sessions per team
+MIN_DOUBLE_HEADERS = 6     # minimum number of doubleheader sessions per team
 
 # -------------------------------
 # Helper Functions
@@ -67,7 +67,7 @@ def load_field_availability(file_path):
             slot = row[1].strip()
             field = row[2].strip()
             field_availability.append((date, slot, field))
-    # Sort by date and then by parsed timeslot
+    # Sort by date and then by parsed timeslot.
     field_availability.sort(key=lambda x: (x[0], parse_slot(x[1])))
     return field_availability
 
@@ -238,7 +238,7 @@ def decide_home_away(t1, t2, team_stats):
         return (t1, t2) if random.random() < 0.5 else (t2, t1)
 
 # -------------------------------
-# Scheduling functions (updated for doubleheaders and timeslot constraints)
+# Scheduling functions (updated for doubleheaders, timeslot constraints, and different opponents)
 # -------------------------------
 def schedule_games(matchups, team_availability, field_availability, team_blackouts):
     schedule = []
@@ -253,6 +253,8 @@ def schedule_games(matchups, team_availability, field_availability, team_blackou
     doubleheader_count = defaultdict(int)  # Count of doubleheader sessions per team
     # Track, for each team and date, the indices (in that day's sorted slot list) already used.
     team_slot_usage = defaultdict(lambda: defaultdict(set))
+    # New: track opponents played by each team on a given day.
+    team_opponents = defaultdict(lambda: defaultdict(set))
     
     # Build available_slots_by_date: for each date (as date object), a sorted list of unique slots.
     available_slots_by_date = defaultdict(list)
@@ -293,7 +295,7 @@ def schedule_games(matchups, team_availability, field_availability, team_blackou
                 # Enforce the minimum gap (allowing doubleheaders).
                 if not (min_gap_ok(home, d, team_game_days) and min_gap_ok(away, d, team_game_days)):
                     continue
-                # Check timeslot usage: ensure that a team is not scheduled twice in the same slot
+                # Check timeslot usage: ensure that a team is not scheduled twice in the same slot,
                 # and if already scheduled on that day, the new slot must be immediately adjacent.
                 valid_for_both = True
                 for team in (home, away):
@@ -301,8 +303,16 @@ def schedule_games(matchups, team_availability, field_availability, team_blackou
                         valid_for_both = False
                         break
                     if team_slot_usage[team][d]:
-                        # If team already has a slot, the candidate index must be adjacent to at least one.
+                        # The candidate index must be adjacent to at least one already used index.
                         if not any(abs(candidate_index - idx) == 1 for idx in team_slot_usage[team][d]):
+                            valid_for_both = False
+                            break
+                if not valid_for_both:
+                    continue
+                # NEW: If a team already has a game today, ensure the opponent is different.
+                for team, opp in ((home, away), (away, home)):
+                    if team_game_days[team].get(d, 0) >= 1:
+                        if opp in team_opponents[team][d]:
                             valid_for_both = False
                             break
                 if not valid_for_both:
@@ -331,6 +341,9 @@ def schedule_games(matchups, team_availability, field_availability, team_blackou
                 # Update timeslot usage.
                 for team in (home, away):
                     team_slot_usage[team][d].add(candidate_index)
+                # Update opponent info.
+                team_opponents[home][d].add(away)
+                team_opponents[away][d].add(home)
                 unscheduled_matchups.remove(matchup)
                 progress_made = True
                 break
