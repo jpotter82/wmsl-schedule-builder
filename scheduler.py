@@ -8,11 +8,11 @@ from prettytable import PrettyTable
 # Configurable parameters
 MAX_GAMES = 22
 HOME_AWAY_BALANCE = 11
-WEEKLY_GAME_LIMIT = 2  # max games per team per week
-MAX_RETRIES = 10000    # scheduling backtracking limit
-MIN_GAP = 2            # minimum days between game dates
-MIN_DOUBLE_HEADERS = 4  # minimum number of doubleheader sessions per team
-MAX_DOUBLE_HEADERS = 5  # maximum allowed doubleheader days per team
+WEEKLY_GAME_LIMIT = 2      # max games per team per week
+MAX_RETRIES = 10000        # scheduling backtracking limit
+MIN_GAP = 2                # minimum days between game dates
+MIN_DOUBLE_HEADERS = 4     # minimum number of doubleheader sessions per team
+MAX_DOUBLE_HEADERS = 5     # maximum allowed doubleheader days per team
 
 # -------------------------------
 # Helper Functions
@@ -56,11 +56,14 @@ def load_field_availability(file_path):
         next(reader)  # Skip header
         for row in reader:
             date = datetime.strptime(row[0].strip(), '%Y-%m-%d')
-            slot = row[1].strip()  # e.g. "10:30 PM"
+            slot = row[1].strip()  # e.g., "10:30 PM"
             field = row[2].strip()
             field_availability.append((date, slot, field))
-    # Sort first by date then by timeslot (we'll sort the timeslots separately later)
-    field_availability.sort(key=lambda x: (x[0], x[1]))
+    # Sort by a custom key that prioritizes Sundays.
+    # In Python, Monday=0,...,Sunday=6. We set Sunday as top priority (0) and others as 1.
+    field_availability.sort(key=lambda x: ((0 if x[0].weekday() == 6 else 1),
+                                           x[0],
+                                           datetime.strptime(x[1].strip(), "%I:%M %p")))
     return field_availability
 
 def load_team_blackouts(file_path):
@@ -192,8 +195,10 @@ def generate_inter_division_matchups(division_from, division_to, teams_from, tea
 # -------------------------------
 def generate_full_matchups(division_teams):
     full_matchups = []
+    # Intra-division games:
     for div, teams in division_teams.items():
         full_matchups.extend(generate_intra_division_matchups(div, teams))
+    # Inter-division games (A and C do NOT play):
     inter_AB = generate_inter_division_matchups('A', 'B', division_teams['A'], division_teams['B'])
     full_matchups.extend(inter_AB)
     inter_BC = generate_inter_division_matchups('B', 'C', division_teams['B'], division_teams['C'])
@@ -234,7 +239,7 @@ def schedule_games(matchups, team_availability, field_availability, team_blackou
     doubleheader_count = defaultdict(int)  # team -> number of days with 2 games
 
     # Build mapping: date -> sorted list of timeslot strings available.
-    # Updated to use "%I:%M %p" to parse timeslots like "10:30 PM".
+    # We use "%I:%M %p" to correctly parse 12-hour format with AM/PM.
     timeslots_by_date = defaultdict(list)
     for date, slot, field in field_availability:
         d = date.date()
@@ -242,7 +247,7 @@ def schedule_games(matchups, team_availability, field_availability, team_blackou
             timeslots_by_date[d].append(slot)
     for d in timeslots_by_date:
         timeslots_by_date[d].sort(key=lambda s: datetime.strptime(s.strip(), "%I:%M %p"))
-    
+
     unscheduled = matchups[:]  # predetermined legal matchups
     retry_count = 0
     while unscheduled and retry_count < MAX_RETRIES:
