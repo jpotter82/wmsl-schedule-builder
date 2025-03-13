@@ -5,21 +5,18 @@ from datetime import datetime, timedelta
 from collections import defaultdict
 from prettytable import PrettyTable
 
-# Import OR-Tools CP-SAT solver
-from ortools.sat.python import cp_model
-
 # -------------------------------
 # Configurable parameters
 # -------------------------------
 MAX_GAMES = 22
 HOME_AWAY_BALANCE = 11
-WEEKLY_GAME_LIMIT = 2      # max games per team per week (soft constraint with penalty)
-MIN_GAP = 2                # minimum days between game dates (if not a doubleheader)
+WEEKLY_GAME_LIMIT = 2      # max games per team per week
+MIN_GAP = 2                # minimum days gap between games on different dates
 MIN_DOUBLE_HEADERS = 5     # minimum number of doubleheader sessions per team (each session = 2 games)
 MAX_DOUBLE_HEADERS = 5     # maximum allowed doubleheader days per team
 
 # -------------------------------
-# Data loading functions
+# Data Loading Functions (same as before)
 # -------------------------------
 def load_team_availability(file_path):
     availability = {}
@@ -42,8 +39,8 @@ def load_field_availability(file_path):
             slot = row[1].strip()  # e.g., "10:30 PM"
             field = row[2].strip()
             field_availability.append((date, slot, field))
-    # Custom sort: Prioritize Sundays then by date then by time.
-    field_availability.sort(key=lambda x: ((0 if x[0].weekday() == 6 else 1),
+    # Prioritize Sundays (weekday()==6) then sort by date then by time.
+    field_availability.sort(key=lambda x: ((0 if x[0].weekday()==6 else 1),
                                            x[0],
                                            datetime.strptime(x[1].strip(), "%I:%M %p")))
     return field_availability
@@ -68,7 +65,20 @@ def load_team_blackouts(file_path):
     return blackouts
 
 # -------------------------------
-# Intra-division matchup generation
+# Build Date Mapping from Field Availability
+# -------------------------------
+def build_date_mapping(field_availability):
+    date_map = defaultdict(list)
+    for date, slot, field in field_availability:
+        d = date.date()
+        date_map[d].append((slot, field))
+    # Sort timeslots by time (using 12-hour time parsing)
+    for d in date_map:
+        date_map[d].sort(key=lambda x: datetime.strptime(x[0], "%I:%M %p"))
+    return date_map
+
+# -------------------------------
+# Matchup Generation (reuse your existing logic)
 # -------------------------------
 def assign_intra_division_weights(teams, two_game_count, three_game_count):
     pairs = list(itertools.combinations(sorted(teams), 2))
@@ -104,10 +114,12 @@ def generate_intra_matchups(teams, weight_assignment):
             matchups.append((team1, team2))
             matchups.append((team2, team1))
         elif weight == 3:
-            # Deterministically assign the extra game:
             matchups.append((team1, team2))
             matchups.append((team2, team1))
-            matchups.append((team1, team2))
+            if random.random() < 0.5:
+                matchups.append((team1, team2))
+            else:
+                matchups.append((team2, team1))
     return matchups
 
 def generate_intra_division_matchups(division, teams):
@@ -125,9 +137,6 @@ def generate_intra_division_matchups(division, teams):
     else:
         raise Exception("Unknown division")
 
-# -------------------------------
-# Inter-division matchup generation
-# -------------------------------
 def generate_bipartite_regular_matchups(teams1, teams2, degree):
     teams1_order = teams1[:]
     random.shuffle(teams1_order)
@@ -161,7 +170,7 @@ def generate_inter_division_matchups(division_from, division_to, teams_from, tea
     edges = generate_bipartite_regular_matchups(teams_from, teams_to, degree)
     matchups = []
     for (t1, t2) in edges:
-        matchups.append((t1, t2))
+        matchups.append((t1, t2) if random.random() < 0.5 else (t2, t1))
     return matchups
 
 def generate_full_matchups(division_teams):
@@ -172,189 +181,195 @@ def generate_full_matchups(division_teams):
     full_matchups.extend(inter_AB)
     inter_BC = generate_inter_division_matchups('B', 'C', division_teams['B'], division_teams['C'])
     full_matchups.extend(inter_BC)
-    # For reproducibility, sort the matchups deterministically.
-    full_matchups.sort()
+    random.shuffle(full_matchups)
     return full_matchups
 
 # -------------------------------
-# CP-based Scheduling Function with Soft Constraints (except availability and blackouts)
+# PHASE 1: Date Assignment for Matchups
 # -------------------------------
-def schedule_games_cp(matchups, team_availability, field_availability, team_blackouts, seed=42):
-    """
-    Schedule all predetermined matchups using a CP-SAT model.
-    Soft penalties are added for gaps, weekly limits, and home/away balance.
-    HOWEVER, team availability and blackout dates are enforced as hard constraints.
-    """
-    random.seed(seed)
-    # Precompute list of slots and mapping: index -> (date, time, field)
-    slot_list = field_availability  # Each element: (datetime, slot, field)
-    num_slots = len(slot_list)
-    slot_data = {i: slot_list[i] for i in range(num_slots)}
-    
-    # Precompute “date diff” values: days since base_date.
-    base_date = slot_list[0][0].date()
-    date_diffs = []
-    for i in range(num_slots):
-        d = slot_data[i][0].date()
-        diff = (d - base_date).days
-        date_diffs.append(diff)
-    
-    # Precompute timeslot ordering (minutes since midnight)
-    timeslot_orders = []
-    for i in range(num_slots):
-        t = datetime.strptime(slot_data[i][1], "%I:%M %p")
-        order = t.hour * 60 + t.minute
-        timeslot_orders.append(order)
-    
-    # For each matchup, precompute the feasible slot indices using team availability and blackout dates as hard constraints.
-    feasible_slots = []
-    for matchup in matchups:
-        team1, team2 = matchup
-        feas = []
-        for i, (dt, slot, field) in enumerate(slot_list):
-            d = dt.date()
-            day_str = dt.strftime('%a')
-            # Hard constraint: must be available on that day.
-            if day_str not in team_availability.get(team1, set()) or day_str not in team_availability.get(team2, set()):
-                continue
-            # Hard constraint: must not be a blackout day.
-            if d in team_blackouts.get(team1, set()) or d in team_blackouts.get(team2, set()):
-                continue
-            feas.append(i)
-        if not feas:
-            # Rather than relaxing, we raise an error so the user knows that a matchup cannot be scheduled.
-            raise Exception(f"Matchup {matchup} has no feasible slot respecting team availability and blackout dates.")
-        feasible_slots.append(feas)
-    
-    model = cp_model.CpModel()
-    num_matches = len(matchups)
-    
-    # Decision variables: For each match, assign a slot index (from its feasible domain)
-    slot_vars = []
-    for m in range(num_matches):
-        domain = feasible_slots[m]
-        var = model.NewIntVarFromDomain(cp_model.Domain.FromValues(domain), f'slot_{m}')
-        slot_vars.append(var)
-    
-    # For each match, decide whether to flip home/away.
-    flip_vars = []
-    for m in range(num_matches):
-        flip = model.NewBoolVar(f'flip_{m}')
-        flip_vars.append(flip)
-    
-    # Each slot should be used at most once.
-    model.AddAllDifferent(slot_vars)
-    
-    # Mapping: team -> list of match indices in which it participates.
-    team_to_matches = defaultdict(list)
-    for m, (team1, team2) in enumerate(matchups):
-        team_to_matches[team1].append(m)
-        team_to_matches[team2].append(m)
-    
-    penalty_terms = []
-    
-    # -------------------------------
-    # Soft Minimum Gap Constraint (with slack)
-    for team, match_indices in team_to_matches.items():
-        for i in range(len(match_indices)):
-            for j in range(i+1, len(match_indices)):
-                m1 = match_indices[i]
-                m2 = match_indices[j]
-                date1 = model.NewIntVar(0, 10000, f'date_{team}_{m1}')
-                date2 = model.NewIntVar(0, 10000, f'date_{team}_{m2}')
-                model.AddElement(slot_vars[m1], date_diffs, date1)
-                model.AddElement(slot_vars[m2], date_diffs, date2)
-                same_day = model.NewBoolVar(f'same_day_{team}_{m1}_{m2}')
-                model.Add(date1 == date2).OnlyEnforceIf(same_day)
-                model.Add(date1 != date2).OnlyEnforceIf(same_day.Not())
-                diff = model.NewIntVar(-10000, 10000, f'diff_{team}_{m1}_{m2}')
-                model.Add(diff == date1 - date2)
-                diff_abs = model.NewIntVar(0, 10000, f'diff_abs_{team}_{m1}_{m2}')
-                model.AddAbsEquality(diff_abs, diff)
-                gap_slack = model.NewIntVar(0, MIN_GAP, f'gap_slack_{team}_{m1}_{m2}')
-                model.Add(diff_abs + gap_slack >= MIN_GAP).OnlyEnforceIf(same_day.Not())
-                model.Add(gap_slack == 0).OnlyEnforceIf(same_day)
-                penalty_terms.append(gap_slack)
-    
-    # -------------------------------
-    # Weekly Game Limit (soft constraint)
-    week_numbers = []
-    for i in range(num_slots):
-        d = slot_data[i][0].date()
-        week_num = d.isocalendar()[1]
-        week_numbers.append(week_num)
-    
-    for team, match_indices in team_to_matches.items():
-        for week in range(1, 54):
-            indicators = []
-            for m in match_indices:
-                indicator = model.NewBoolVar(f'week_{week}_team_{team}_match_{m}')
-                allowed = [i for i in feasible_slots[m] if week_numbers[i] == week]
-                if allowed:
-                    model.AddAllowedAssignments([slot_vars[m]], [[val] for val in allowed]).OnlyEnforceIf(indicator)
-                    model.AddForbiddenAssignments([slot_vars[m]], [[val] for val in allowed]).OnlyEnforceIf(indicator.Not())
-                else:
-                    model.Add(indicator == 0)
-                indicators.append(indicator)
-            week_count = model.NewIntVar(0, len(match_indices), f'week_count_{team}_{week}')
-            model.Add(week_count == sum(indicators))
-            excess = model.NewIntVar(0, len(match_indices), f'excess_{team}_{week}')
-            model.Add(excess >= week_count - WEEKLY_GAME_LIMIT)
-            penalty_terms.append(excess)
-    
-    # -------------------------------
-    # Home/Away Balance (soft constraint)
-    for team, match_indices in team_to_matches.items():
-        home_indicators = []
-        for m in match_indices:
-            team1, team2 = matchups[m]
-            home = model.NewBoolVar(f'home_{team}_{m}')
-            if team == team1:
-                model.Add(flip_vars[m] == 0).OnlyEnforceIf(home)
-                model.Add(flip_vars[m] == 1).OnlyEnforceIf(home.Not())
-            elif team == team2:
-                model.Add(flip_vars[m] == 1).OnlyEnforceIf(home)
-                model.Add(flip_vars[m] == 0).OnlyEnforceIf(home.Not())
-            home_indicators.append(home)
-        home_count = model.NewIntVar(0, len(match_indices), f'home_count_{team}')
-        model.Add(home_count == sum(home_indicators))
-        diff_home = model.NewIntVar(-len(match_indices), len(match_indices), f'home_diff_{team}')
-        model.Add(diff_home == home_count - HOME_AWAY_BALANCE)
-        abs_diff_home = model.NewIntVar(0, len(match_indices), f'abs_home_diff_{team}')
-        model.AddAbsEquality(abs_diff_home, diff_home)
-        penalty_terms.append(abs_diff_home)
-    
-    # -------------------------------
-    # Objective: minimize total penalty.
-    model.Minimize(sum(penalty_terms))
-    
-    # -------------------------------
-    # Solve the CP model.
-    solver = cp_model.CpSolver()
-    solver.parameters.random_seed = seed
-    status = solver.Solve(model)
-    
-    if status in (cp_model.OPTIMAL, cp_model.FEASIBLE):
-        schedule = []
-        for m in range(num_matches):
-            slot_index = solver.Value(slot_vars[m])
-            dt, timeslot, field = slot_data[slot_index]
-            team1, team2 = matchups[m]
-            if solver.Value(flip_vars[m]) == 0:
-                home, away = team1, team2
-            else:
-                home, away = team2, team1
-            schedule.append((dt, timeslot, field, home, home[0], away, away[0]))
-        print("Total penalty:", solver.ObjectiveValue())
-        return schedule
-    else:
-        print("No solution found that meets the hard constraints on availability and blackouts.")
-        return None
+def feasible_dates_for_matchup(matchup, team_schedule, team_availability, team_blackouts, date_map):
+    t1, t2 = matchup
+    feasible = []
+    for d in date_map.keys():
+        day_of_week = d.strftime('%a')
+        if day_of_week not in team_availability.get(t1, set()) or day_of_week not in team_availability.get(t2, set()):
+            continue
+        if d in team_blackouts.get(t1, set()) or d in team_blackouts.get(t2, set()):
+            continue
+        # For each team, allow at most 2 games per day (for doubleheaders)
+        def team_ok(team):
+            games_on_date = team_schedule[team].get(d, 0)
+            if games_on_date >= 2:
+                return False
+            # Check min gap with other dates (if not playing on the same day)
+            for scheduled_date in team_schedule[team]:
+                if scheduled_date == d:
+                    continue
+                if abs((d - scheduled_date).days) < MIN_GAP:
+                    return False
+            # Check weekly limit
+            week = d.isocalendar()[1]
+            week_games = sum(count for date_key, count in team_schedule[team].items() if date_key.isocalendar()[1] == week)
+            if week_games >= WEEKLY_GAME_LIMIT:
+                return False
+            return True
+        if team_ok(t1) and team_ok(t2):
+            feasible.append(d)
+    return feasible
+
+def assign_dates_to_matchups(matchups, team_availability, team_blackouts, date_map):
+    # team_schedule: maps team -> {date: count_of_games_on_that_date}
+    team_schedule = defaultdict(lambda: defaultdict(int))
+    matchup_date_assignment = {}
+    unscheduled = []
+    # Order matchups by increasing number of feasible dates
+    sorted_matchups = sorted(matchups, key=lambda m: len(feasible_dates_for_matchup(m, team_schedule, team_availability, team_blackouts, date_map)))
+    for m in sorted_matchups:
+        feasible = feasible_dates_for_matchup(m, team_schedule, team_availability, team_blackouts, date_map)
+        if not feasible:
+            unscheduled.append(m)
+            continue
+        # Pick the date with the fewest games scheduled for the teams (heuristic)
+        chosen_date = min(feasible, key=lambda d: sum(team_schedule[t].get(d, 0) for t in m))
+        matchup_date_assignment[m] = chosen_date
+        for t in m:
+            team_schedule[t][chosen_date] += 1
+    return matchup_date_assignment, team_schedule, unscheduled
 
 # -------------------------------
-# Output functions
+# PHASE 2: Timeslot Assignment
+# -------------------------------
+def assign_timeslots_for_date(games, timeslots):
+    """
+    games: list of tuples (matchup, placeholder)
+    timeslots: list of available (slot, field) for the date.
+    If a team plays twice, the two timeslot indices must be consecutive.
+    Returns a mapping from matchup to assigned (slot, field) or None on failure.
+    """
+    n = len(games)
+    if n > len(timeslots):
+        return None  # not enough slots
+    assignment = {}
+    # Backtracking to assign a unique timeslot index to each game.
+    def backtrack(i, used, current_assignment):
+        if i == n:
+            # For every team with two games on this date, check for consecutiveness.
+            team_slots = defaultdict(list)
+            for game, slot_index in current_assignment:
+                t1, t2 = game
+                team_slots[t1].append(slot_index)
+                team_slots[t2].append(slot_index)
+            for team, indices in team_slots.items():
+                if len(indices) == 2:
+                    if abs(indices[0] - indices[1]) != 1:
+                        return None
+                elif len(indices) > 2:
+                    return None
+            return current_assignment
+        for idx in range(len(timeslots)):
+            if idx in used:
+                continue
+            new_assignment = current_assignment + [(games[i][0], idx)]
+            # Early check on doubleheader teams
+            team_slots = defaultdict(list)
+            for game, slot_index in new_assignment:
+                t1, t2 = game
+                team_slots[t1].append(slot_index)
+                team_slots[t2].append(slot_index)
+            valid = True
+            for team, indices in team_slots.items():
+                if len(indices) == 2 and abs(indices[0] - indices[1]) != 1:
+                    valid = False
+                    break
+                if len(indices) > 2:
+                    valid = False
+                    break
+            if not valid:
+                continue
+            used.add(idx)
+            result = backtrack(i+1, used, new_assignment)
+            if result is not None:
+                return result
+            used.remove(idx)
+        return None
+
+    result = backtrack(0, set(), [])
+    if result is None:
+        return None
+    # Map each matchup to the (slot, field) from the chosen timeslot index.
+    game_slot_assignment = {}
+    for game, slot_index in result:
+        game_slot_assignment[game] = timeslots[slot_index]
+    return game_slot_assignment
+
+def assign_timeslots(matchup_date_assignment, date_map):
+    """
+    For each matchup assigned a date, assign a specific timeslot (and field)
+    from the available slots on that date.
+    Returns a mapping {(matchup, date): (slot, field)}.
+    """
+    # Group games by date
+    games_by_date = defaultdict(list)
+    for matchup, d in matchup_date_assignment.items():
+        games_by_date[d].append((matchup, {}))
+    timeslot_assignment = {}
+    for d, games in games_by_date.items():
+        timeslots = date_map[d]
+        assigned = assign_timeslots_for_date(games, timeslots)
+        if assigned is None:
+            # Fallback: assign earliest available timeslot for each game (ignoring doubleheader consecutiveness)
+            assigned = {}
+            used = set()
+            for matchup, _ in games:
+                for idx, ts in enumerate(timeslots):
+                    if idx not in used:
+                        used.add(idx)
+                        assigned[matchup] = ts
+                        break
+        timeslot_assignment.update({(game, d): ts for game, ts in assigned.items()})
+    return timeslot_assignment
+
+# -------------------------------
+# PHASE 3: Home/Away Assignment and Adjustment
+# -------------------------------
+def initial_home_away_assignment(matchup_date_assignment):
+    """Randomly assign home/away roles for each matchup."""
+    ha_assignment = {}
+    for matchup in matchup_date_assignment.keys():
+        t1, t2 = matchup
+        if random.random() < 0.5:
+            ha_assignment[matchup] = (t1, t2)
+        else:
+            ha_assignment[matchup] = (t2, t1)
+    return ha_assignment
+
+def compute_team_stats(ha_assignment):
+    stats = defaultdict(lambda: {'home_games': 0, 'away_games': 0, 'total_games': 0})
+    for matchup, (home, away) in ha_assignment.items():
+        stats[home]['home_games'] += 1
+        stats[home]['total_games'] += 1
+        stats[away]['away_games'] += 1
+        stats[away]['total_games'] += 1
+    return stats
+
+def adjust_home_away(ha_assignment, team_stats):
+    """Try to swap home/away roles when one team exceeds the home game balance."""
+    adjusted = ha_assignment.copy()
+    for matchup, (home, away) in ha_assignment.items():
+        if team_stats[home]['home_games'] > HOME_AWAY_BALANCE and team_stats[away]['home_games'] < HOME_AWAY_BALANCE:
+            # swap roles
+            adjusted[matchup] = (away, home)
+            team_stats[home]['home_games'] -= 1
+            team_stats[home]['away_games'] += 1
+            team_stats[away]['home_games'] += 1
+            team_stats[away]['away_games'] -= 1
+    return adjusted
+
+# -------------------------------
+# Final Output Functions (same as before)
 # -------------------------------
 def output_schedule_to_csv(schedule, output_file):
+    # Sort schedule by date, then by time then by field.
     sorted_schedule = sorted(schedule, key=lambda game: (
         game[0],
         datetime.strptime(game[1].strip(), "%I:%M %p"),
@@ -365,7 +380,7 @@ def output_schedule_to_csv(schedule, output_file):
         writer.writerow(["Date", "Time", "Diamond", "Home Team", "Home Division", "Away Team", "Away Division"])
         for game in sorted_schedule:
             date, slot, field, home, home_div, away, away_div = game
-            writer.writerow([date.strftime('%Y-%m-%d'), slot, field, home, home_div, away, away_div])
+            writer.writerow([date.strftime('%Y-%m-%d'), slot, field, home, home[0], away, away[0]])
 
 def print_schedule_summary(team_stats):
     table = PrettyTable()
@@ -375,10 +390,14 @@ def print_schedule_summary(team_stats):
     print("\nSchedule Summary:")
     print(table)
 
-def print_doubleheader_summary(doubleheader_count):
+def print_doubleheader_summary(team_schedule):
+    # Count days where a team plays 2 games
     table = PrettyTable()
     table.field_names = ["Team", "Doubleheader Days"]
-    for team, count in sorted(doubleheader_count.items()):
+    doubleheader = {}
+    for team, schedule in team_schedule.items():
+        count = sum(1 for d, cnt in schedule.items() if cnt == 2)
+        doubleheader[team] = count
         table.add_row([team, count])
     print("\nDoubleheader Summary (Days with 2 games):")
     print(table)
@@ -400,68 +419,75 @@ def generate_matchup_table(schedule, division_teams):
     print(table)
 
 # -------------------------------
-# Main function
+# Main Function: Orchestrate the 3 Phases
 # -------------------------------
 def main():
+    # Load data
     team_availability = load_team_availability('team_availability.csv')
     field_availability = load_field_availability('field_availability.csv')
     team_blackouts = load_team_blackouts('team_blackouts.csv')
     
-    print("\nTeam Availability Debug:")
+    # Debug prints (optional)
+    print("\nTeam Availability:")
     for team, days in team_availability.items():
-        print(f"Team {team}: {', '.join(days)}")
-    if not team_availability:
-        print("ERROR: Team availability is empty!")
-    
-    print("\nField Availability Debug:")
+        print(f"{team}: {', '.join(days)}")
+        
+    print("\nField Availability:")
     for entry in field_availability:
         print(f"Field Slot: {entry}")
-    if not field_availability:
-        print("ERROR: Field availability is empty!")
     
-    print("\nTeam Blackouts Debug:")
+    print("\nTeam Blackouts:")
     for team, dates in team_blackouts.items():
-        print(f"Team {team} Blackouts: {', '.join(str(d) for d in dates)}")
-        
+        print(f"{team}: {', '.join(str(d) for d in dates)}")
+    
+    # Define divisions and generate matchups
     division_teams = {
         'A': [f'A{i+1}' for i in range(8)],
         'B': [f'B{i+1}' for i in range(8)],
         'C': [f'C{i+1}' for i in range(8)]
     }
-    
     matchups = generate_full_matchups(division_teams)
     print(f"\nTotal generated matchups (unscheduled): {len(matchups)}")
     
-    # Use the CP-based scheduler to assign each matchup a field slot and home/away decision.
-    schedule = schedule_games_cp(matchups, team_availability, field_availability, team_blackouts, seed=42)
-    if schedule is None:
-        print("Scheduling failed due to hard constraints.")
-        return
+    # Build mapping of dates to available timeslots
+    date_map = build_date_mapping(field_availability)
     
+    # PHASE 1: Date Assignment
+    matchup_date_assignment, team_schedule, unscheduled = assign_dates_to_matchups(
+        matchups, team_availability, team_blackouts, date_map
+    )
+    if unscheduled:
+        print("Warning: The following matchups could not be scheduled in Phase 1:", unscheduled)
+    
+    # PHASE 2: Timeslot Assignment
+    timeslot_assignment = assign_timeslots(matchup_date_assignment, date_map)
+    
+    # PHASE 3: Home/Away Assignment and Adjustment
+    ha_assignment = initial_home_away_assignment(matchup_date_assignment)
+    team_stats = compute_team_stats(ha_assignment)
+    ha_assignment = adjust_home_away(ha_assignment, team_stats)
+    
+    # Combine final schedule entries
+    schedule = []
+    for matchup, d in matchup_date_assignment.items():
+        ts = timeslot_assignment.get((matchup, d))
+        if ts is None:
+            continue
+        slot, field = ts
+        home, away = ha_assignment[matchup]
+        schedule.append((d, slot, field, home, home[0], away, away[0]))
+    
+    # Write schedule to CSV and print summaries
     output_schedule_to_csv(schedule, 'softball_schedule.csv')
     print("\nSchedule Generation Complete")
-    
-    # Recalculate team stats and doubleheader counts from the schedule.
-    team_stats = defaultdict(lambda: {'total_games': 0, 'home_games': 0, 'away_games': 0})
-    doubleheader_count = defaultdict(int)
-    team_game_days = defaultdict(lambda: defaultdict(int))
-    for game in schedule:
-        dt, slot, field, home, _, away, _ = game
-        for team in (home, away):
-            team_stats[team]['total_games'] += 1
-        team_stats[home]['home_games'] += 1
-        team_stats[away]['away_games'] += 1
-        d = dt.date()
-        team_game_days[home][d] += 1
-        team_game_days[away][d] += 1
-    for team, days in team_game_days.items():
-        for d, count in days.items():
-            if count == 2:
-                doubleheader_count[team] += 1
-                
     print_schedule_summary(team_stats)
-    print_doubleheader_summary(doubleheader_count)
+    print_doubleheader_summary(team_schedule)
     generate_matchup_table(schedule, division_teams)
+    
+    # Check if teams meet the minimum doubleheader sessions.
+    under_dh = [team for team, sched in team_schedule.items() if sum(1 for d, cnt in sched.items() if cnt == 2) < MIN_DOUBLE_HEADERS]
+    if under_dh:
+        print(f"\nCritical: The following teams did not meet the minimum doubleheader sessions ({MIN_DOUBLE_HEADERS} required): {under_dh}")
 
 if __name__ == "__main__":
     main()
