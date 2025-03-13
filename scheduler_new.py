@@ -43,7 +43,7 @@ def load_field_availability(file_path):
             field = row[2].strip()
             field_availability.append((date, slot, field))
     # Custom sort: Prioritize Sundays then by date then by time.
-    field_availability.sort(key=lambda x: ((0 if x[0].weekday()==6 else 1),
+    field_availability.sort(key=lambda x: ((0 if x[0].weekday() == 6 else 1),
                                            x[0],
                                            datetime.strptime(x[1].strip(), "%I:%M %p")))
     return field_availability
@@ -177,13 +177,13 @@ def generate_full_matchups(division_teams):
     return full_matchups
 
 # -------------------------------
-# CP-based Scheduling Function with Soft Constraints
+# CP-based Scheduling Function with Soft Constraints (except availability and blackouts)
 # -------------------------------
 def schedule_games_cp(matchups, team_availability, field_availability, team_blackouts, seed=42):
     """
     Schedule all predetermined matchups using a CP-SAT model.
-    Soft penalties are added so that even if 100% feasibility is not reached,
-    the solver returns the best schedule.
+    Soft penalties are added for gaps, weekly limits, and home/away balance.
+    HOWEVER, team availability and blackout dates are enforced as hard constraints.
     """
     random.seed(seed)
     # Precompute list of slots and mapping: index -> (date, time, field)
@@ -191,7 +191,7 @@ def schedule_games_cp(matchups, team_availability, field_availability, team_blac
     num_slots = len(slot_list)
     slot_data = {i: slot_list[i] for i in range(num_slots)}
     
-    # Precompute “date diff” values: number of days since a base date.
+    # Precompute “date diff” values: days since base_date.
     base_date = slot_list[0][0].date()
     date_diffs = []
     for i in range(num_slots):
@@ -206,7 +206,7 @@ def schedule_games_cp(matchups, team_availability, field_availability, team_blac
         order = t.hour * 60 + t.minute
         timeslot_orders.append(order)
     
-    # For each matchup, precompute feasible slot indices (by team availability and blackouts)
+    # For each matchup, precompute the feasible slot indices using team availability and blackout dates as hard constraints.
     feasible_slots = []
     for matchup in matchups:
         team1, team2 = matchup
@@ -214,15 +214,16 @@ def schedule_games_cp(matchups, team_availability, field_availability, team_blac
         for i, (dt, slot, field) in enumerate(slot_list):
             d = dt.date()
             day_str = dt.strftime('%a')
+            # Hard constraint: must be available on that day.
             if day_str not in team_availability.get(team1, set()) or day_str not in team_availability.get(team2, set()):
                 continue
+            # Hard constraint: must not be a blackout day.
             if d in team_blackouts.get(team1, set()) or d in team_blackouts.get(team2, set()):
                 continue
             feas.append(i)
-        # Fallback to full domain if no feasible slot was found.
         if not feas:
-            print(f"Warning: No feasible slot for matchup {matchup}; using all slots as fallback.")
-            feas = list(range(num_slots))
+            # Rather than relaxing, we raise an error so the user knows that a matchup cannot be scheduled.
+            raise Exception(f"Matchup {matchup} has no feasible slot respecting team availability and blackout dates.")
         feasible_slots.append(feas)
     
     model = cp_model.CpModel()
@@ -254,31 +255,24 @@ def schedule_games_cp(matchups, team_availability, field_availability, team_blac
     
     # -------------------------------
     # Soft Minimum Gap Constraint (with slack)
-    # For each team, for every pair of matches, if scheduled on different days, we allow a gap violation.
     for team, match_indices in team_to_matches.items():
         for i in range(len(match_indices)):
             for j in range(i+1, len(match_indices)):
                 m1 = match_indices[i]
                 m2 = match_indices[j]
-                # Extract dates via element constraints.
                 date1 = model.NewIntVar(0, 10000, f'date_{team}_{m1}')
                 date2 = model.NewIntVar(0, 10000, f'date_{team}_{m2}')
                 model.AddElement(slot_vars[m1], date_diffs, date1)
                 model.AddElement(slot_vars[m2], date_diffs, date2)
-                # Define a boolean: same_day
                 same_day = model.NewBoolVar(f'same_day_{team}_{m1}_{m2}')
                 model.Add(date1 == date2).OnlyEnforceIf(same_day)
                 model.Add(date1 != date2).OnlyEnforceIf(same_day.Not())
-                # Compute difference and its absolute value.
                 diff = model.NewIntVar(-10000, 10000, f'diff_{team}_{m1}_{m2}')
                 model.Add(diff == date1 - date2)
                 diff_abs = model.NewIntVar(0, 10000, f'diff_abs_{team}_{m1}_{m2}')
                 model.AddAbsEquality(diff_abs, diff)
-                # Introduce a slack variable for gap violation.
                 gap_slack = model.NewIntVar(0, MIN_GAP, f'gap_slack_{team}_{m1}_{m2}')
-                # If not same day, enforce diff_abs + gap_slack >= MIN_GAP.
                 model.Add(diff_abs + gap_slack >= MIN_GAP).OnlyEnforceIf(same_day.Not())
-                # If same day, set slack to zero (no gap penalty for doubleheaders).
                 model.Add(gap_slack == 0).OnlyEnforceIf(same_day)
                 penalty_terms.append(gap_slack)
     
@@ -297,7 +291,6 @@ def schedule_games_cp(matchups, team_availability, field_availability, team_blac
                 indicator = model.NewBoolVar(f'week_{week}_team_{team}_match_{m}')
                 allowed = [i for i in feasible_slots[m] if week_numbers[i] == week]
                 if allowed:
-                    # When slot is assigned one of the allowed values, indicator is 1.
                     model.AddAllowedAssignments([slot_vars[m]], [[val] for val in allowed]).OnlyEnforceIf(indicator)
                     model.AddForbiddenAssignments([slot_vars[m]], [[val] for val in allowed]).OnlyEnforceIf(indicator.Not())
                 else:
@@ -331,8 +324,6 @@ def schedule_games_cp(matchups, team_availability, field_availability, team_blac
         model.AddAbsEquality(abs_diff_home, diff_home)
         penalty_terms.append(abs_diff_home)
     
-    # (Additional soft constraints for doubleheaders could be added similarly.)
-    
     # -------------------------------
     # Objective: minimize total penalty.
     model.Minimize(sum(penalty_terms))
@@ -354,11 +345,10 @@ def schedule_games_cp(matchups, team_availability, field_availability, team_blac
             else:
                 home, away = team2, team1
             schedule.append((dt, timeslot, field, home, home[0], away, away[0]))
-        # Optionally, you could print the total penalty value:
         print("Total penalty:", solver.ObjectiveValue())
         return schedule
     else:
-        print("No solution found, but returning best partial solution if available.")
+        print("No solution found that meets the hard constraints on availability and blackouts.")
         return None
 
 # -------------------------------
@@ -445,7 +435,7 @@ def main():
     # Use the CP-based scheduler to assign each matchup a field slot and home/away decision.
     schedule = schedule_games_cp(matchups, team_availability, field_availability, team_blackouts, seed=42)
     if schedule is None:
-        print("Scheduling failed.")
+        print("Scheduling failed due to hard constraints.")
         return
     
     output_schedule_to_csv(schedule, 'softball_schedule.csv')
