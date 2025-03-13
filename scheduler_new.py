@@ -13,9 +13,9 @@ from ortools.sat.python import cp_model
 # -------------------------------
 MAX_GAMES = 22
 HOME_AWAY_BALANCE = 11
-WEEKLY_GAME_LIMIT = 2      # max games per team per week (soft constraint with penalty)
+WEEKLY_GAME_LIMIT = 3      # max games per team per week (soft constraint with penalty)
 MIN_GAP = 2                # minimum days between game dates (if not a doubleheader)
-MIN_DOUBLE_HEADERS = 5     # minimum number of doubleheader sessions per team (each session = 2 games)
+MIN_DOUBLE_HEADERS = 4     # minimum number of doubleheader sessions per team (each session = 2 games)
 MAX_DOUBLE_HEADERS = 5     # maximum allowed doubleheader days per team
 
 # -------------------------------
