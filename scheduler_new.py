@@ -224,7 +224,12 @@ def decide_home_away(t1, t2, team_stats):
 # NEW: Preemptive Doubleheader Scheduling
 # -------------------------------
 def schedule_doubleheaders_preemptively(unscheduled, team_availability, field_availability, team_blackouts, timeslots_by_date,
-                                        team_stats, doubleheader_count, team_game_days, team_game_slots, team_doubleheader_opponents, used_slots):
+                                        team_stats, doubleheader_count, team_game_days, team_game_slots, team_doubleheader_opponents,
+                                        used_slots, schedule=None):
+    # Initialize schedule if not provided
+    if schedule is None:
+        schedule = []
+        
     # Iterate over each available date (d is a date object)
     for d in sorted(timeslots_by_date.keys()):
         day_of_week = d.strftime('%a')
@@ -240,7 +245,7 @@ def schedule_doubleheaders_preemptively(unscheduled, team_availability, field_av
                 continue
             if d in team_blackouts.get(team, set()):
                 continue
-            # Optionally, you may wish to only pre-schedule on days when the team has no game yet:
+            # Optionally, only pre-schedule on days when the team has no game yet:
             if team_game_days[team].get(d, 0) != 0:
                 continue
 
@@ -289,16 +294,14 @@ def schedule_doubleheaders_preemptively(unscheduled, team_availability, field_av
                     date2, slot2_str, field2 = entry2
 
                     # Schedule the two games as a doubleheader.
-                    # Game 1:
                     unscheduled.remove(m1)
                     team_stats[home1]['home_games'] += 1
                     team_stats[away1]['away_games'] += 1
-                    # Game 2:
+
                     unscheduled.remove(m2)
                     team_stats[home2]['home_games'] += 1
                     team_stats[away2]['away_games'] += 1
 
-                    # Update schedule and state.
                     game1 = (date1, slot1_str, field1, home1, home1[0], away1, away1[0])
                     game2 = (date2, slot2_str, field2, home2, home2[0], away2, away2[0])
                     schedule.append(game1)
@@ -323,6 +326,7 @@ def schedule_doubleheaders_preemptively(unscheduled, team_availability, field_av
                 if found:
                     break
     return schedule, team_stats, doubleheader_count, team_game_days, team_game_slots, team_doubleheader_opponents, used_slots, unscheduled
+
 
 # -------------------------------
 # Modified Scheduling functions (now accept existing state)
