@@ -426,7 +426,8 @@ def print_doubleheader_summary(team_calendar):
 def generate_matchup_table(schedule, division_teams):
     matchup_count = defaultdict(lambda: defaultdict(int))
     for game in schedule:
-        _, _, _, home, _, away, _ = game
+        # Each game is now (date, slot, field, home, away)
+        _, _, _, home, away = game
         matchup_count[home][away] += 1
         matchup_count[away][home] += 1
     all_teams = sorted([team for teams in division_teams.values() for team in teams])
@@ -437,6 +438,7 @@ def generate_matchup_table(schedule, division_teams):
         table.add_row(row)
     print("\nMatchup Table:")
     print(table)
+
 
 # -------------------------------
 # MAIN FUNCTION: Orchestrate all phases
