@@ -75,8 +75,7 @@ def load_team_blackouts(file_path):
 # Doubleheader Scheduling
 # -------------------------------
 def schedule_doubleheaders(unscheduled, team_availability, field_availability, team_blackouts, timeslots_by_date,
-                           team_stats, doubleheader_count, team_game_days, team_game_slots, team_doubleheader_opponents,
-                           used_slots, schedule=None):
+                           team_stats, doubleheader_count, used_slots, schedule=None):
     """
     Enforce all doubleheaders first before single games.
     Updated to ensure minimum of 7 and max of 9 doubleheader days per team.
@@ -110,8 +109,8 @@ def schedule_doubleheaders(unscheduled, team_availability, field_availability, t
                             continue
                         home1, away1 = team, opp1
                         home2, away2 = team, opp2
-                        schedule.append((d, slot1, home1, away1))
-                        schedule.append((d, slot2, home2, away2))
+                        schedule.append((d.strftime('%Y-%m-%d'), slot1, home1, away1))
+                        schedule.append((d.strftime('%Y-%m-%d'), slot2, home2, away2))
                         unscheduled.remove(m1)
                         unscheduled.remove(m2)
                         team_stats[team]['total_games'] += 2
@@ -146,7 +145,7 @@ def main():
     
     schedule, team_stats, doubleheader_count, unscheduled = schedule_doubleheaders(
         matchups, team_availability, field_availability, team_blackouts, timeslots_by_date,
-        team_stats, doubleheader_count, {}, {}, {}, used_slots, schedule
+        team_stats, doubleheader_count, used_slots, schedule
     )
     
     print("Updated Schedule with Doubleheaders First:")
