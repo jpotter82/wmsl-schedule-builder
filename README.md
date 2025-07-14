@@ -80,7 +80,13 @@ Configuration
 
 Update `team_availability.csv` to specify each team's available days:
 
-`Team,AvailableDays` `A1,Mon,Wed` `A2,Mon,Wed,Fri` `B1,Tue,Thu` `C1,Mon,Thu,Sun`
+```
+Team,AvailableDays
+A1,Mon,Wed
+A2,Mon,Wed,Fri
+B1,Tue,Thu
+C1,Mon,Thu,Sun
+```
 
 ### Field Availability
 
