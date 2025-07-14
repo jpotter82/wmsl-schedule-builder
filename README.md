@@ -92,7 +92,11 @@ C1,Mon,Thu,Sun
 
 Update `field_availability.csv` to specify field availability dates and times:
 
-`Date,Time,Field` `2025-04-07,18:00,Diamond 1` `2025-04-07,20:00,Diamond 2`
+```
+Date,Time,Field
+2025-04-07,18:00,Diamond 1
+2025-04-07,20:00,Diamond 2
+```
 
 License
 -------
