@@ -571,22 +571,33 @@ def solve_schedule(
         if games_for_slot[s.slot_id]:
             model.Add(sum(games_for_slot[s.slot_id]) <= 1)
 
-    # team_time: team plays at (date,time) regardless of field -> forces <=1
-    # NOTE: this is O(teams * datetimes * games). Works for typical league sizes; can optimize later.
+    # Build team_time vars + "one game per date/time"
+    # Much faster: pre-index games per team so we don't scan all games repeatedly.
+    games_by_team = defaultdict(list)
+    for g in games:
+        games_by_team[g.t1].append(g.game_id)
+        games_by_team[g.t2].append(g.game_id)
+
     for team in all_teams:
-        for (d, t) in slots_by_datetime.keys():
-            involved = []
-            for g in games:
-                if g.t1 != team and g.t2 != team:
-                    continue
-                for s_id in slots_by_datetime[(d, t)]:
-                    if (g.game_id, s_id) in x:
-                        involved.append(x[(g.game_id, s_id)])
-            if not involved:
+        team_game_ids = games_by_team[team]
+        for (d, t), s_ids in slots_by_datetime.items():
+            involved_vars = []
+            for gid in team_game_ids:
+                for s_id in s_ids:
+                    var = x.get((gid, s_id))
+                    if var is not None:
+                        involved_vars.append(var)
+
+            if not involved_vars:
                 continue
+
             tt = model.NewBoolVar(f"teamtime_{team}_{d}_{t}".replace(" ", ""))
             team_time[(team, d, t)] = tt
-            model.Add(sum(involved) == tt)
+
+            # Because: (a) each game picks exactly one slot, and (b) slot occupancy <= 1,
+            # a team cannot have >1 var true here, so sum(involved_vars) is already 0..1.
+            model.Add(sum(involved_vars) == tt)
+
 
     # MIN_DAYS_BETWEEN (except same-day)
     if MIN_DAYS_BETWEEN > 0:
@@ -694,11 +705,22 @@ def solve_schedule(
     model.Minimize(sum(objective_terms))
 
     solver = cp_model.CpSolver()
-    solver.parameters.max_time_in_seconds = 120.0
+    solver.parameters.max_time_in_seconds = 900.0
     solver.parameters.num_search_workers = 8
     solver.parameters.random_seed = RANDOM_SEED
+    # IMPORTANT: show progress + why it's stuck
+    solver.parameters.log_search_progress = True
+    solver.parameters.cp_model_probing_level = 0       # sometimes reduces overhead on huge models
+    solver.parameters.max_deterministic_time = 900.0   # keep deterministic-ish with workers  
 
     status = solver.Solve(model)
+    print("\n=== SOLVER STATS ===")
+    print("Status:", solver.StatusName(status))
+    print("WallTime:", solver.WallTime(), "s")
+    print("Conflicts:", solver.NumConflicts())
+    print("Branches:", solver.NumBranches())
+    print("ObjectiveValue:", solver.ObjectiveValue() if status in (cp_model.OPTIMAL, cp_model.FEASIBLE) else "n/a")
+
     if status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
         raise RuntimeError(f"No feasible schedule found. Solver status: {solver.StatusName(status)}")
 
