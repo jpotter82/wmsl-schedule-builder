@@ -46,7 +46,7 @@ BLACKOUTS_CSV = "blackout_dates.csv"
 GAMES_PER_TEAM = 22
 HOME_GAMES_TARGET = 11
 
-MIN_DAYS_BETWEEN = 5         # min rest days between games (except within doubleheader)
+MIN_DAYS_BETWEEN = 4         # min rest days between games (except within doubleheader)
 SUNDAY_WEIGHT = 5            # (currently used indirectly via penalties; see PENALTIES)
 
 # Teams per division (IDs must match CSVs)
