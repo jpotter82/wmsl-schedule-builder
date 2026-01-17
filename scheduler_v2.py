@@ -89,9 +89,9 @@ INTER_DIV_MAX_PER_OPPONENT = 1  # usually 1 for inter-division play (avoid repea
 # Doubleheader sessions by division (1 session = 2 games)
 DOUBLE_HEADERS_BY_DIV: Dict[str, Dict[str, int]] = {
     "A": {"min_sessions": 11, "max_sessions": 11},
-    "B": {"min_sessions": 4,  "max_sessions": 6},
-    "C": {"min_sessions": 3,  "max_sessions": 5},
-    "D": {"min_sessions": 3,  "max_sessions": 5},
+    "B": {"min_sessions": 6,  "max_sessions": 7},
+    "C": {"min_sessions": 6,  "max_sessions": 7},
+    "D": {"min_sessions": 6,  "max_sessions": 7},
 }
 
 # Soft objective weights (bigger = more important)
