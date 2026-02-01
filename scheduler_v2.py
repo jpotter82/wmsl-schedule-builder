@@ -46,7 +46,7 @@ BLACKOUTS_CSV = "blackout_dates.csv"
 GAMES_PER_TEAM = 22
 HOME_GAMES_TARGET = 11
 
-MIN_DAYS_BETWEEN = 4         # min rest days between games (except within doubleheader)
+MIN_DAYS_BETWEEN = 5         # min rest days between games (except within doubleheader)
 SUNDAY_WEIGHT = 5            # (currently used indirectly via penalties; see PENALTIES)
 
 # Teams per division (IDs must match CSVs)
@@ -61,8 +61,8 @@ DIVISION_TEAMS: Dict[str, List[str]] = {
 # For any division omitted, INTRA will be derived per-team as (GAMES_PER_TEAM - total_inter_for_team).
 INTRA_DIV_GAMES_FIXED: Dict[str, int] = {
     "A": 22,  # A plays only A
-    "B": 16,  # B plays B 2x+ and remainder vs C
-    "C": 14,  # C plays C 2x each
+    "B": 14,  # B plays B 2x+ and remainder vs C
+    "C": 16,  # C plays C 2x each
     # D flexible based on D vs C inter
 }
 
@@ -89,9 +89,9 @@ INTER_DIV_MAX_PER_OPPONENT = 1  # usually 1 for inter-division play (avoid repea
 # Doubleheader sessions by division (1 session = 2 games)
 DOUBLE_HEADERS_BY_DIV: Dict[str, Dict[str, int]] = {
     "A": {"min_sessions": 11, "max_sessions": 11},
-    "B": {"min_sessions": 6,  "max_sessions": 7},
-    "C": {"min_sessions": 6,  "max_sessions": 7},
-    "D": {"min_sessions": 6,  "max_sessions": 7},
+    "B": {"min_sessions": 7,  "max_sessions": 7},
+    "C": {"min_sessions": 7,  "max_sessions": 7},
+    "D": {"min_sessions": 7,  "max_sessions": 7},
 }
 
 # Soft objective weights (bigger = more important)
