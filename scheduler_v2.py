@@ -339,10 +339,13 @@ def generate_intra_edges_with_min_and_cap(
     max_per_opponent_total: int,
 ) -> List[Tuple[str, str, str]]:
     """
-    Build INTRA games so that every intra pair plays at least min_per_opponent times,
-    and at most max_per_opponent_total times, while meeting each team's degree_target.
+    Robust intra generator:
+      1) solve integer counts per pair via CP-SAT so that:
+         - min_per_opponent <= count(u,v) <= max_per_opponent_total
+         - each team meets its exact degree_target
+      2) expand counts into individual games (u,v,"INTRA")
 
-    Returns list of (teamA, teamB, "INTRA") where each tuple is one game.
+    This avoids greedy dead-ends like: "team A5 needs 1 but all opponents hit cap".
     """
     n = len(teams)
     if n < 2:
@@ -353,87 +356,73 @@ def generate_intra_edges_with_min_and_cap(
         raise ValueError("max_per_opponent_total must be >= min_per_opponent.")
 
     base_needed_per_team = min_per_opponent * (n - 1)
-
-    # Validate targets can support minimum
-    for t in teams:
-        if degree_target[t] < base_needed_per_team:
-            raise ValueError(
-                f"Intra target too small for {t}: target={degree_target[t]} "
-                f"but need at least {base_needed_per_team} to play each opponent "
-                f"{min_per_opponent} times."
-            )
-
-    # If cap is too low to allow enough total games, fail early.
     max_possible_per_team = max_per_opponent_total * (n - 1)
+
     for t in teams:
-        if degree_target[t] > max_possible_per_team:
+        tgt = int(degree_target[t])
+        if tgt < base_needed_per_team:
             raise ValueError(
-                f"Intra target too large for {t}: target={degree_target[t]} "
-                f"but cap allows at most {max_possible_per_team} intra games/team "
-                f"({max_per_opponent_total} vs each of {n-1} opponents)."
+                f"Intra target too small for {t}: target={tgt}, "
+                f"need at least {base_needed_per_team} for min {min_per_opponent} vs each opponent."
+            )
+        if tgt > max_possible_per_team:
+            raise ValueError(
+                f"Intra target too large for {t}: target={tgt}, "
+                f"cap allows at most {max_possible_per_team} (cap={max_per_opponent_total} vs {n-1} opponents)."
             )
 
-    # Track remaining degree and pair totals
-    need = {t: int(degree_target[t]) for t in teams}
-    pair_count = defaultdict(int)  # key: (u,v) sorted -> total games between pair
-    games: List[Tuple[str, str, str]] = []
+    # ---- Build small CP-SAT model for pair counts ----
+    model = cp_model.CpModel()
 
-    # 1) Seed minimum per pair
+    # Pair variables c[i,j] for i<j
     pairs = []
+    c = {}
     for i in range(n):
         for j in range(i + 1, n):
-            pairs.append((teams[i], teams[j]))
-    rnd.shuffle(pairs)
+            u, v = teams[i], teams[j]
+            var = model.NewIntVar(min_per_opponent, max_per_opponent_total, f"c_{u}_{v}")
+            c[(u, v)] = var
+            pairs.append((u, v))
 
+    # Per-team degree constraints
+    for t in teams:
+        incident = []
+        for (u, v) in pairs:
+            if u == t or v == t:
+                incident.append(c[(u, v)])
+        model.Add(sum(incident) == int(degree_target[t]))
+
+    # Optional: mild objective to “spread” repeats (keep pair counts low-ish)
+    # This is not required, but tends to produce nicer distributions.
+    # Minimize sum(c_uv^2) is nonlinear; instead minimize sum of (c_uv - min)^2 approx via abs dev.
+    devs = []
     for (u, v) in pairs:
-        p = tuple(sorted((u, v)))
-        for _ in range(min_per_opponent):
+        dev = model.NewIntVar(0, max_per_opponent_total - min_per_opponent, f"dev_{u}_{v}")
+        model.AddAbsEquality(dev, c[(u, v)] - min_per_opponent)
+        devs.append(dev)
+    model.Minimize(sum(devs))
+
+    solver = cp_model.CpSolver()
+    solver.parameters.max_time_in_seconds = 5.0  # tiny model; should be instant
+    solver.parameters.num_search_workers = 1     # keep it deterministic-ish
+
+    status = solver.Solve(model)
+    if status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
+        raise RuntimeError(
+            f"Intra pair-count model infeasible for teams={teams}. "
+            f"Check min/cap/targets. status={solver.StatusName(status)}"
+        )
+
+    # ---- Expand counts into games ----
+    games = []
+    for (u, v) in pairs:
+        k = int(solver.Value(c[(u, v)]))
+        for _ in range(k):
             games.append((u, v, "INTRA"))
-            pair_count[p] += 1
-            need[u] -= 1
-            need[v] -= 1
 
-    if any(need[t] < 0 for t in teams):
-        raise RuntimeError("Internal error: remaining degree went negative during seeding.")
-    if sum(need.values()) % 2 != 0:
-        raise ValueError(f"Remaining intra degrees sum odd ({sum(need.values())}); check targets/caps.")
-
-    # 2) Fill remaining degrees while respecting the cap
-    while True:
-        remaining = [t for t in teams if need[t] > 0]
-        if not remaining:
-            break
-
-        remaining.sort(key=lambda t: (-need[t], t))
-        u = remaining[0]
-
-        # Candidates must still need games AND pair_count under cap
-        candidates = []
-        for v in teams:
-            if v == u or need[v] <= 0:
-                continue
-            p = tuple(sorted((u, v)))
-            if pair_count[p] < max_per_opponent_total:
-                candidates.append(v)
-
-        if not candidates:
-            raise RuntimeError(
-                f"Intra generation stuck (cap too tight): team {u} still needs {need[u]} "
-                f"but all opponents reached cap={max_per_opponent_total}."
-            )
-
-        rnd.shuffle(candidates)
-        # Prefer opponents with lowest pair_count first, and highest remaining need next
-        candidates.sort(key=lambda v: (pair_count[tuple(sorted((u, v)))], -need[v], v))
-        v = candidates[0]
-
-        p = tuple(sorted((u, v)))
-        games.append((u, v, "INTRA"))
-        pair_count[p] += 1
-        need[u] -= 1
-        need[v] -= 1
-
+    rnd.shuffle(games)
     return games
+
 
 
 def generate_intra_edges_variable_degrees(
