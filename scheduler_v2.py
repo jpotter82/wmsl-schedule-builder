@@ -93,6 +93,18 @@ PENALTIES = {
     "non_sunday_slot": 1,       # penalty for using non-Sunday slots
 }
 
+# Intra constraints
+INTRA_MIN_PER_OPPONENT = 2
+
+# Total max times a team can play the same opponent (within same division)
+# Set per-division caps. Adjust as desired.
+INTRA_MAX_PER_OPPONENT_TOTAL_BY_DIV: Dict[str, int] = {
+    "A": 5,
+    "B": 5,
+    "C": 3,
+    "D": 3,
+}
+
 # Debug / Reporting
 DEBUG = True
 USE_PRETTYTABLE = True
@@ -319,28 +331,30 @@ def sanity_check_config_and_targets(inter_targets: Dict[str, Dict[str, int]]) ->
 # MATCHUP DEMAND GENERATION
 # ============================================================
 
-def generate_intra_edges_with_min_per_opponent(
+def generate_intra_edges_with_min_and_cap(
     teams: List[str],
     degree_target: Dict[str, int],
     rnd: random.Random,
-    min_per_opponent: int = 2,
+    min_per_opponent: int,
+    max_per_opponent_total: int,
 ) -> List[Tuple[str, str, str]]:
     """
-    Build INTRA games so that every pair of teams plays at least `min_per_opponent` times,
-    then fill the remaining degree requirements using the existing variable-degree generator.
+    Build INTRA games so that every intra pair plays at least min_per_opponent times,
+    and at most max_per_opponent_total times, while meeting each team's degree_target.
 
-    Returns list of (teamA, teamB, "INTRA") edges, where each edge is one game.
+    Returns list of (teamA, teamB, "INTRA") where each tuple is one game.
     """
     n = len(teams)
     if n < 2:
         raise ValueError("Division must have at least 2 teams for intra scheduling.")
     if min_per_opponent < 0:
         raise ValueError("min_per_opponent cannot be negative.")
+    if max_per_opponent_total < min_per_opponent:
+        raise ValueError("max_per_opponent_total must be >= min_per_opponent.")
 
-    # How many intra games are required per team just to satisfy the pair minimum?
     base_needed_per_team = min_per_opponent * (n - 1)
 
-    # Validate targets can support the minimum
+    # Validate targets can support minimum
     for t in teams:
         if degree_target[t] < base_needed_per_team:
             raise ValueError(
@@ -349,48 +363,78 @@ def generate_intra_edges_with_min_per_opponent(
                 f"{min_per_opponent} times."
             )
 
+    # If cap is too low to allow enough total games, fail early.
+    max_possible_per_team = max_per_opponent_total * (n - 1)
+    for t in teams:
+        if degree_target[t] > max_possible_per_team:
+            raise ValueError(
+                f"Intra target too large for {t}: target={degree_target[t]} "
+                f"but cap allows at most {max_possible_per_team} intra games/team "
+                f"({max_per_opponent_total} vs each of {n-1} opponents)."
+            )
+
+    # Track remaining degree and pair totals
+    need = {t: int(degree_target[t]) for t in teams}
+    pair_count = defaultdict(int)  # key: (u,v) sorted -> total games between pair
     games: List[Tuple[str, str, str]] = []
 
-    # 1) Seed: min_per_opponent games for every pair (u < v)
-    # This guarantees the minimum constraint.
+    # 1) Seed minimum per pair
     pairs = []
     for i in range(n):
         for j in range(i + 1, n):
             pairs.append((teams[i], teams[j]))
-
-    # Shuffle just to avoid always building the same pattern
     rnd.shuffle(pairs)
 
-    # Add the required minimum games per pair
-    remaining = {t: int(degree_target[t]) for t in teams}
     for (u, v) in pairs:
+        p = tuple(sorted((u, v)))
         for _ in range(min_per_opponent):
             games.append((u, v, "INTRA"))
-            remaining[u] -= 1
-            remaining[v] -= 1
+            pair_count[p] += 1
+            need[u] -= 1
+            need[v] -= 1
 
-    # 2) Fill the rest using your existing degree-based method
-    # remaining degrees must be non-negative and sum even
-    if any(remaining[t] < 0 for t in teams):
+    if any(need[t] < 0 for t in teams):
         raise RuntimeError("Internal error: remaining degree went negative during seeding.")
-    if sum(remaining.values()) % 2 != 0:
-        raise ValueError(
-            f"Remaining intra degrees sum to an odd number ({sum(remaining.values())}). "
-            f"Check targets for division teams: {teams}"
-        )
+    if sum(need.values()) % 2 != 0:
+        raise ValueError(f"Remaining intra degrees sum odd ({sum(need.values())}); check targets/caps.")
 
-    # Reuse your existing filler to allocate the leftover games.
-    if sum(remaining.values()) > 0:
-        games.extend(
-            generate_intra_edges_variable_degrees(
-                teams=teams,
-                degree_target=remaining,
-                rnd=rnd,
-                max_per_opponent=None,  # let it auto-calc cap for the extra games
+    # 2) Fill remaining degrees while respecting the cap
+    while True:
+        remaining = [t for t in teams if need[t] > 0]
+        if not remaining:
+            break
+
+        remaining.sort(key=lambda t: (-need[t], t))
+        u = remaining[0]
+
+        # Candidates must still need games AND pair_count under cap
+        candidates = []
+        for v in teams:
+            if v == u or need[v] <= 0:
+                continue
+            p = tuple(sorted((u, v)))
+            if pair_count[p] < max_per_opponent_total:
+                candidates.append(v)
+
+        if not candidates:
+            raise RuntimeError(
+                f"Intra generation stuck (cap too tight): team {u} still needs {need[u]} "
+                f"but all opponents reached cap={max_per_opponent_total}."
             )
-        )
+
+        rnd.shuffle(candidates)
+        # Prefer opponents with lowest pair_count first, and highest remaining need next
+        candidates.sort(key=lambda v: (pair_count[tuple(sorted((u, v)))], -need[v], v))
+        v = candidates[0]
+
+        p = tuple(sorted((u, v)))
+        games.append((u, v, "INTRA"))
+        pair_count[p] += 1
+        need[u] -= 1
+        need[v] -= 1
 
     return games
+
 
 def generate_intra_edges_variable_degrees(
     teams: List[str],
@@ -511,7 +555,17 @@ def generate_all_games(rnd: random.Random) -> List[Game]:
     # INTRA
     for div, teams in DIVISION_TEAMS.items():
         degree_target = {t: intra_per_team[t] for t in teams}
-        raw_pairs.extend(generate_intra_edges_with_min_per_opponent(teams, degree_target, rnd, min_per_opponent=2))
+        cap_total = INTRA_MAX_PER_OPPONENT_TOTAL_BY_DIV.get(div, 999999)
+        raw_pairs.extend(
+            generate_intra_edges_with_min_and_cap(
+                teams=teams,
+                degree_target=degree_target,
+                rnd=rnd,
+                min_per_opponent=INTRA_MIN_PER_OPPONENT,
+                max_per_opponent_total=cap_total,
+            )
+        )
+
 
     # INTER
     divs = sorted(DIVISION_TEAMS.keys())
