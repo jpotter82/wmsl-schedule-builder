@@ -10,32 +10,42 @@ from prettytable import PrettyTable
 # Configurable parameters
 # -------------------------------
 MAX_RETRIES = 20000            # scheduling backtracking limit
-MIN_GAP = 2                    # minimum days between game dates
+MIN_GAP = 5                    # minimum days between game dates
 WEEKLY_GAME_LIMIT = 2          # max games per team per week
 HOME_AWAY_BALANCE = 11         # desired home games per team (for 22-game seasons)
 
 # Per-division configuration (tweak here)
 DIVISION_SETTINGS = {
-    # inter=False means this division will NOT play any inter-division games.
-    # target_games is per-team season total in that division.
-    # min/max_dh are "doubleheader days" (a day where team plays 2 games).
-    'A': {'inter': False, 'target_games': 22, 'min_dh': 4, 'max_dh': 5},
-    'B': {'inter': True,  'target_games': 22, 'min_dh': 4, 'max_dh': 5},
-    'C': {'inter': True,  'target_games': 22, 'min_dh': 4, 'max_dh': 5},
+    # A: no inter, only doubleheaders => 11 DH days * 2 games = 22
+    'A': {'inter': False, 'target_games': 22, 'min_dh': 11, 'max_dh': 11},
+
+    # B/C/D: allow inter; DH ranges can be whatever you want (examples)
+    'B': {'inter': True,  'target_games': 22, 'min_dh': 4,  'max_dh': 7},
+    'C': {'inter': True,  'target_games': 22, 'min_dh': 3,  'max_dh': 6},
+    'D': {'inter': True,  'target_games': 22, 'min_dh': 3,  'max_dh': 6},
 }
 
 # Inter-division pairing settings (only applied if BOTH divisions have inter=True)
 INTER_PAIR_SETTINGS = {
-    ('A', 'B'): True,
+    ('A', 'B'): False,
+    ('A', 'C'): False,
+    ('A', 'D'): False,
+
     ('B', 'C'): True,
-    # ('A', 'C') intentionally omitted / false
+    ('B', 'D'): True,
+    ('C', 'D'): True,
 }
 
 # How many inter games each team in the pair should have against the other division.
 # With 8 teams per division, degree=4 means each team plays 4 opponents from the other division (1 game each).
+# “Average per team” targets. The solver will distribute slight unevenness.
 INTER_DEGREE = {
-    ('A', 'B'): 4,
-    ('B', 'C'): 4,
+    # B vs (C,D): B needs about 8 inter games total if B does full intra (14 games)
+    ('B', 'C'): 4,   # target ~4 inter games per B team vs C
+    ('B', 'D'): 4,   # target ~4 inter games per B team vs D
+
+    # C vs D: C and D each need ~12 inter if they do full intra (10 games)
+    ('C', 'D'): 6,   # target “play each opponent once” (6 games per team)
 }
 
 # -------------------------------
