@@ -339,34 +339,60 @@ def generate_intra_matchups_for_target(division, teams, intra_target_per_team):
 # Inter-division matchup generation
 # -------------------------------
 def generate_bipartite_regular_matchups(teams1, teams2, degree):
-    teams1_order = teams1[:]
-    random.shuffle(teams1_order)
-    assignment = {t: [] for t in teams1_order}
-    capacity = {t: degree for t in teams2}
+    """
+    Balanced bipartite assignment:
+      - each team in teams1 gets exactly `degree` opponents in teams2 (distinct if possible)
+      - teams2 loads are balanced as evenly as possible (some may get +1 when sizes differ)
+    Works for 8 vs 6 scenarios like B–C.
 
-    def backtrack(i):
-        if i == len(teams1_order):
-            return True
-        team = teams1_order[i]
-        available = [t for t in teams2 if capacity[t] > 0]
-        for combo in itertools.combinations(available, degree):
-            assignment[team] = list(combo)
-            for t in combo:
-                capacity[t] -= 1
-            if backtrack(i + 1):
-                return True
-            for t in combo:
-                capacity[t] += 1
-        return False
+    NOTE: requires degree <= len(teams2). If you ever want degree > len(teams2),
+          you must allow repeats (different design).
+    """
+    teams1 = list(teams1)
+    teams2 = list(teams2)
 
-    if not backtrack(0):
-        raise Exception("No valid bipartite matching found.")
+    if degree < 0:
+        raise Exception("degree must be >= 0")
+    if degree == 0:
+        return []
+    if degree > len(teams2):
+        raise Exception(
+            f"degree={degree} exceeds opponent count={len(teams2)}; "
+            "reduce degree or implement repeat-opponent inter matchups."
+        )
+
+    random.shuffle(teams1)
+
+    # Target total edges and per-teams2 capacity (balanced, not fixed-degree)
+    total_edges = len(teams1) * degree
+    base = total_edges // len(teams2)
+    extra = total_edges % len(teams2)
+
+    # capacities: first `extra` teams can take base+1, rest base
+    teams2_shuffled = teams2[:]
+    random.shuffle(teams2_shuffled)
+    cap = {t: base for t in teams2_shuffled}
+    for t in teams2_shuffled[:extra]:
+        cap[t] += 1
 
     edges = []
-    for team in teams1_order:
-        for opp in assignment[team]:
-            edges.append((team, opp))
+    for t1 in teams1:
+        # choose `degree` opponents with remaining capacity, prefer higher remaining cap
+        avail = [t for t in teams2_shuffled if cap[t] > 0]
+        if len(avail) < degree:
+            raise Exception("No valid bipartite matching found (insufficient capacity).")
+
+        # Greedy: pick opponents with most remaining capacity (break ties randomly)
+        random.shuffle(avail)
+        avail.sort(key=lambda t: cap[t], reverse=True)
+        chosen = avail[:degree]
+
+        for t2 in chosen:
+            edges.append((t1, t2))
+            cap[t2] -= 1
+
     return edges
+
 
 def generate_inter_division_matchups(division_from, division_to, teams_from, teams_to, degree):
     edges = generate_bipartite_regular_matchups(teams_from, teams_to, degree)
