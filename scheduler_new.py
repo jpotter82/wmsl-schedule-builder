@@ -46,7 +46,7 @@ INTER_PAIR_SETTINGS = {
 # “Average per team” targets. The solver will distribute slight unevenness.
 INTER_DEGREE = {
     ('B', 'C'): 4,
-    ('C', 'D'): 10,
+    ('C', 'D'): 6,
 }
 
 # -------------------------------
