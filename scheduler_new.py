@@ -691,7 +691,7 @@ def schedule_doubleheaders_preemptively(all_teams, unscheduled, team_availabilit
 # -------------------------------
 def force_minimum_doubleheaders(all_teams, unscheduled, team_availability, field_availability, team_blackouts, timeslots_by_date,
                                 team_stats, doubleheader_count, team_game_days, team_game_slots, team_doubleheader_opponents,
-                                used_slots, schedule):
+                                used_slots, schedule=None:
 
     teams = sorted(all_teams, key=lambda t: team_need_key(t, team_stats, doubleheader_count), reverse=True)
 
@@ -880,7 +880,7 @@ def force_minimum_doubleheaders(all_teams, unscheduled, team_availability, field
 # -------------------------------
 def schedule_A_pair_doubleheaders(division_teams, team_availability, field_availability, team_blackouts,
                                   timeslots_by_date, team_stats, doubleheader_count,
-                                  team_game_days, team_game_slots, used_slots, schedule):
+                                  team_game_days, team_game_slots, used_slots, schedule=None):
     A_teams = list(division_teams.get('A', []))
     if not A_teams:
         return schedule, team_stats, doubleheader_count, team_game_days, team_game_slots, used_slots
@@ -1017,7 +1017,7 @@ def schedule_A_pair_doubleheaders(division_teams, team_availability, field_avail
 
 def schedule_A_pair_doubleheaders(division_teams, unscheduled, team_availability, field_availability, team_blackouts,
                                 timeslots_by_date, team_stats, doubleheader_count, team_game_days, team_game_slots,
-                                used_slots, schedule):
+                                used_slots, schedule=None):
     A_teams = sorted(division_teams.get('A', []))
     if not A_teams:
         return schedule, team_stats, doubleheader_count, team_game_days, team_game_slots, used_slots, unscheduled
