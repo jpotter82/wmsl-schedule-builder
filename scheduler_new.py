@@ -4,6 +4,7 @@ import itertools
 import random
 from datetime import datetime
 from collections import defaultdict
+import math
 from prettytable import PrettyTable
 
 # -------------------------------
@@ -325,43 +326,59 @@ def generate_intra_matchups_for_target(division, teams, intra_target_per_team):
             games_left[h] -= 1
             games_left[a] -= 1
 
+
     # Top-up remaining intra games
     teams_by_need = lambda: sorted(teams, key=lambda t: games_left[t], reverse=True)
-
+    
+    # Track how often teams meet to avoid extreme repeats.
+    # We track undirected meetings (regardless of home/away).
+    meet = defaultdict(int)
+    for (h, a) in matchups:
+        meet[frozenset((h, a))] += 1
+    
+    # Soft cap: aim near the average meetings per opponent, allow a little slack.
+    # Example: n=6, target=16 => avg 16/5=3.2, cap ~5 (prevents 9/12+ disasters).
+    avg_meet = intra_target_per_team / max(1, (n - 1))
+    soft_cap = int(math.ceil(avg_meet)) + 1
+    
     guard = 0
     guard_max = 200000
     while any(v > 0 for v in games_left.values()):
         guard += 1
         if guard > guard_max:
             raise Exception(f"Failed building intra matchups for {division}; stuck with remaining={games_left}.")
-
+    
         # pick team with most remaining games
         t1 = teams_by_need()[0]
         if games_left[t1] <= 0:
             break
-
-        # pick opponent with remaining games, not same team
+    
         candidates = [t for t in teams if t != t1 and games_left[t] > 0]
         if not candidates:
-            # no opponent left with capacity => should not happen if totals are consistent
             raise Exception(f"Cannot find opponent to satisfy intra target for {division}. Remaining={games_left}")
-
-        # choose opponent with highest remaining to reduce imbalance
-        t2 = max(candidates, key=lambda t: games_left[t])
-
+    
+        # Prefer opponents we have met the least, and try to stay under the soft cap.
+        def meet_key(t2):
+            return (meet[frozenset((t1, t2))], -games_left[t2], t2)
+    
+        # first try candidates under cap
+        under = [t2 for t2 in candidates if meet[frozenset((t1, t2))] < soft_cap]
+        pick_pool = under if under else candidates
+        t2 = min(pick_pool, key=meet_key)
+    
         # choose home/away to balance each team's home/away split
-        # Prefer making the team with fewer home games be home.
         if home[t1] - away[t1] <= home[t2] - away[t2]:
             h, a = t1, t2
         else:
             h, a = t2, t1
-
+    
         matchups.append((h, a))
         home[h] += 1
         away[a] += 1
         games_left[h] -= 1
         games_left[a] -= 1
-
+        meet[frozenset((t1, t2))] += 1
+    
     return matchups
 
 # -------------------------------
@@ -847,6 +864,195 @@ def force_minimum_doubleheaders(all_teams, unscheduled, team_availability, field
 # -------------------------------
 # Primary scheduling
 # -------------------------------
+# A-division "pods" doubleheaders (A must ONLY play DHs)
+#   A DH = 4 teams play 2 games each across two adjacent slots using both fields:
+#     Slot1: t1-vs-t2, t3-vs-t4
+#     Slot2: t1-vs-t3, t2-vs-t4
+# This ensures every participating A team has exactly 2 games that day.
+# -------------------------------
+def schedule_A_pod_doubleheaders(division_teams, unscheduled, team_availability, field_availability, team_blackouts,
+                                timeslots_by_date, team_stats, doubleheader_count, team_game_days, team_game_slots,
+                                used_slots, schedule):
+    A_teams = sorted(division_teams.get('A', []))
+    if not A_teams:
+        return schedule, team_stats, doubleheader_count, team_game_days, team_game_slots, used_slots, unscheduled
+
+    # quick lookup for slot->fields available
+    # used_slots key is (date_datetime, slot_str, field)
+    # field_availability entries are (datetime, slot, field)
+    fa_by_day_slot = defaultdict(list)
+    for date_dt, slot, field in field_availability:
+        fa_by_day_slot[(date_dt.date(), slot)].append((date_dt, slot, field))
+
+    def pop_any_matchup(u, v):
+        # try both orientations; remove exactly one instance
+        try:
+            i = unscheduled.index((u, v))
+            unscheduled.pop(i)
+            return (u, v)
+        except ValueError:
+            pass
+        try:
+            i = unscheduled.index((v, u))
+            unscheduled.pop(i)
+            return (v, u)
+        except ValueError:
+            return None
+
+    # We want each A team to reach 22 games and 11 DH days.
+    made_progress = True
+    guard = 0
+    while made_progress and guard < 2000:
+        guard += 1
+        made_progress = False
+
+        # pick teams that still need DH days/games
+        need = [t for t in A_teams if team_stats[t]['total_games'] < target_games(t) or doubleheader_count[t] < min_dh(t)]
+        if not need:
+            break
+
+        # schedule higher-need teams first
+        need.sort(key=lambda t: (dh_deficit(t, doubleheader_count), game_deficit(t, team_stats)), reverse=True)
+
+        for d in sorted(timeslots_by_date.keys()):
+            day_of_week = datetime.strptime(str(d), "%Y-%m-%d").strftime('%a') if isinstance(d, str) else datetime.combine(d, datetime.min.time()).strftime('%a')
+            # day_of_week above is messy; simpler:
+            # We'll just compute from a datetime object:
+            day_of_week = datetime.combine(d, datetime.min.time()).strftime('%a')
+            week_num = datetime.combine(d, datetime.min.time()).isocalendar()[1]
+
+            slots = timeslots_by_date[d]
+            if len(slots) < 2:
+                continue
+
+            # try each adjacent pair
+            for i in range(len(slots) - 1):
+                s1 = slots[i]
+                s2 = slots[i + 1]
+
+                # need BOTH fields open in BOTH slots (2 diamonds)
+                free1 = [e for e in fa_by_day_slot[(d, s1)] if (e[0], e[1], e[2]) not in used_slots]
+                free2 = [e for e in fa_by_day_slot[(d, s2)] if (e[0], e[1], e[2]) not in used_slots]
+                if len(free1) < 2 or len(free2) < 2:
+                    continue
+
+                # choose 4 A teams that are available & can take 2 games this week/day
+                candidates = []
+                for t in A_teams:
+                    if day_of_week not in team_availability.get(t, set()):
+                        continue
+                    if d in team_blackouts.get(t, set()):
+                        continue
+                    if team_game_days[t].get(d, 0) != 0:
+                        continue  # A-only DH: don't mix with existing singles
+                    if team_stats[t]['weekly_games'][week_num] + 2 > WEEKLY_GAME_LIMIT:
+                        continue
+                    if team_stats[t]['total_games'] + 2 > target_games(t):
+                        continue
+                    if not min_gap_ok(t, d, team_game_days):
+                        continue
+                    candidates.append(t)
+
+                if len(candidates) < 4:
+                    continue
+
+                # bias toward teams with biggest deficits
+                candidates.sort(key=lambda t: (dh_deficit(t, doubleheader_count), game_deficit(t, team_stats)), reverse=True)
+
+                # Try combinations of 4 from top of list (bounded)
+                top = candidates[:10]
+                found = None
+                for quad in itertools.combinations(top, 4):
+                    t1, t2, t3, t4 = quad
+
+                    # ensure opponents can also play 2 games that day (they are A teams too)
+                    # (already ensured: they have 0 games today and weekly+2 ok)
+
+                    # required pairings
+                    pairings = [(t1, t2), (t3, t4), (t1, t3), (t2, t4)]
+                    # check all matchups exist in unscheduled (any orientation)
+                    ok = True
+                    for u, v in pairings:
+                        if (u, v) not in unscheduled and (v, u) not in unscheduled:
+                            ok = False
+                            break
+                    if not ok:
+                        continue
+                    found = quad
+                    break
+
+                if not found:
+                    continue
+
+                t1, t2, t3, t4 = found
+                games = [
+                    (t1, t2, free1[0]),
+                    (t3, t4, free1[1]),
+                    (t1, t3, free2[0]),
+                    (t2, t4, free2[1]),
+                ]
+
+                # Actually remove matchups (any orientation) and schedule with balanced home/away where possible
+                scheduled_games = []
+                for u, v, free in games:
+                    # decide home/away, but respect what exists in unscheduled
+                    pref_home, pref_away = decide_home_away(u, v, team_stats)
+                    m = None
+                    if (pref_home, pref_away) in unscheduled:
+                        m = (pref_home, pref_away)
+                        unscheduled.remove(m)
+                        home, away = pref_home, pref_away
+                    elif (pref_away, pref_home) in unscheduled:
+                        m = (pref_away, pref_home)
+                        unscheduled.remove(m)
+                        home, away = pref_away, pref_home
+                    else:
+                        # fallback (shouldn't happen due to pre-check)
+                        m = pop_any_matchup(u, v)
+                        if m is None:
+                            scheduled_games = []
+                            break
+                        home, away = m
+
+                    date_dt, slot_str, field = free
+                    scheduled_games.append((date_dt, slot_str, field, home, home[0], away, away[0]))
+
+                if len(scheduled_games) != 4:
+                    # rollback isn't trivial; but this should be extremely rare.
+                    continue
+
+                # commit to schedule + stats
+                for date_dt, slot_str, field, home, home_div, away, away_div in scheduled_games:
+                    schedule.append((date_dt, slot_str, field, home, home_div, away, away_div))
+                    used_slots[(date_dt, slot_str, field)] = True
+
+                    d0 = date_dt.date()
+                    wk = date_dt.isocalendar()[1]
+
+                    for team in (home, away):
+                        team_stats[team]['total_games'] += 1
+                        team_stats[team]['weekly_games'][wk] += 1
+                        team_game_slots[team][d0].append(slot_str)
+                        team_game_days[team][d0] += 1
+
+                    team_stats[home]['home_games'] += 1
+                    team_stats[away]['away_games'] += 1
+
+                # after 4 games, each of the 4 teams should now have 2 games today => DH day
+                for t in (t1, t2, t3, t4):
+                    if team_game_days[t][d] == 2:
+                        doubleheader_count[t] += 1
+
+                made_progress = True
+
+                # early exit if all A met
+                if all(team_stats[t]['total_games'] >= target_games(t) and doubleheader_count[t] >= min_dh(t) for t in A_teams):
+                    return schedule, team_stats, doubleheader_count, team_game_days, team_game_slots, used_slots, unscheduled
+
+    return schedule, team_stats, doubleheader_count, team_game_days, team_game_slots, used_slots, unscheduled
+
+
+# -------------------------------
 def schedule_games(matchups, team_availability, field_availability, team_blackouts,
                    schedule, team_stats, doubleheader_count,
                    team_game_days, team_game_slots, team_doubleheader_opponents,
@@ -871,6 +1077,12 @@ def schedule_games(matchups, team_availability, field_availability, team_blackou
 
             # Evaluate all matchups for this slot and pick the most "needed"
             for (t1, t2) in unscheduled:
+                # A division must only play pod doubleheaders; do not place A games here
+                if div_of(t1) == 'A' or div_of(t2) == 'A':
+                    continue
+                # A division must only play pod doubleheaders; do not place A games here
+                if div_of(t1) == 'A' or div_of(t2) == 'A':
+                    continue
                 # availability / blackouts
                 if day_of_week not in team_availability.get(t1, set()) or day_of_week not in team_availability.get(t2, set()):
                     continue
@@ -1187,7 +1399,17 @@ def main():
         team_stats, doubleheader_count, team_game_days, team_game_slots, team_doubleheader_opponents, used_slots, schedule
     )
 
+    # A division must ONLY play doubleheaders. Schedule A in 4-team DH pods before any single-game scheduling.
+    (schedule, team_stats, doubleheader_count, team_game_days, team_game_slots,
+     used_slots, unscheduled) = schedule_A_pod_doubleheaders(
+    division_teams, unscheduled, team_availability, field_availability, team_blackouts, timeslots_by_date,
+    team_stats, doubleheader_count, team_game_days, team_game_slots, used_slots, schedule
+    )
+    
+    # Remove any remaining A matchups from the single-game pool (A is DH-only).
+    unscheduled = [m for m in unscheduled if div_of(m[0]) != 'A' and div_of(m[1]) != 'A']
     # Primary scheduling pass
+
     (schedule, team_stats, doubleheader_count, team_game_days, team_game_slots,
      team_doubleheader_opponents, used_slots, unscheduled) = schedule_games(
         unscheduled, team_availability, field_availability, team_blackouts,
