@@ -508,7 +508,7 @@ def schedule_doubleheaders_preemptively(all_teams, unscheduled, team_availabilit
                                         team_stats, doubleheader_count, team_game_days, team_game_slots, team_doubleheader_opponents,
                                         used_slots, schedule=None):
     if schedule is None:
-        schedule = []
+        schedule = {}
 
     for d in sorted(timeslots_by_date.keys()):
         day_of_week = d.strftime('%a')
@@ -887,6 +887,9 @@ def force_minimum_doubleheaders(all_teams, unscheduled, team_availability, field
 def schedule_A_pair_doubleheaders(division_teams, team_availability, field_availability, team_blackouts,
                                   timeslots_by_date, team_stats, doubleheader_count,
                                   team_game_days, team_game_slots, used_slots, schedule=None):
+    if not isinstance(schedule, dict):
+    raise TypeError(f"schedule must be dict[(date, slot, field)] -> game, got {type(schedule)}")
+                                      
     A_teams = list(division_teams.get('A', []))
     if not A_teams:
         return schedule, team_stats, doubleheader_count, team_game_days, team_game_slots, used_slots
@@ -1327,7 +1330,7 @@ def main():
     all_teams = [t for div in ('A', 'B', 'C', 'D') for t in division_teams[div]]
 
     # Initialize state
-    schedule = []
+    schedule = {}
     team_stats = defaultdict(lambda: {
         'total_games': 0,
         'home_games': 0,
