@@ -20,9 +20,9 @@ DIVISION_SETTINGS = {
     'A': {'inter': False, 'target_games': 22, 'min_dh': 11, 'max_dh': 11},
 
     # B/C/D: inter allowed, intra can top up as needed
-    'B': {'inter': True,  'target_games': 22, 'min_dh': 3,  'max_dh': 7},
-    'C': {'inter': True,  'target_games': 22, 'min_dh': 3,  'max_dh': 7},
-    'D': {'inter': True,  'target_games': 22, 'min_dh': 3,  'max_dh': 7},
+    'B': {'inter': True,  'target_games': 22, 'min_dh': 6,  'max_dh': 7},
+    'C': {'inter': True,  'target_games': 22, 'min_dh': 6,  'max_dh': 7},
+    'D': {'inter': True,  'target_games': 22, 'min_dh': 6,  'max_dh': 7},
 }
 
 
@@ -162,24 +162,37 @@ def _round_robin_pairs(teams):
 
 def generate_intra_matchups_for_target(division, teams, intra_target_per_team):
     """
-    Generates directed (home, away) matchups *within* a division so each team has intra_target_per_team games.
+    Generate directed (home, away) matchups within a division so each team has
+    intra_target_per_team *intra-division* games.
 
-    Supported (for 8 teams):
-      - 14 games/team -> double round robin (2 vs each opponent)
-      - 18 games/team -> 3 opponents twice, 4 opponents three times (legacy A/C behavior)
-      - 22 games/team -> mostly 3 vs each opponent (21) + one "rival" opponent 4th game (balanced via perfect matching)
+    Notes:
+      - Works for any division size (e.g., 6-team C/D).
+      - Ensures (when intra_target_per_team >= 2) each team gets at least
+        1 home and 1 away intra game via a simple cycle seeding.
+      - Allows repeat opponents when topping up intra beyond round-robin totals.
+      - Keeps legacy 8-team special cases (18 and 22) for backwards compatibility.
     """
     teams = sorted(teams)
+    n = len(teams)
+    if n < 2:
+        return []
 
-    if intra_target_per_team == 14:
-        # 2 games vs each opponent (home/away)
+    if intra_target_per_team < 0:
+        raise Exception(f"intra_target_per_team must be >= 0 (got {intra_target_per_team}) for division {division}.")
+
+    if intra_target_per_team == 0:
+        return []
+
+    # Perfect double round-robin for ANY n when target matches 2*(n-1)
+    if intra_target_per_team == 2 * (n - 1):
         matchups = []
         for t1, t2 in itertools.combinations(teams, 2):
             matchups.append((t1, t2))
             matchups.append((t2, t1))
         return matchups
 
-    if intra_target_per_team == 18:
+    # Legacy 8-team patterns (kept as-is)
+    if n == 8 and intra_target_per_team == 18:
         # legacy: 3 opponents x2, 4 opponents x3  => 18
         two_game_count = 3  # each team has exactly 3 "2-game" opponents
 
@@ -222,11 +235,8 @@ def generate_intra_matchups_for_target(division, teams, intra_target_per_team):
                 matchups.append((a, b) if random.random() < 0.5 else (b, a))
         return matchups
 
-    if intra_target_per_team == 22:
+    if n == 8 and intra_target_per_team == 22:
         # 7 opponents *3 = 21 plus 1 extra game vs a "rival" opponent.
-        # Implement as:
-        #   - every pair gets 3 games (2+1 random home)
-        #   - plus 1 extra game for a perfect-matching set of 4 pairs (adds 1 game to each team)
         matchups = []
         for a, b in itertools.combinations(teams, 2):
             matchups.extend([(a, b), (b, a)])  # 2 games
@@ -240,7 +250,90 @@ def generate_intra_matchups_for_target(division, teams, intra_target_per_team):
 
         return matchups
 
-    raise Exception(f"Unsupported intra_target_per_team={intra_target_per_team} for division {division}.")
+    # Generic builder: any target count.
+    # Sanity: total directed games must be integer.
+    total_slots = n * intra_target_per_team
+    if total_slots % 2 != 0:
+        raise Exception(
+            f"Intra target {intra_target_per_team} with n={n} yields odd total participation ({total_slots}); "
+            f"cannot form whole games for division {division}."
+        )
+
+    games_left = {t: intra_target_per_team for t in teams}
+    home = {t: 0 for t in teams}
+    away = {t: 0 for t in teams}
+    matchups = []
+
+    # Seed: cycle provides each team 1 home + 1 away (2 games) if possible
+    if intra_target_per_team >= 2:
+        for i in range(n):
+            h = teams[i]
+            a = teams[(i + 1) % n]
+            matchups.append((h, a))
+            home[h] += 1
+            away[a] += 1
+            games_left[h] -= 1
+            games_left[a] -= 1
+
+        for i in range(n):
+            # now each team has 1 home already, give each team 1 away by reversing the cycle
+            h = teams[(i + 1) % n]
+            a = teams[i]
+            matchups.append((h, a))
+            home[h] += 1
+            away[a] += 1
+            games_left[h] -= 1
+            games_left[a] -= 1
+
+    # If target was 1, just add a single cycle (no guarantee of both home/away)
+    elif intra_target_per_team == 1:
+        for i in range(n):
+            h = teams[i]
+            a = teams[(i + 1) % n]
+            matchups.append((h, a))
+            home[h] += 1
+            away[a] += 1
+            games_left[h] -= 1
+            games_left[a] -= 1
+
+    # Top-up remaining intra games
+    teams_by_need = lambda: sorted(teams, key=lambda t: games_left[t], reverse=True)
+
+    guard = 0
+    guard_max = 200000
+    while any(v > 0 for v in games_left.values()):
+        guard += 1
+        if guard > guard_max:
+            raise Exception(f"Failed building intra matchups for {division}; stuck with remaining={games_left}.")
+
+        # pick team with most remaining games
+        t1 = teams_by_need()[0]
+        if games_left[t1] <= 0:
+            break
+
+        # pick opponent with remaining games, not same team
+        candidates = [t for t in teams if t != t1 and games_left[t] > 0]
+        if not candidates:
+            # no opponent left with capacity => should not happen if totals are consistent
+            raise Exception(f"Cannot find opponent to satisfy intra target for {division}. Remaining={games_left}")
+
+        # choose opponent with highest remaining to reduce imbalance
+        t2 = max(candidates, key=lambda t: games_left[t])
+
+        # choose home/away to balance each team's home/away split
+        # Prefer making the team with fewer home games be home.
+        if home[t1] - away[t1] <= home[t2] - away[t2]:
+            h, a = t1, t2
+        else:
+            h, a = t2, t1
+
+        matchups.append((h, a))
+        home[h] += 1
+        away[a] += 1
+        games_left[h] -= 1
+        games_left[a] -= 1
+
+    return matchups
 
 # -------------------------------
 # Inter-division matchup generation
