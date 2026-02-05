@@ -16,36 +16,37 @@ HOME_AWAY_BALANCE = 11         # desired home games per team (for 22-game season
 
 # Per-division configuration (tweak here)
 DIVISION_SETTINGS = {
-    # A: no inter, only doubleheaders => 11 DH days * 2 games = 22
+    # A: 22 games, only DH => 11 DH days exactly
     'A': {'inter': False, 'target_games': 22, 'min_dh': 11, 'max_dh': 11},
 
-    # B/C/D: allow inter; DH ranges can be whatever you want (examples)
-    'B': {'inter': True,  'target_games': 22, 'min_dh': 4,  'max_dh': 7},
-    'C': {'inter': True,  'target_games': 22, 'min_dh': 3,  'max_dh': 6},
-    'D': {'inter': True,  'target_games': 22, 'min_dh': 3,  'max_dh': 6},
+    # B/C/D: inter allowed, intra can top up as needed
+    'B': {'inter': True,  'target_games': 22, 'min_dh': 3,  'max_dh': 7},
+    'C': {'inter': True,  'target_games': 22, 'min_dh': 3,  'max_dh': 7},
+    'D': {'inter': True,  'target_games': 22, 'min_dh': 3,  'max_dh': 7},
 }
+
 
 # Inter-division pairing settings (only applied if BOTH divisions have inter=True)
 INTER_PAIR_SETTINGS = {
+    # A plays no inter
     ('A', 'B'): False,
     ('A', 'C'): False,
     ('A', 'D'): False,
 
+    # Only allowed inter
     ('B', 'C'): True,
-    ('B', 'D'): True,
     ('C', 'D'): True,
+
+    # Explicitly not allowed
+    ('B', 'D'): False,
 }
 
 # How many inter games each team in the pair should have against the other division.
 # With 8 teams per division, degree=4 means each team plays 4 opponents from the other division (1 game each).
 # “Average per team” targets. The solver will distribute slight unevenness.
 INTER_DEGREE = {
-    # B vs (C,D): B needs about 8 inter games total if B does full intra (14 games)
-    ('B', 'C'): 4,   # target ~4 inter games per B team vs C
-    ('B', 'D'): 4,   # target ~4 inter games per B team vs D
-
-    # C vs D: C and D each need ~12 inter if they do full intra (10 games)
-    ('C', 'D'): 6,   # target “play each opponent once” (6 games per team)
+    ('B', 'C'): 4,
+    ('C', 'D'): 10,
 }
 
 # -------------------------------
