@@ -471,6 +471,9 @@ def generate_full_matchups(division_teams):
     # Build intra matchups
     full_matchups = []
     for div, teams in division_teams.items():
+        if div == 'A':
+            # A division handled via DH sessions later (A is DH-only)
+            continue
         intra_target = DIVISION_SETTINGS[div]['target_games'] - inter_per_team.get(div, 0)
         full_matchups.extend(generate_intra_matchups_for_target(div, teams, intra_target))
 
@@ -870,7 +873,149 @@ def force_minimum_doubleheaders(all_teams, unscheduled, team_availability, field
 #     Slot2: t1-vs-t3, t2-vs-t4
 # This ensures every participating A team has exactly 2 games that day.
 # -------------------------------
-def schedule_A_pod_doubleheaders(division_teams, unscheduled, team_availability, field_availability, team_blackouts,
+# -------------------------------
+# A Division DH-only scheduling (pair doubleheaders)
+# Schedules A games as 44 DH sessions (each session = same two teams play twice back-to-back).
+# This guarantees "A is DH-only" by construction.
+# -------------------------------
+def schedule_A_pair_doubleheaders(division_teams, team_availability, field_availability, team_blackouts,
+                                  timeslots_by_date, team_stats, doubleheader_count,
+                                  team_game_days, team_game_slots, used_slots, schedule):
+    A_teams = list(division_teams.get('A', []))
+    if not A_teams:
+        return schedule, team_stats, doubleheader_count, team_game_days, team_game_slots, used_slots
+
+    # Build quick lookup: for each (date, field) -> sorted slots for that field on that date
+    slots_by_date_field = defaultdict(list)
+    for date_dt, slot, field in field_availability:
+        slots_by_date_field[(date_dt.date(), field)].append(slot)
+    for key in list(slots_by_date_field.keys()):
+        slots_by_date_field[key] = sorted(
+            set(slots_by_date_field[key]),
+            key=lambda s: datetime.strptime(s, "%I:%M %p")
+        )
+
+    # Candidate adjacent slot-pairs (back-to-back) on same field
+    adjacent_pairs = []
+    for (d, field), slots in slots_by_date_field.items():
+        for i in range(len(slots)-1):
+            adjacent_pairs.append((d, field, slots[i], slots[i+1]))
+
+    # Stable ordering: earlier dates first
+    adjacent_pairs.sort(key=lambda x: (x[0], datetime.strptime(x[2], "%I:%M %p")))
+
+    # Track DH sessions needed (A must be DH-only: 22 games => 11 DH days)
+    target_sessions = DIVISION_SETTINGS['A']['target_games'] // 2
+    sessions_done = defaultdict(int)
+
+    # Track how often pairs have been used (to avoid repeats)
+    pair_sessions = defaultdict(int)
+
+    def day_ok(team, d):
+        dow = datetime.combine(d, datetime.min.time()).strftime('%a')
+        if dow not in team_availability.get(team, set()):
+            return False
+        if d in team_blackouts.get(team, set()):
+            return False
+        # Don't schedule more than one DH day on the same date
+        if d in set(team_game_days.get(team, [])):
+            return False
+        # MIN_GAP check (treat DH day as a game day)
+        if not min_gap_ok(team, datetime.combine(d, datetime.min.time()), team_game_days):
+            return False
+        # Weekly limit (DH uses 2 games)
+        week_num = datetime.combine(d, datetime.min.time()).isocalendar()[1]
+        cur = team_stats[team]['weekly_games'].get(week_num, 0)
+        if cur + 2 > WEEKLY_GAME_LIMIT:
+            return False
+        return True
+
+    def choose_pair():
+        # Choose two teams with biggest DH deficit and lowest mutual pairing count
+        need = [(t, target_sessions - sessions_done[t]) for t in A_teams]
+        need = [x for x in need if x[1] > 0]
+        if len(need) < 2:
+            return None
+
+        # Sort by deficit desc then by total games deficit desc
+        need.sort(key=lambda x: (x[1], target_games(x[0]) - team_stats[x[0]]['total_games']), reverse=True)
+        top = [t for t,_ in need[:6]]  # small candidate pool
+
+        best = None
+        best_score = None
+        for i in range(len(top)):
+            for j in range(i+1, len(top)):
+                a, b = top[i], top[j]
+                key = tuple(sorted((a,b)))
+                score = (pair_sessions[key], -(sessions_done[a]+sessions_done[b]))
+                if best_score is None or score < best_score:
+                    best_score = score
+                    best = (a,b)
+        return best
+
+    # Greedy session placement over adjacent slot pairs
+    max_loops = 5  # multiple passes to use later dates if early ones blocked
+    for _ in range(max_loops):
+        progress = False
+        for (d, field, s1, s2) in adjacent_pairs:
+            # stop early if done
+            if all(sessions_done[t] >= target_sessions for t in A_teams):
+                break
+
+            # slots must be unused
+            # Find actual datetime for used_slots key: we stored field_availability date_dt; reconstruct from d + time
+            dt1 = datetime.combine(d, datetime.strptime(s1, "%I:%M %p").time())
+            dt2 = datetime.combine(d, datetime.strptime(s2, "%I:%M %p").time())
+            if used_slots.get((dt1, s1, field), False) or used_slots.get((dt2, s2, field), False):
+                continue
+
+            pair = choose_pair()
+            if not pair:
+                continue
+            t1, t2 = pair
+
+            if not (day_ok(t1, d) and day_ok(t2, d)):
+                continue
+
+            # Place two games back-to-back; swap home/away to help balance
+            g1 = (t1, t2)
+            g2 = (t2, t1)
+
+            # Record schedule
+            schedule[(dt1, s1, field)] = g1
+            schedule[(dt2, s2, field)] = g2
+            used_slots[(dt1, s1, field)] = True
+            used_slots[(dt2, s2, field)] = True
+
+            wk = dt1.isocalendar()[1]
+            # Update stats & tracking
+            for home, away, dt, slot in [(g1[0], g1[1], dt1, s1), (g2[0], g2[1], dt2, s2)]:
+                team_stats[home]['total_games'] += 1
+                team_stats[away]['total_games'] += 1
+                team_stats[home]['home_games'] += 1
+                team_stats[away]['away_games'] += 1
+                team_stats[home]['weekly_games'][wk] = team_stats[home]['weekly_games'].get(wk, 0) + 1
+                team_stats[away]['weekly_games'][wk] = team_stats[away]['weekly_games'].get(wk, 0) + 1
+                team_game_slots[home].append((dt, slot, field))
+                team_game_slots[away].append((dt, slot, field))
+
+            # Mark the day (once) for MIN_GAP / day uniqueness
+            team_game_days[t1].append(dt1)
+            team_game_days[t2].append(dt1)
+
+            doubleheader_count[t1] += 1
+            doubleheader_count[t2] += 1
+            sessions_done[t1] += 1
+            sessions_done[t2] += 1
+            pair_sessions[tuple(sorted((t1,t2)))] += 1
+            progress = True
+
+        if not progress:
+            break
+
+    return schedule, team_stats, doubleheader_count, team_game_days, team_game_slots, used_slots
+
+def schedule_A_pair_doubleheaders(division_teams, unscheduled, team_availability, field_availability, team_blackouts,
                                 timeslots_by_date, team_stats, doubleheader_count, team_game_days, team_game_slots,
                                 used_slots, schedule):
     A_teams = sorted(division_teams.get('A', []))
@@ -1205,6 +1350,8 @@ def fill_missing_games(schedule, team_stats, doubleheader_count, team_game_days,
             best_score = -1
 
             for (t1, t2) in unscheduled:
+                if div_of(t1) == 'A' or div_of(t2) == 'A':
+                    continue
                 if team_stats[t1]['total_games'] >= target_games(t1) and team_stats[t2]['total_games'] >= target_games(t2):
                     continue
                 if day_of_week not in team_availability.get(t1, set()) or day_of_week not in team_availability.get(t2, set()):
@@ -1401,8 +1548,8 @@ def main():
 
     # A division must ONLY play doubleheaders. Schedule A in 4-team DH pods before any single-game scheduling.
     (schedule, team_stats, doubleheader_count, team_game_days, team_game_slots,
-     used_slots, unscheduled) = schedule_A_pod_doubleheaders(
-    division_teams, unscheduled, team_availability, field_availability, team_blackouts, timeslots_by_date,
+     used_slots) = schedule_A_pair_doubleheaders(
+    division_teams, team_availability, field_availability, team_blackouts, timeslots_by_date,
     team_stats, doubleheader_count, team_game_days, team_game_slots, used_slots, schedule
     )
     
