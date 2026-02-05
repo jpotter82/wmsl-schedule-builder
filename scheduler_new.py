@@ -888,7 +888,7 @@ def schedule_A_pair_doubleheaders(division_teams, team_availability, field_avail
                                   timeslots_by_date, team_stats, doubleheader_count,
                                   team_game_days, team_game_slots, used_slots, schedule=None):
     if not isinstance(schedule, dict):
-    raise TypeError(f"schedule must be dict[(date, slot, field)] -> game, got {type(schedule)}")
+        raise TypeError(f"schedule must be dict[(date, slot, field)] -> game, got {type(schedule)}")
                                       
     A_teams = list(division_teams.get('A', []))
     if not A_teams:
