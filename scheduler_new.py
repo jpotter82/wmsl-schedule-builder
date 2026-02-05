@@ -289,7 +289,11 @@ def generate_full_matchups(division_teams):
     # Determine which inter pairs are enabled and compute intra targets accordingly.
     enabled_pairs = []
     for (d1, d2), enabled in INTER_PAIR_SETTINGS.items():
-        if enabled and inter_enabled_for_pair(d1, d2):
+        if not enabled:
+            continue
+        if d1 not in division_teams or d2 not in division_teams:
+            continue
+        if inter_enabled_for_pair(d1, d2):
             enabled_pairs.append((d1, d2))
 
     # Compute inter games per team by division.
@@ -960,9 +964,10 @@ def main():
     division_teams = {
         'A': [f'A{i+1}' for i in range(8)],
         'B': [f'B{i+1}' for i in range(8)],
-        'C': [f'C{i+1}' for i in range(8)]
+        'C': [f'C{i+1}' for i in range(6)],
+        'D': [f'D{i+1}' for i in range(6)],
     }
-    all_teams = [t for div in ('A', 'B', 'C') for t in division_teams[div]]
+    all_teams = [t for div in ('A', 'B', 'C', 'D') for t in division_teams[div]]
 
     # Initialize state
     schedule = []
