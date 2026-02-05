@@ -691,7 +691,7 @@ def schedule_doubleheaders_preemptively(all_teams, unscheduled, team_availabilit
 # -------------------------------
 def force_minimum_doubleheaders(all_teams, unscheduled, team_availability, field_availability, team_blackouts, timeslots_by_date,
                                 team_stats, doubleheader_count, team_game_days, team_game_slots, team_doubleheader_opponents,
-                                used_slots, schedule=None)
+                                used_slots, schedule=None):
 
     teams = sorted(all_teams, key=lambda t: team_need_key(t, team_stats, doubleheader_count), reverse=True)
 
