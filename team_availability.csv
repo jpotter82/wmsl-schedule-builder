@@ -7,7 +7,7 @@ A5,Mon,Tue,Wed,Thu,Fri,Sun
 A6,Mon,Tue,Wed,Thu,Fri,Sun
 A7,Mon,Tue,Wed,Thu,Fri,Sun
 A8,Mon,Tue,Wed,Thu,Fri,Sun
-B1,Mon,Tue,Wed,Thu,Fri,Sun
+B1,Mon,Wed,Fri,Sun
 B2,Mon,Tue,Wed,Thu,Fri,Sun
 B3,Mon,Tue,Wed,Thu,Fri,Sun
 B4,Mon,Tue,Wed,Thu,Fri,Sun
@@ -16,7 +16,7 @@ B6,Mon,Tue,Wed,Thu,Fri,Sun
 B7,Mon,Tue,Wed,Thu,Fri,Sun
 B8,Mon,Tue,Wed,Thu,Fri,Sun
 C1,Mon,Tue,Wed,Thu,Fri,Sun
-C2,Mon,Tue,Wed,Thu,Fri,Sun
+C2,Tue,Thu,Fri,Sun
 C3,Mon,Tue,Wed,Thu,Fri,Sun
 C4,Mon,Tue,Wed,Thu,Fri,Sun
 C5,Mon,Tue,Wed,Thu,Fri,Sun
@@ -27,4 +27,3 @@ D3,Mon,Tue,Wed,Thu,Fri,Sun
 D4,Mon,Tue,Wed,Thu,Fri,Sun
 D5,Mon,Tue,Wed,Thu,Fri,Sun
 D6,Mon,Tue,Wed,Thu,Fri,Sun
-
