@@ -847,6 +847,13 @@ def schedule_A_pair_doubleheaders(division_teams, team_availability, field_avail
     for date_dt, slot, field in field_availability:
         slots_by_date_field[(date_dt.date(), field)].append(slot)
 
+    
+    # Lookup for the canonical datetime object from field_availability (these are midnight datetimes).
+    # Important: keep (dt, slot, field) keys consistent everywhere (used_slots, exports, etc.)
+    dt_by_key = {}
+    for date_dt, slot, field in field_availability:
+        dt_by_key[(date_dt.date(), slot, field)] = date_dt
+
     for k in list(slots_by_date_field.keys()):
         slots_by_date_field[k] = sorted(set(slots_by_date_field[k]), key=lambda s: datetime.strptime(s, "%I:%M %p"))
 
@@ -914,8 +921,12 @@ def schedule_A_pair_doubleheaders(division_teams, team_availability, field_avail
             if all(sessions_done[t] >= target_sessions for t in A_teams):
                 break
 
-            dt1 = datetime.combine(d, datetime.strptime(s1, "%I:%M %p").time())
-            dt2 = datetime.combine(d, datetime.strptime(s2, "%I:%M %p").time())
+            dt1 = dt_by_key.get((d, s1, field))
+            dt2 = dt_by_key.get((d, s2, field))
+
+            if dt1 is None or dt2 is None:
+                # Should not happen unless field_availability has gaps / duplicates
+                continue
 
             if used_slots.get((dt1, s1, field), False) or used_slots.get((dt2, s2, field), False):
                 continue
@@ -1181,11 +1192,11 @@ def build_slot_rows(field_availability, scheduled_games):
     game_by_key = {}
     for g in scheduled_games:
         dt, slot, field, home, home_div, away, away_div = g
-        game_by_key[(dt, slot, field)] = g
+        game_by_key[(dt.date(), slot, field)] = g
 
     rows = []
     for dt, slot, field in field_availability:
-        g = game_by_key.get((dt, slot, field))
+        g = game_by_key.get((dt.date(), slot, field))
         if g is None:
             rows.append((dt, slot, field, "", "", "", ""))
         else:
@@ -1228,15 +1239,30 @@ def export_schedule_to_xlsx(field_availability, schedule, division_teams, output
     ws = wb.active
     ws.title = "Schedule"
 
-    headers = ["Date", "Day", "Time", "Diamond", "Home Team", "Away Team", "Home Div", "Away Div"]
+    headers = ["Date", "Day", "Time", "Diamond", "Home Team", "Away Team", "Home Div", "Away Div", "WeekNum", "SlotIndex"]  # last 2 will be hidden
     ws.append(headers)
     for cell in ws[1]:
         cell.font = Font(bold=True)
         cell.alignment = Alignment(horizontal="center", vertical="center")
         cell.fill = PatternFill("solid", fgColor="D9E1F2")
 
+    
+    # Build per-date slot order index (1..N) for adjacency checks in Excel.
+    slots_by_date = defaultdict(list)
+    for dt0, slot0, _field0 in field_availability:
+        d0 = dt0.date()
+        slots_by_date[d0].append(slot0)
+    slot_index_by_date_slot = {}
+    for d0, slots0 in slots_by_date.items():
+        uniq = sorted(set(slots0), key=lambda s: datetime.strptime(s.strip(), "%I:%M %p"))
+        for i, s in enumerate(uniq, start=1):
+            slot_index_by_date_slot[(d0, s)] = i
+
     for (dt, slot, field, home, home_div, away, away_div) in rows:
-        ws.append([dt.date(), dt.strftime('%a'), slot, field, home, away, home_div, away_div])
+            d = dt.date()
+            wk = d.isocalendar()[1]
+            slot_idx = slot_index_by_date_slot.get((d, slot), "")
+            ws.append([d, dt.strftime('%a'), slot, field, home, away, home_div, away_div, wk, slot_idx])
 
     n = len(rows)
     # set formats
@@ -1247,6 +1273,10 @@ def export_schedule_to_xlsx(field_availability, schedule, division_teams, output
     # Freeze header and apply filter
     ws.freeze_panes = "A2"
     ws.auto_filter.ref = "A1:H{}".format(n + 1)
+
+    # Hide helper columns
+    ws.column_dimensions['I'].hidden = True
+    ws.column_dimensions['J'].hidden = True
 
     # Conditional formatting
     # (1) Unused slot (Home blank) -> light gray
@@ -1279,39 +1309,102 @@ def export_schedule_to_xlsx(field_availability, schedule, division_teams, output
         ws_t.append([t, div_of(t)])
     _autofit(ws_t, len(all_teams) + 1, 2, min_width=8, max_width=16)
 
-    # ---------------- TeamDate (helper for DH-day counts) ----------------
+
+    # ---------------- TeamDate (helper: games/day + non-adjacent DH detection) ----------------
     ws_td = wb.create_sheet("TeamDate")
-    ws_td.append(["Date", "Team", "GamesThatDay"])
+    ws_td.append(["Key", "Date", "Team", "GamesThatDay", "MinSlot", "MaxSlot", "NonAdjFlag", "WeekNum"])
     for cell in ws_td[1]:
         cell.font = Font(bold=True)
         cell.fill = PatternFill("solid", fgColor="D9E1F2")
 
     # Unique dates from field availability
     unique_dates = sorted({dt.date() for (dt, _, _) in field_availability})
-    # schedule ranges
+
+    # schedule ranges (include helper cols in Schedule)
     sched_first = 2
     sched_last = n + 1
     date_rng = "Schedule!$A${}:$A${}".format(sched_first, sched_last)
     home_rng = "Schedule!$E${}:$E${}".format(sched_first, sched_last)
     away_rng = "Schedule!$F${}:$F${}".format(sched_first, sched_last)
+    week_rng = "Schedule!$I${}:$I${}".format(sched_first, sched_last)
+    slotidx_rng = "Schedule!$J${}:$J${}".format(sched_first, sched_last)
 
     row_idx = 2
     for d in unique_dates:
+        wk = d.isocalendar()[1]
         for t in all_teams:
-            ws_td.cell(row=row_idx, column=1, value=d)
-            ws_td.cell(row=row_idx, column=2, value=t)
-            # games that day = count home + count away
+            # Key
+            ws_td.cell(row=row_idx, column=1, value='=TEXT($B{r},"yyyymmdd")&"|"&$C{r}'.format(r=row_idx))
+            ws_td.cell(row=row_idx, column=2, value=d)
+            ws_td.cell(row=row_idx, column=3, value=t)
+
+            # GamesThatDay = count home + count away
             ws_td.cell(
                 row=row_idx,
-                column=3,
-                value='=COUNTIFS({0},$A{2},{1},$B{2})+COUNTIFS({0},$A{2},{3},$B{2})'.format(
-                    date_rng, home_rng, row_idx, away_rng
+                column=4,
+                value='=COUNTIFS({date_rng},$B{r},{home_rng},$C{r})+COUNTIFS({date_rng},$B{r},{away_rng},$C{r})'.format(
+                    date_rng=date_rng, home_rng=home_rng, away_rng=away_rng, r=row_idx
                 )
             )
+
+            # MinSlot: MIN of home/away mins; use IFERROR to avoid #VALUE
+            ws_td.cell(
+                row=row_idx,
+                column=5,
+                value='=MIN(IFERROR(MINIFS({slotidx_rng},{date_rng},$B{r},{home_rng},$C{r}),9999),IFERROR(MINIFS({slotidx_rng},{date_rng},$B{r},{away_rng},$C{r}),9999))'.format(
+                    slotidx_rng=slotidx_rng, date_rng=date_rng, home_rng=home_rng, away_rng=away_rng, r=row_idx
+                )
+            )
+            # MaxSlot
+            ws_td.cell(
+                row=row_idx,
+                column=6,
+                value='=MAX(IFERROR(MAXIFS({slotidx_rng},{date_rng},$B{r},{home_rng},$C{r}),0),IFERROR(MAXIFS({slotidx_rng},{date_rng},$B{r},{away_rng},$C{r}),0))'.format(
+                    slotidx_rng=slotidx_rng, date_rng=date_rng, home_rng=home_rng, away_rng=away_rng, r=row_idx
+                )
+            )
+            # NonAdjFlag: if >=2 games and slots not consecutive / compact
+            ws_td.cell(
+                row=row_idx,
+                column=7,
+                value='=IF($D{r}<=1,0,IF(($F{r}-$E{r}+1)<>$D{r},1,0))'.format(r=row_idx)
+            )
+            ws_td.cell(row=row_idx, column=8, value=wk)
             row_idx += 1
 
     ws_td.freeze_panes = "A2"
-    _autofit(ws_td, row_idx - 1, 3, min_width=10, max_width=18)
+    _autofit(ws_td, row_idx - 1, 8, min_width=10, max_width=20)
+
+    # ---------------- TeamWeek (helper: weekly limit detection) ----------------
+    ws_tw = wb.create_sheet("TeamWeek")
+    ws_tw.append(["Key", "Team", "WeekNum", "GamesInWeek", "WeeklyLimitFlag"])
+    for cell in ws_tw[1]:
+        cell.font = Font(bold=True)
+        cell.fill = PatternFill("solid", fgColor="D9E1F2")
+
+    unique_weeks = sorted({d.isocalendar()[1] for d in unique_dates})
+    r2 = 2
+    for t in all_teams:
+        for wk in unique_weeks:
+            ws_tw.cell(row=r2, column=1, value='=$B{r}&"|"&$C{r}'.format(r=r2))
+            ws_tw.cell(row=r2, column=2, value=t)
+            ws_tw.cell(row=r2, column=3, value=wk)
+            ws_tw.cell(
+                row=r2,
+                column=4,
+                value='=COUNTIFS({week_rng},$C{r},{home_rng},$B{r})+COUNTIFS({week_rng},$C{r},{away_rng},$B{r})'.format(
+                    week_rng=week_rng, home_rng=home_rng, away_rng=away_rng, r=r2
+                )
+            )
+            ws_tw.cell(
+                row=r2,
+                column=5,
+                value='=IF($D{r}>2,1,0)'.format(r=r2, limit=2)
+            )
+            r2 += 1
+
+    ws_tw.freeze_panes = "A2"
+    _autofit(ws_tw, r2 - 1, 5, min_width=10, max_width=20)
 
     # ---------------- Summary (formulas) ----------------
     ws_s = wb.create_sheet("Summary")
