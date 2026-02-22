@@ -471,7 +471,9 @@ def schedule_doubleheaders_preemptively(all_teams, unscheduled, team_availabilit
     if schedule is None:
         schedule = []
 
-    for d in sorted(timeslots_by_date.keys()):
+    # Prefer filling Sundays first (league preference: easiest full-day inventory)
+    date_order = sorted(timeslots_by_date.keys(), key=lambda dd: (0 if dd.weekday() == 6 else 1, dd))
+    for d in date_order:
         day_of_week = d.strftime('%a')
         week_num = d.isocalendar()[1]
         slots = timeslots_by_date[d]
@@ -658,7 +660,8 @@ def force_minimum_doubleheaders(all_teams, unscheduled, team_availability, field
         if min_dh(team) <= 0 or doubleheader_count[team] >= 1:
             continue
 
-        for d in sorted(timeslots_by_date.keys()):
+        date_order = sorted(timeslots_by_date.keys(), key=lambda dd: (0 if dd.weekday() == 6 else 1, dd))
+        for d in date_order:
             day_of_week = d.strftime('%a')
             if d in team_blackouts.get(team, set()) or day_of_week not in team_availability.get(team, set()):
                 continue
@@ -745,7 +748,8 @@ def force_minimum_doubleheaders(all_teams, unscheduled, team_availability, field
                 break
 
             scheduled = False
-            for d in sorted(timeslots_by_date.keys()):
+            date_order = sorted(timeslots_by_date.keys(), key=lambda dd: (0 if dd.weekday() == 6 else 1, dd))
+            for d in date_order:
                 day_of_week = d.strftime('%a')
                 if d in team_blackouts.get(team, set()) or day_of_week not in team_availability.get(team, set()):
                     continue
@@ -916,17 +920,27 @@ def schedule_A_pod_doubleheaders(division_teams, team_availability, field_availa
             out.append(f)
         return out
 
-    def choose_four():
+    def choose_four(eligible):
+        """Pick 4 eligible teams needing sessions, minimizing repeat opponents.
+
+        Called *per date/slot-pair* and considers only teams that can actually play
+        on that date. This enables multiple A-pods on the same day (e.g., 8 A-teams
+        => up to 2 pods per Sunday).
         """
-        Pick 4 teams needing sessions, minimizing repeat opponents.
-        """
-        need = [t for t in A_teams if sessions_done[t] < target_sessions]
+        need = [t for t in eligible if sessions_done[t] < target_sessions]
         if len(need) < 4:
             return None
 
         # Prefer teams with biggest remaining sessions; keep pool small for speed
-        need.sort(key=lambda t: (target_sessions - sessions_done[t], DIVISION_SETTINGS['A']['target_games'] - team_stats[t]['total_games']), reverse=True)
-        pool = need[:8] if len(need) > 8 else need
+        need.sort(
+            key=lambda t: (
+                target_sessions - sessions_done[t],
+                DIVISION_SETTINGS['A']['target_games'] - team_stats[t]['total_games'],
+                t,
+            ),
+            reverse=True,
+        )
+        pool = need[:10] if len(need) > 10 else need
 
         best = None
         best_score = None
@@ -934,13 +948,13 @@ def schedule_A_pod_doubleheaders(division_teams, team_availability, field_availa
         # Try combinations of 4 from pool
         for combo in itertools.combinations(pool, 4):
             t1, t2, t3, t4 = combo
-            # ensure all can play
-            # (date-specific checks happen later; here only session need)
-            # score: sum of pair_meets for the 4 games we will create
-            games = [frozenset((t1, t2)), frozenset((t3, t4)),
-                     frozenset((t1, t3)), frozenset((t2, t4))]
+            games = [
+                frozenset((t1, t2)),
+                frozenset((t3, t4)),
+                frozenset((t1, t3)),
+                frozenset((t2, t4)),
+            ]
             score = sum(pair_meets[g] for g in games)
-            # tie-break: favor higher combined remaining sessions
             rem = sum((target_sessions - sessions_done[t]) for t in combo)
             score2 = (score, -rem, tuple(sorted(combo)))
             if best_score is None or score2 < best_score:
@@ -969,34 +983,40 @@ def schedule_A_pod_doubleheaders(division_teams, team_availability, field_availa
         team_game_slots[away][d].append(slot)
         return True
 
-    # Iterate dates/slots in schedule order (Sundays first if that's how field_availability was sorted)
+    # Iterate dates/slots in schedule order (Sundays first if that's how field_availability was sorted).
     # We do multiple passes to work around blocked days/slots.
-    for _pass in range(10):
+    #
+    # Key change (v7): allow MULTIPLE pods per date. With 8 A-teams, Sundays often support
+    # two pods (first two slots + later two slots), which is critical to fully meet
+    # the 11 DH-session target per team.
+    for _pass in range(12):
         progress = False
 
         for d in unique_dates:
             if all(sessions_done[t] >= target_sessions for t in A_teams):
                 break
 
-            # date-level availability check: must have at least one adjacent slot pair and >=2 usable fields
+            # Try to schedule as many pods as possible on this date across distinct adjacent slot pairs.
             for (s1, s2) in adjacent_slot_pairs_by_date.get(d, []):
+                if all(sessions_done[t] >= target_sessions for t in A_teams):
+                    break
+
                 free_fields = available_fields_for_pair(d, s1, s2)
                 if len(free_fields) < 2:
                     continue
 
-                # pick 4 teams
-                four = choose_four()
+                eligible = [t for t in A_teams if can_play_pod(t, d) and sessions_done[t] < target_sessions]
+                if len(eligible) < 4:
+                    continue
+
+                four = choose_four(eligible)
                 if not four:
                     continue
                 t1, t2, t3, t4 = four
 
-                if not (can_play_pod(t1, d) and can_play_pod(t2, d) and can_play_pod(t3, d) and can_play_pod(t4, d)):
-                    continue
-
                 # assign two distinct fields
                 f1, f2 = free_fields[0], free_fields[1]
 
-                # Place 4 games (2 per slot) with 1 home+1 away each team
                 ok = True
                 ok &= place_game(d, s1, f1, t1, t2)  # t1 home
                 ok &= place_game(d, s1, f2, t3, t4)  # t3 home
@@ -1005,19 +1025,17 @@ def schedule_A_pod_doubleheaders(division_teams, team_availability, field_availa
                 if not ok:
                     continue
 
-                # Update bookkeeping: one session for each team
                 for t in (t1, t2, t3, t4):
                     sessions_done[t] += 1
                     doubleheader_count[t] += 1
 
-                # Update pair meet counts for the 4 games
                 pair_meets[frozenset((t1, t2))] += 1
                 pair_meets[frozenset((t3, t4))] += 1
                 pair_meets[frozenset((t2, t3))] += 1
                 pair_meets[frozenset((t4, t1))] += 1
 
                 progress = True
-                break  # move to next date after scheduling one pod on this date
+                # continue scanning later slot pairs on same date to potentially schedule another pod
 
         if not progress:
             break
