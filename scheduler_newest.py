@@ -462,6 +462,18 @@ def decide_home_away(t1, t2, team_stats):
         return t2, t1
     return (t1, t2) if random.random() < 0.5 else (t2, t1)
 
+
+def record_last_opponent(team: str, opponent: str, dt: datetime, team_stats):
+    """Track each team's most recent opponent (to avoid back-to-back repeats)."""
+    prev_dt = team_stats[team].get('last_game_dt')
+    if prev_dt is None or dt > prev_dt:
+        team_stats[team]['last_game_dt'] = dt
+        team_stats[team]['last_opponent'] = opponent
+
+def is_back_to_back_repeat(t1: str, t2: str, team_stats) -> bool:
+    """True if t1 last played t2 OR t2 last played t1."""
+    return (team_stats[t1].get('last_opponent') == t2) or (team_stats[t2].get('last_opponent') == t1)
+
 # -------------------------------
 # Preemptive Doubleheader Scheduling
 # -------------------------------
@@ -620,6 +632,9 @@ def schedule_doubleheaders_preemptively(all_teams, unscheduled, team_availabilit
                         continue
                     if opp in team_doubleheader_opponents[team][d]:
                         continue
+                    # avoid back-to-back repeat
+                    if team_stats[team].get('last_opponent') == opp or team_stats[opp].get('last_opponent') == team:
+                        continue
 
                     home, away = decide_home_away(team, opp, team_stats)
                     date_entry, slot_str, field = free_next[0]
@@ -628,6 +643,10 @@ def schedule_doubleheaders_preemptively(all_teams, unscheduled, team_availabilit
                     team_stats[home]['home_games'] += 1
                     team_stats[away]['away_games'] += 1
                     schedule.append((date_entry, slot_str, field, home, home[0], away, away[0]))
+
+                    # track most recent opponents
+                    record_last_opponent(home, away, date_entry, team_stats)
+                    record_last_opponent(away, home, date_entry, team_stats)
 
                     for t in (team, opp):
                         team_stats[t]['total_games'] += 1
@@ -715,6 +734,9 @@ def force_minimum_doubleheaders(all_teams, unscheduled, team_availability, field
                     continue
                 if opp in team_doubleheader_opponents[team][d]:
                     continue
+                # avoid back-to-back repeat
+                if team_stats[team].get('last_opponent') == opp or team_stats[opp].get('last_opponent') == team:
+                    continue
 
                 home, away = decide_home_away(team, opp, team_stats)
                 date_entry, slot_str, field = free_fields[0]
@@ -723,6 +745,10 @@ def force_minimum_doubleheaders(all_teams, unscheduled, team_availability, field
                 team_stats[home]['home_games'] += 1
                 team_stats[away]['away_games'] += 1
                 schedule.append((date_entry, slot_str, field, home, home[0], away, away[0]))
+
+                # track most recent opponents
+                record_last_opponent(home, away, date_entry, team_stats)
+                record_last_opponent(away, home, date_entry, team_stats)
 
                 for t in (team, opp):
                     team_stats[t]['total_games'] += 1
@@ -975,6 +1001,10 @@ def schedule_A_pod_doubleheaders(division_teams, team_availability, field_availa
         team_stats[away]['total_games'] += 1
         team_stats[home]['home_games'] += 1
         team_stats[away]['away_games'] += 1
+        # track most recent opponent
+        record_last_opponent(home, away, dt, team_stats)
+        record_last_opponent(away, home, dt, team_stats)
+
         team_stats[home]['weekly_games'][wk] = team_stats[home]['weekly_games'].get(wk, 0) + 1
         team_stats[away]['weekly_games'][wk] = team_stats[away]['weekly_games'].get(wk, 0) + 1
         team_game_days[home][d] += 1
@@ -1121,6 +1151,10 @@ def schedule_games(matchups, team_availability, field_availability, team_blackou
                 if not can_double:
                     continue
 
+                # Avoid back-to-back repeats (same opponent as the team's most recent prior game)
+                if is_back_to_back_repeat(t1, t2, team_stats):
+                    continue
+
                 score = matchup_need_score(t1, t2, team_stats, doubleheader_count)
                 if score > best_score:
                     best_score = score
@@ -1148,6 +1182,10 @@ def schedule_games(matchups, team_availability, field_availability, team_blackou
 
             team_stats[home]['home_games'] += 1
             team_stats[away]['away_games'] += 1
+            # track most recent opponent (for back-to-back avoidance)
+            record_last_opponent(home, away, date, team_stats)
+            record_last_opponent(away, home, date, team_stats)
+
 
             for team, opp in ((home, away), (away, home)):
                 if team_game_days[team][d] == 2:
@@ -1186,11 +1224,17 @@ def fill_missing_games(schedule, team_stats, doubleheader_count, team_game_days,
             for (t1, t2) in unscheduled:
                 if div_of(t1) == 'A' or div_of(t2) == 'A':
                     continue
-                if team_stats[t1]['total_games'] >= target_games(t1) and team_stats[t2]['total_games'] >= target_games(t2):
+                # Hard cap: NEVER schedule a team beyond its target.
+                # (The previous AND allowed over-scheduling one team while "topping up" the other.)
+                if team_stats[t1]['total_games'] >= target_games(t1) or team_stats[t2]['total_games'] >= target_games(t2):
                     continue
                 if day_of_week not in team_availability.get(t1, set()) or day_of_week not in team_availability.get(t2, set()):
                     continue
                 if d in team_blackouts.get(t1, set()) or d in team_blackouts.get(t2, set()):
+                    continue
+                # Weekly limit (same rule as primary scheduling)
+                if (team_stats[t1]['weekly_games'][week_num] >= WEEKLY_GAME_LIMIT or
+                    team_stats[t2]['weekly_games'][week_num] >= WEEKLY_GAME_LIMIT):
                     continue
                 if not (min_gap_ok(t1, d, team_game_days) and min_gap_ok(t2, d, team_game_days)):
                     continue
@@ -1229,6 +1273,10 @@ def fill_missing_games(schedule, team_stats, doubleheader_count, team_game_days,
                 if not can_double:
                     continue
 
+                # Avoid back-to-back repeats (same opponent as the team's most recent prior game)
+                if is_back_to_back_repeat(t1, t2, team_stats):
+                    continue
+
                 score = matchup_need_score(t1, t2, team_stats, doubleheader_count)
                 if score > best_score:
                     best_score = score
@@ -1256,6 +1304,10 @@ def fill_missing_games(schedule, team_stats, doubleheader_count, team_game_days,
 
             team_stats[home]['home_games'] += 1
             team_stats[away]['away_games'] += 1
+            # track most recent opponent (for back-to-back avoidance)
+            record_last_opponent(home, away, date, team_stats)
+            record_last_opponent(away, home, date, team_stats)
+
 
             for team, opp in ((home, away), (away, home)):
                 if team_game_days[team][d] == 2:
@@ -1379,6 +1431,18 @@ def export_schedule_to_xlsx(field_availability, schedule, division_teams, output
         "E2:F{}".format(n + 1),
         FormulaRule(formula=['AND($E2<>"",$F2<>"",$E2=$F2)'], fill=PatternFill("solid", fgColor="FFC7CE"))
     )
+    # (2b) Same opponent repeated on same date (either order) -> red fill across row
+    ws.conditional_formatting.add(
+        "A2:H{}".format(n + 1),
+        FormulaRule(
+            formula=[('AND($E2<>"",$F2<>"",'
+                      '(COUNTIFS($A:$A,$A2,$E:$E,$E2,$F:$F,$F2)'
+                      '+COUNTIFS($A:$A,$A2,$E:$E,$F2,$F:$F,$E2))>1)')],
+            fill=PatternFill("solid", fgColor="FFC7CE")
+        )
+    )
+
+
     # (3) Illegal A vs C (or C vs A) -> red fill across row
     ws.conditional_formatting.add(
         "A2:H{}".format(n + 1),
@@ -1683,7 +1747,9 @@ def main():
         'total_games': 0,
         'home_games': 0,
         'away_games': 0,
-        'weekly_games': defaultdict(int)
+        'weekly_games': defaultdict(int),
+        'last_game_dt': None,
+        'last_opponent': None,
     })
     used_slots = {}
     team_game_days = defaultdict(lambda: defaultdict(int))
@@ -1707,6 +1773,17 @@ def main():
 
     unscheduled = matchups[:]
 
+    # Schedule Division A FIRST so B/C/D don't consume the prime Sunday + adjacent-slot inventory
+    # that A requires to hit 11 DH days per team.
+    (schedule, team_stats, doubleheader_count, team_game_days, team_game_slots,
+     used_slots) = schedule_A_pod_doubleheaders(
+        division_teams, team_availability, field_availability, team_blackouts, timeslots_by_date,
+        team_stats, doubleheader_count, team_game_days, team_game_slots, used_slots, schedule
+    )
+
+    # Remove any remaining A matchups from the single-game pool (A is DH-only).
+    unscheduled = [m for m in unscheduled if div_of(m[0]) != 'A' and div_of(m[1]) != 'A']
+
     (schedule, team_stats, doubleheader_count, team_game_days, team_game_slots,
      team_doubleheader_opponents, used_slots, unscheduled) = schedule_doubleheaders_preemptively(
         all_teams, unscheduled, team_availability, field_availability, team_blackouts, timeslots_by_date,
@@ -1718,14 +1795,6 @@ def main():
         all_teams, unscheduled, team_availability, field_availability, team_blackouts, timeslots_by_date,
         team_stats, doubleheader_count, team_game_days, team_game_slots, team_doubleheader_opponents, used_slots, schedule
     )
-
-    (schedule, team_stats, doubleheader_count, team_game_days, team_game_slots,
-     used_slots) = schedule_A_pod_doubleheaders(
-        division_teams, team_availability, field_availability, team_blackouts, timeslots_by_date,
-        team_stats, doubleheader_count, team_game_days, team_game_slots, used_slots, schedule
-    )
-
-    unscheduled = [m for m in unscheduled if div_of(m[0]) != 'A' and div_of(m[1]) != 'A']
 
     (schedule, team_stats, doubleheader_count, team_game_days, team_game_slots,
      team_doubleheader_opponents, used_slots, unscheduled) = schedule_games(
