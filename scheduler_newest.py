@@ -1330,6 +1330,130 @@ def generate_matchup_table(schedule, division_teams):
         for team in all_teams:
             row = [str(matchup_count[team][opp]) for opp in all_teams]
             print(team + "," + ",".join(row))
+def output_schedule_to_xlsx(schedule, division_teams, field_availability, output_file):
+    from openpyxl import Workbook
+    from openpyxl.utils import get_column_letter
+    from openpyxl.styles import Font, Alignment
+    from openpyxl.worksheet.table import Table, TableStyleInfo
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Schedule"
+
+    # ---- Schedule sheet ----
+    headers = ["Date", "Time", "Diamond", "Home Team", "Home Division", "Away Team", "Away Division"]
+    ws.append(headers)
+
+    # Sort for nice display
+    sorted_schedule = sorted(schedule, key=lambda game: (
+        game[0].date(),
+        datetime.strptime(game[1].strip(), "%I:%M %p"),
+        game[2]
+    ))
+
+    for (date_dt, slot, field, home, home_div, away, away_div) in sorted_schedule:
+        ws.append([date_dt.date(), slot, field, home, home_div, away, away_div])
+
+    # Styling
+    header_font = Font(bold=True)
+    for c in range(1, len(headers) + 1):
+        cell = ws.cell(row=1, column=c)
+        cell.font = header_font
+        cell.alignment = Alignment(horizontal="center")
+        ws.column_dimensions[get_column_letter(c)].width = 16
+
+    ws.freeze_panes = "A2"
+    ws.auto_filter.ref = f"A1:G{ws.max_row}"
+
+    # Excel table (helps filtering + nicer)
+    tab = Table(displayName="ScheduleTable", ref=f"A1:G{ws.max_row}")
+    tab.tableStyleInfo = TableStyleInfo(
+        name="TableStyleMedium9",
+        showFirstColumn=False,
+        showLastColumn=False,
+        showRowStripes=True,
+        showColumnStripes=False,
+    )
+    ws.add_table(tab)
+
+    # ---- Helper sheet: TeamDateCounts ----
+    # Use ALL possible dates from field_availability so DH-days formulas keep working
+    # even if you move games around on those dates.
+    dates = sorted({dt.date() for (dt, _slot, _field) in field_availability})
+    all_teams = [t for div in sorted(division_teams.keys()) for t in sorted(division_teams[div])]
+
+    wtd = wb.create_sheet("TeamDateCounts")
+    wtd.append(["Date"] + all_teams)
+
+    # Put dates in column A
+    for d in dates:
+        wtd.append([d] + [None] * len(all_teams))
+
+    # Formulas: count games per team per date (home + away)
+    # Schedule columns: A=Date, D=Home Team, F=Away Team
+    # TeamDateCounts: A=date, columns B.. = each team
+    max_row = len(dates) + 1
+    for col_idx, team in enumerate(all_teams, start=2):
+        col_letter = get_column_letter(col_idx)
+        for r in range(2, max_row + 1):
+            # COUNTIFS on home + away
+            wtd[f"{col_letter}{r}"] = (
+                f'=COUNTIFS(Schedule!$A:$A,$A{r},Schedule!$D:$D,"{team}")'
+                f'+COUNTIFS(Schedule!$A:$A,$A{r},Schedule!$F:$F,"{team}")'
+            )
+
+    wtd.freeze_panes = "B2"
+    wtd.auto_filter.ref = f"A1:{get_column_letter(len(all_teams)+1)}1"
+
+    # Optionally hide helper sheet
+    wtd.sheet_state = "hidden"
+
+    # ---- Summary sheet ----
+    ws2 = wb.create_sheet("Summary")
+    sum_headers = ["Division", "Team", "Target", "Total Games", "Home Games", "Away Games", "DH Days", "Min DH", "Max DH"]
+    ws2.append(sum_headers)
+
+    for c in range(1, len(sum_headers) + 1):
+        cell = ws2.cell(row=1, column=c)
+        cell.font = header_font
+        cell.alignment = Alignment(horizontal="center")
+        ws2.column_dimensions[get_column_letter(c)].width = 14
+
+    # Helper formulas (division extracted from team name)
+    # Targets/min/max derived from your config assumptions:
+    # A: target=22, min=max=11; B/C/D: target=22, min=6, max=7
+    for i, team in enumerate(all_teams, start=2):
+        div = team[0].upper()
+
+        # Division + Team
+        ws2[f"A{i}"] = div
+        ws2[f"B{i}"] = team
+
+        # Target
+        ws2[f"C{i}"] = '=IF(LEFT(B{r},1)="A",22,22)'.format(r=i)
+
+        # Total games: sum of TeamDateCounts column for this team
+        # Find team column in TeamDateCounts: B is first team
+        team_col = 2 + all_teams.index(team)
+        team_col_letter = get_column_letter(team_col)
+        wtd_last = len(dates) + 1
+        ws2[f"D{i}"] = f"=SUM(TeamDateCounts!{team_col_letter}2:{team_col_letter}{wtd_last})"
+
+        # Home / Away games from Schedule directly
+        ws2[f"E{i}"] = f'=COUNTIF(Schedule!$D:$D,"{team}")'
+        ws2[f"F{i}"] = f'=COUNTIF(Schedule!$F:$F,"{team}")'
+
+        # DH Days: count dates where that team has >= 2 games that day
+        ws2[f"G{i}"] = f'=SUMPRODUCT(--(TeamDateCounts!{team_col_letter}2:{team_col_letter}{wtd_last}>=2))'
+
+        # Min/Max DH by division
+        ws2[f"H{i}"] = '=IF(LEFT(B{r},1)="A",11,6)'.format(r=i)
+        ws2[f"I{i}"] = '=IF(LEFT(B{r},1)="A",11,7)'.format(r=i)
+
+    ws2.freeze_panes = "A2"
+    ws2.auto_filter.ref = f"A1:I{ws2.max_row}"
+
+    wb.save(output_file)
 
 def main():
     team_availability = load_team_availability('team_availability.csv')
@@ -1422,6 +1546,8 @@ def main():
     print_schedule_summary(team_stats)
     print_doubleheader_summary(doubleheader_count)
     generate_matchup_table(schedule, division_teams)
+    output_schedule_to_csv(schedule, 'softball_schedule.csv')
+    output_schedule_to_xlsx(schedule, division_teams, field_availability, 'softball_schedule.xlsx')
 
 if __name__ == "__main__":
     main()
