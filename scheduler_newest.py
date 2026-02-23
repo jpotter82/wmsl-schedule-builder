@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-""" 
+"""
 Softball scheduler (heuristic) + Excel export.
 
 Additions in this version:
@@ -55,6 +55,11 @@ MAX_RETRIES = 20000            # scheduling backtracking limit
 MIN_GAP = 5                    # minimum days between game dates
 WEEKLY_GAME_LIMIT = 2          # max games per team per week
 HOME_AWAY_BALANCE = 11         # desired home games per team (for 22-game seasons)
+
+# Division A opponent-balance controls (A is DH-only)
+A_PAIR_MIN_GAMES = 2          # each A-vs-A pairing should occur at least this many times
+A_PAIR_SOFT_CAP = 4           # avoid exceeding this for a pair while some required pairs still unmet
+
 
 # Per-division configuration (tweak here)
 DIVISION_SETTINGS = {
@@ -955,13 +960,18 @@ def schedule_A_pod_doubleheaders(division_teams, team_availability, field_availa
                 continue
             out.append(f)
         return out
-
     def choose_four(eligible):
-        """Pick 4 eligible teams needing sessions, minimizing repeat opponents.
+        """Pick 4 eligible teams for a pod session, *actively* balancing opponents.
 
-        Called *per date/slot-pair* and considers only teams that can actually play
-        on that date. This enables multiple A-pods on the same day (e.g., 8 A-teams
-        => up to 2 pods per Sunday).
+        Goals:
+          1) Ensure every A-vs-A pairing happens at least A_PAIR_MIN_GAMES times (as feasible)
+          2) Avoid extreme repeats early (e.g., A1 vs A2 six times while A1 vs A8 once)
+          3) Still finish all required sessions
+
+        We evaluate both which 4 teams to use AND the internal pod layout (who plays whom),
+        because the layout determines the 4 games created:
+            slot1: t1-vs-t2, t3-vs-t4
+            slot2: t1-vs-t4, t2-vs-t3
         """
         need = [t for t in eligible if sessions_done[t] < target_sessions]
         if len(need) < 4:
@@ -978,24 +988,61 @@ def schedule_A_pod_doubleheaders(division_teams, team_availability, field_availa
         )
         pool = need[:10] if len(need) > 10 else need
 
-        best = None
-        best_score = None
+        # Helper: does team still have any unmet "must play" pairs?
+        def has_unmet_pairs(team: str) -> bool:
+            for other in A_teams:
+                if other == team:
+                    continue
+                if pair_meets[frozenset((team, other))] < A_PAIR_MIN_GAMES:
+                    return True
+            return False
 
-        # Try combinations of 4 from pool
+        best = None
+        best_score = None  # smaller is better (lexicographic)
+
+        # Evaluate combinations of 4 from pool, and also try all internal layouts
         for combo in itertools.combinations(pool, 4):
-            t1, t2, t3, t4 = combo
-            games = [
-                frozenset((t1, t2)),
-                frozenset((t3, t4)),
-                frozenset((t1, t3)),
-                frozenset((t2, t4)),
-            ]
-            score = sum(pair_meets[g] for g in games)
-            rem = sum((target_sessions - sessions_done[t]) for t in combo)
-            score2 = (score, -rem, tuple(sorted(combo)))
-            if best_score is None or score2 < best_score:
-                best_score = score2
-                best = combo
+            # Try all unique permutations (layout matters). 24 is small.
+            for perm in itertools.permutations(combo, 4):
+                t1, t2, t3, t4 = perm
+
+                games = [
+                    frozenset((t1, t2)),
+                    frozenset((t3, t4)),
+                    frozenset((t1, t4)),
+                    frozenset((t2, t3)),
+                ]
+
+                # Hard-ish guard:
+                # If a pair is already at/over soft cap, don't schedule it IF either team still has
+                # any unmet required pair elsewhere.
+                blocked = False
+                for g in games:
+                    a, b = tuple(g)
+                    if pair_meets[g] >= A_PAIR_SOFT_CAP and (has_unmet_pairs(a) or has_unmet_pairs(b)):
+                        blocked = True
+                        break
+                if blocked:
+                    continue
+
+                # Count how many of the games help satisfy the minimum pair requirement
+                unmet_hits = sum(1 for g in games if pair_meets[g] < A_PAIR_MIN_GAMES)
+
+                # Prefer layouts that:
+                #  - maximize unmet_hits
+                #  - minimize total existing meetings for these pairs
+                #  - then prefer using teams with larger remaining session deficits
+                total_meets = sum(pair_meets[g] for g in games)
+                rem = sum((target_sessions - sessions_done[t]) for t in (t1, t2, t3, t4))
+
+                # Also reduce spread (avoid spiking any single pair too quickly)
+                after_counts = [pair_meets[g] + 1 for g in games]
+                spread = max(after_counts) - min(after_counts)
+
+                score = (-unmet_hits, total_meets, spread, -rem, tuple(sorted(combo)))
+                if best_score is None or score < best_score:
+                    best_score = score
+                    best = (t1, t2, t3, t4)
 
         return best
 
