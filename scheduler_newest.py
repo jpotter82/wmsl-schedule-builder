@@ -60,6 +60,27 @@ HOME_AWAY_BALANCE = 11         # desired home games per team (for 22-game season
 A_PAIR_MIN_GAMES = 2          # each A-vs-A pairing should occur at least this many times
 A_PAIR_SOFT_CAP = 4           # avoid exceeding this for a pair while some required pairs still unmet
 
+# Pairing balance rules (min games per opponent + soft cap to avoid lopsided repeats)
+# NOTE: For divisions where the intra_target_per_team makes min infeasible, the code will automatically
+# clamp the effective minimum to floor(avg_games_vs_opponent).
+PAIR_RULES = {
+    'A': {'min': A_PAIR_MIN_GAMES, 'soft_cap': A_PAIR_SOFT_CAP},
+    'B': {'min': 2, 'soft_cap': 4},
+    'C': {'min': 2, 'soft_cap': 5},  # 6-team divisions naturally have higher repeats
+    'D': {'min': 2, 'soft_cap': 5},
+}
+
+def effective_pair_rules(division, intra_target_per_team, n):
+    """Return (min_eff, cap_eff) for intra-division opponent balance."""
+    base = PAIR_RULES.get(division, {'min': 0, 'soft_cap': 999})
+    if n <= 1 or intra_target_per_team <= 0:
+        return 0, base.get('soft_cap', 999)
+    avg = float(intra_target_per_team) / float(max(1, n - 1))
+    min_eff = min(int(base.get('min', 0)), int(math.floor(avg)))
+    # keep cap at least (ceil(avg)+1) so we don't dead-end in small divisions
+    cap_eff = max(int(base.get('soft_cap', 999)), int(math.ceil(avg)) + 1)
+    return min_eff, cap_eff
+
 
 # Per-division configuration (tweak here)
 DIVISION_SETTINGS = {
@@ -334,9 +355,7 @@ def generate_intra_matchups_for_target(division, teams, intra_target_per_team):
     meet = defaultdict(int)
     for (h, a) in matchups:
         meet[frozenset((h, a))] += 1
-
-    avg_meet = float(intra_target_per_team) / max(1, (n - 1))
-    soft_cap = int(math.ceil(avg_meet)) + 1
+    min_pair, soft_cap = effective_pair_rules(division, intra_target_per_team, n)
 
     guard = 0
     guard_max = 200000
@@ -358,7 +377,10 @@ def generate_intra_matchups_for_target(division, teams, intra_target_per_team):
             raise Exception("Cannot find opponent to satisfy intra target for {}. Remaining={}".format(division, games_left))
 
         def meet_key(t2):
-            return (meet[frozenset((t1, t2))], -games_left[t2], t2)
+            m = meet[frozenset((t1, t2))]
+            # Prefer opponents we haven't met enough yet (under min_pair), then fewer repeats.
+            under = 1 if m < min_pair else 0
+            return (-under, m, -games_left[t2], t2)
 
         under = [t2 for t2 in candidates if meet[frozenset((t1, t2))] < soft_cap]
         pick_pool = under if under else candidates
