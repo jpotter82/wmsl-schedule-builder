@@ -30,6 +30,16 @@ try:
 except ImportError:
     PrettyTable = None
 
+# XLSX export support (optional)
+try:
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, Alignment, PatternFill
+    from openpyxl.utils import get_column_letter
+    from openpyxl.formatting.rule import FormulaRule
+except Exception:
+    Workbook = None
+    Font = Alignment = PatternFill = get_column_letter = FormulaRule = None
+
 try:
     from openpyxl import Workbook
     from openpyxl.styles import Font, Alignment, PatternFill
@@ -1072,6 +1082,216 @@ def schedule_A_pod_doubleheaders(division_teams, team_availability, field_availa
 
     return schedule, team_stats, doubleheader_count, team_game_days, team_game_slots, used_slots
 
+
+# -------------------------------
+# B/C/D Doubleheader pods (after A)
+# -------------------------------
+def _pop_matchup_any_orientation(unscheduled, a, b):
+    """Remove and return one matchup between a and b (either (a,b) or (b,a))."""
+    try:
+        idx = unscheduled.index((a, b))
+        return unscheduled.pop(idx)
+    except ValueError:
+        pass
+    try:
+        idx = unscheduled.index((b, a))
+        return unscheduled.pop(idx)
+    except ValueError:
+        return None
+
+
+def schedule_division_pod_doubleheaders(div, division_teams, unscheduled,
+                                       team_availability, field_availability, team_blackouts, timeslots_by_date,
+                                       team_stats, doubleheader_count, team_game_days, team_game_slots,
+                                       team_doubleheader_opponents, used_slots, schedule=None):
+    """Schedule 4-team pod doubleheaders *within a division* to satisfy min_dh() targets.
+
+    This uses the same A-style pod structure (two fields, two adjacent slots) so each of the 4 teams
+    plays 2 games that day against DIFFERENT opponents.
+
+    It only consumes matchups that already exist in `unscheduled` (either orientation), so we don't
+    accidentally create extra games.
+    """
+    if schedule is None:
+        schedule = []
+
+    teams = list(division_teams.get(div, []))
+    if len(teams) < 4:
+        return schedule, team_stats, doubleheader_count, team_game_days, team_game_slots, team_doubleheader_opponents, used_slots, unscheduled
+
+    # Fast lookup for canonical datetime from field_availability
+    dt_by_key = {(dt.date(), slot, field): dt for (dt, slot, field) in field_availability}
+
+    # Date order follows field_availability sort (Sundays first), but we keep unique dates
+    unique_dates = []
+    seen = set()
+    for dt, _slot, _field in field_availability:
+        d = dt.date()
+        if d not in seen:
+            unique_dates.append(d)
+            seen.add(d)
+
+    # Fields available per date
+    fields_by_date = defaultdict(set)
+    for dt, _slot, field in field_availability:
+        fields_by_date[dt.date()].add(field)
+
+    def can_play_pod(team, d):
+        dow = d.strftime('%a')
+        if dow not in team_availability.get(team, set()):
+            return False
+        if d in team_blackouts.get(team, set()):
+            return False
+        if team_game_days[team].get(d, 0) != 0:
+            return False
+        if not min_gap_ok(team, d, team_game_days):
+            return False
+        wk = d.isocalendar()[1]
+        if team_stats[team]['weekly_games'].get(wk, 0) + 2 > WEEKLY_GAME_LIMIT:
+            return False
+        if team_stats[team]['total_games'] + 2 > target_games(team):
+            return False
+        if doubleheader_count[team] >= max_dh(team):
+            return False
+        return True
+
+    def available_fields_for_pair(d, s1, s2):
+        out = []
+        for f in sorted(fields_by_date.get(d, [])):
+            dt1 = dt_by_key.get((d, s1, f))
+            dt2 = dt_by_key.get((d, s2, f))
+            if dt1 is None or dt2 is None:
+                continue
+            if used_slots.get((dt1, s1, f), False) or used_slots.get((dt2, s2, f), False):
+                continue
+            out.append(f)
+        return out
+
+    def place_game(d, slot, field, t1, t2):
+        """Place a single game (t1 vs t2) on (d,slot,field) with balanced home/away."""
+        dt = dt_by_key.get((d, slot, field))
+        if dt is None:
+            return False
+        home, away = decide_home_away(t1, t2, team_stats)
+        # hard cap: never exceed target home balance too much
+        if team_stats[home]['home_games'] >= HOME_AWAY_BALANCE and team_stats[away]['home_games'] < HOME_AWAY_BALANCE:
+            home, away = away, home
+        schedule.append((dt, slot, field, home, home[0], away, away[0]))
+        used_slots[(dt, slot, field)] = True
+
+        wk = d.isocalendar()[1]
+        team_stats[home]['total_games'] += 1
+        team_stats[away]['total_games'] += 1
+        team_stats[home]['home_games'] += 1
+        team_stats[away]['away_games'] += 1
+        record_last_opponent(home, away, dt, team_stats)
+        record_last_opponent(away, home, dt, team_stats)
+        team_stats[home]['weekly_games'][wk] = team_stats[home]['weekly_games'].get(wk, 0) + 1
+        team_stats[away]['weekly_games'][wk] = team_stats[away]['weekly_games'].get(wk, 0) + 1
+        team_game_days[home][d] += 1
+        team_game_days[away][d] += 1
+        team_game_slots[home][d].append(slot)
+        team_game_slots[away][d].append(slot)
+        return True
+
+    # Greedy scheduling: multiple passes to reach min_dh.
+    for _pass in range(10):
+        progress = False
+
+        # Stop early if everyone in division has hit min DH
+        if all(doubleheader_count[t] >= min_dh(t) for t in teams):
+            break
+
+        for d in unique_dates:
+            if all(doubleheader_count[t] >= min_dh(t) for t in teams):
+                break
+
+            # adjacent slot pairs available that date
+            slots = sorted(set(timeslots_by_date.get(d, [])), key=lambda s: datetime.strptime(s.strip(), "%I:%M %p"))
+            for i in range(len(slots) - 1):
+                s1, s2 = slots[i], slots[i + 1]
+                free_fields = available_fields_for_pair(d, s1, s2)
+                if len(free_fields) < 2:
+                    continue
+
+                # pick 4 eligible teams that still need DHs
+                eligible = [t for t in teams if can_play_pod(t, d) and doubleheader_count[t] < min_dh(t)]
+                if len(eligible) < 4:
+                    continue
+
+                eligible.sort(key=lambda t: team_need_key(t, team_stats, doubleheader_count), reverse=True)
+                pool = eligible[:10]
+
+                chosen = None
+                chosen_layout = None
+
+                # Try combos then permutations to find one that matches existing matchups.
+                for combo in itertools.combinations(pool, 4):
+                    for perm in itertools.permutations(combo, 4):
+                        t1, t2, t3, t4 = perm
+                        # Need these undirected pairs available in unscheduled
+                        needed_pairs = [(t1, t2), (t3, t4), (t1, t3), (t2, t4)]
+                        if all(((a, b) in unscheduled or (b, a) in unscheduled) for (a, b) in needed_pairs):
+                            # also avoid making a team's two games the same opponent (pod guarantees), and avoid back-to-back repeats
+                            if (is_back_to_back_repeat(t1, t2, team_stats) or is_back_to_back_repeat(t3, t4, team_stats) or
+                                is_back_to_back_repeat(t1, t3, team_stats) or is_back_to_back_repeat(t2, t4, team_stats)):
+                                continue
+                            chosen = combo
+                            chosen_layout = (t1, t2, t3, t4)
+                            break
+                    if chosen_layout:
+                        break
+                if not chosen_layout:
+                    continue
+
+                t1, t2, t3, t4 = chosen_layout
+
+                # Consume matchups (one each) BEFORE placing; if any pop fails, rollback and skip.
+                pops = []
+                ok = True
+                for a, b in [(t1, t2), (t3, t4), (t1, t3), (t2, t4)]:
+                    m = _pop_matchup_any_orientation(unscheduled, a, b)
+                    if m is None:
+                        ok = False
+                        break
+                    pops.append(m)
+                if not ok:
+                    # rollback
+                    unscheduled.extend(pops)
+                    continue
+
+                f1, f2 = free_fields[0], free_fields[1]
+
+                # Place pod games
+                ok = True
+                ok &= place_game(d, s1, f1, t1, t2)
+                ok &= place_game(d, s1, f2, t3, t4)
+                ok &= place_game(d, s2, f1, t1, t3)
+                ok &= place_game(d, s2, f2, t2, t4)
+
+                if not ok:
+                    # rollback placements is messy; instead, mark failed by re-adding matchups
+                    unscheduled.extend(pops)
+                    continue
+
+                # Mark DH day for each team and record opponents played that day
+                for team, opps in (
+                    (t1, {t2, t3}),
+                    (t2, {t1, t4}),
+                    (t3, {t4, t1}),
+                    (t4, {t3, t2}),
+                ):
+                    doubleheader_count[team] += 1
+                    team_doubleheader_opponents[team][d].update(opps)
+
+                progress = True
+                # continue scanning for more pods on same date
+
+        if not progress:
+            break
+
+    return schedule, team_stats, doubleheader_count, team_game_days, team_game_slots, team_doubleheader_opponents, used_slots, unscheduled
+
 # -------------------------------
 # Primary scheduling
 
@@ -1376,6 +1596,12 @@ def export_schedule_to_xlsx(field_availability, schedule, division_teams, output
     rows = build_slot_rows(field_availability, schedule)
 
     wb = Workbook()
+    # Force formula recalculation on open (openpyxl does not evaluate formulas itself)
+    try:
+        wb.calculation.calcMode = "auto"
+        wb.calculation.fullCalcOnLoad = True
+    except Exception:
+        pass
 
     # ---------------- Schedule ----------------
     ws = wb.active
@@ -1784,17 +2010,16 @@ def main():
     # Remove any remaining A matchups from the single-game pool (A is DH-only).
     unscheduled = [m for m in unscheduled if div_of(m[0]) != 'A' and div_of(m[1]) != 'A']
 
-    (schedule, team_stats, doubleheader_count, team_game_days, team_game_slots,
-     team_doubleheader_opponents, used_slots, unscheduled) = schedule_doubleheaders_preemptively(
-        all_teams, unscheduled, team_availability, field_availability, team_blackouts, timeslots_by_date,
-        team_stats, doubleheader_count, team_game_days, team_game_slots, team_doubleheader_opponents, used_slots
-    )
-
-    (schedule, team_stats, doubleheader_count, team_game_days, team_game_slots,
-     team_doubleheader_opponents, used_slots, unscheduled) = force_minimum_doubleheaders(
-        all_teams, unscheduled, team_availability, field_availability, team_blackouts, timeslots_by_date,
-        team_stats, doubleheader_count, team_game_days, team_game_slots, team_doubleheader_opponents, used_slots, schedule
-    )
+    # Build B/C/D doubleheader pods (same-day 2-game sets) BEFORE single-game placement.
+    # Pod structure guarantees teams do NOT play the same opponent back-to-back in a DH.
+    for div in ('B', 'C', 'D'):
+        (schedule, team_stats, doubleheader_count, team_game_days, team_game_slots,
+         team_doubleheader_opponents, used_slots, unscheduled) = schedule_division_pod_doubleheaders(
+            div, division_teams, unscheduled,
+            team_availability, field_availability, team_blackouts, timeslots_by_date,
+            team_stats, doubleheader_count, team_game_days, team_game_slots,
+            team_doubleheader_opponents, used_slots, schedule
+        )
 
     (schedule, team_stats, doubleheader_count, team_game_days, team_game_slots,
      team_doubleheader_opponents, used_slots, unscheduled) = schedule_games(
