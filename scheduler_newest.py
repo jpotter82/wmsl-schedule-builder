@@ -905,7 +905,15 @@ def schedule_A_pod_doubleheaders(division_teams, team_availability, field_availa
         dt_by_key[(date_dt.date(), slot, field)] = date_dt
 
     # Build per-date slot ordering + list of adjacent slot pairs (from field_availability itself)
-    unique_dates = sorted({dt.date() for (dt, _slot, _field) in field_availability})
+    # Preserve the *input order* (field_availability is already sorted with Sundays earlier).
+    # Using sorted(set(...)) unintentionally pushes Sundays later and starves Sunday usage.
+    unique_dates = []
+    seen_dates = set()
+    for (dt, _slot, _field) in field_availability:
+        d = dt.date()
+        if d not in seen_dates:
+            unique_dates.append(d)
+            seen_dates.add(d)
     adjacent_slot_pairs_by_date = {}
     for d in unique_dates:
         slots = sorted(set(timeslots_by_date.get(d, [])), key=lambda s: datetime.strptime(s.strip(), "%I:%M %p"))
@@ -1361,7 +1369,8 @@ def schedule_games(matchups, team_availability, field_availability, team_blackou
 
         return True
 
-    max_passes = 8
+    # More passes helps the greedy filler converge after pods consume many prime slots.
+    max_passes = 20
     for _pass in range(max_passes):
         progress_made = False
 
@@ -1416,6 +1425,16 @@ def schedule_games(matchups, team_availability, field_availability, team_blackou
                     continue
 
                 score = matchup_need_score(t1, t2, team_stats, doubleheader_count)
+
+                # Pepper singles: if this placement would create a doubleheader day,
+                # prefer doing so only when that team still *needs* DH days.
+                # (Otherwise we can strand the schedule at ~15–18 games because DH
+                # consumes the full weekly limit.)
+                dh_penalty = 0
+                for team in (t1, t2):
+                    if team_game_days[team][d] == 1 and doubleheader_count[team] >= min_dh(team):
+                        dh_penalty += 2000
+                score -= dh_penalty
                 if score > best_score:
                     best_score = score
                     best = (t1, t2)
@@ -1487,7 +1506,7 @@ def fill_missing_games(schedule, team_stats, doubleheader_count, team_game_days,
             return slot == required_slot
         return True
 
-    max_passes = 8
+    max_passes = 20
     for _pass in range(max_passes):
         progress = False
 
@@ -1544,6 +1563,12 @@ def fill_missing_games(schedule, team_stats, doubleheader_count, team_game_days,
                     continue
 
                 score = matchup_need_score(t1, t2, team_stats, doubleheader_count)
+
+                dh_penalty = 0
+                for team in (t1, t2):
+                    if team_game_days[team][d] == 1 and doubleheader_count[team] >= min_dh(team):
+                        dh_penalty += 2000
+                score -= dh_penalty
                 if score > best_score:
                     best_score = score
                     best = (t1, t2)
