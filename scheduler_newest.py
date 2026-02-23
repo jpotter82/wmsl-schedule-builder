@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""
+""" 
 Softball scheduler (heuristic) + Excel export.
 
 Additions in this version:
