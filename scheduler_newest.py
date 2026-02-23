@@ -88,9 +88,9 @@ DIVISION_SETTINGS = {
     'A': {'inter': False, 'target_games': 22, 'min_dh': 11, 'max_dh': 11},
 
     # B/C/D: inter allowed, intra can top up as needed
-    'B': {'inter': True,  'target_games': 22, 'min_dh': 7,  'max_dh': 8},
-    'C': {'inter': True,  'target_games': 22, 'min_dh': 7,  'max_dh': 8},
-    'D': {'inter': True,  'target_games': 22, 'min_dh': 7,  'max_dh': 8},
+    'B': {'inter': True,  'target_games': 22, 'min_dh': 6,  'max_dh': 7},
+    'C': {'inter': True,  'target_games': 22, 'min_dh': 6,  'max_dh': 7},
+    'D': {'inter': True,  'target_games': 22, 'min_dh': 6,  'max_dh': 7},
 }
 
 # Inter-division pairing settings (only applied if BOTH divisions have inter=True)
@@ -904,18 +904,24 @@ def schedule_A_pod_doubleheaders(division_teams, team_availability, field_availa
     for date_dt, slot, field in field_availability:
         dt_by_key[(date_dt.date(), slot, field)] = date_dt
 
-    # Build per-date slot ordering + list of adjacent slot pairs (from field_availability itself)
-    # Preserve the *input order* (field_availability is already sorted with Sundays earlier).
-    # Using sorted(set(...)) unintentionally pushes Sundays later and starves Sunday usage.
-    unique_dates = []
-    seen_dates = set()
-    for (dt, _slot, _field) in field_availability:
-        d = dt.date()
-        if d not in seen_dates:
-            unique_dates.append(d)
-            seen_dates.add(d)
+    # Build per-date slot ordering + list of adjacent slot pairs.
+    #
+    # We *do* want some A pods on Sundays (easier attendance), but we don't want A to dominate
+    # every Sunday all season.
+    #
+    # Strategy:
+    #   1) Ensure each A team gets at least MIN_SUNDAY_SESSIONS_PER_TEAM DH sessions on Sundays
+    #   2) After that, prefer weekday pods.
+    all_dates = sorted({dt.date() for (dt, _slot, _field) in field_availability})
+    sunday_dates = [d for d in all_dates if d.weekday() == 6]
+    weekday_dates = [d for d in all_dates if d.weekday() != 6]
+
+    # Policy: limit how many A "pods" can run on any given Sunday.
+    # A "pod" = 4 A-teams playing 2 games each across two fields and two adjacent slots.
+    MAX_A_PODS_PER_SUNDAY = 1
+    MIN_SUNDAY_SESSIONS_PER_TEAM = 1
     adjacent_slot_pairs_by_date = {}
-    for d in unique_dates:
+    for d in all_dates:
         slots = sorted(set(timeslots_by_date.get(d, [])), key=lambda s: datetime.strptime(s.strip(), "%I:%M %p"))
         pairs = []
         for i in range(len(slots) - 1):
@@ -1064,22 +1070,30 @@ def schedule_A_pod_doubleheaders(division_teams, team_availability, field_availa
         team_game_slots[away][d].append(slot)
         return True
 
-    # Iterate dates/slots in schedule order (Sundays first if that's how field_availability was sorted).
-    # We do multiple passes to work around blocked days/slots.
+    # Iterate dates/slots in chronological order. We do multiple passes to work around blocked days/slots.
     #
-    # Key change (v7): allow MULTIPLE pods per date. With 8 A-teams, Sundays often support
-    # two pods (first two slots + later two slots), which is critical to fully meet
-    # the 11 DH-session target per team.
+    # We allow multiple pods per date EXCEPT Sundays, which are capped by MAX_A_PODS_PER_SUNDAY.
+    sunday_sessions_done = {t: 0 for t in A_teams}
+
     for _pass in range(12):
         progress = False
 
-        for d in unique_dates:
+        need_more_sunday = any(sunday_sessions_done[t] < MIN_SUNDAY_SESSIONS_PER_TEAM for t in A_teams)
+        date_order = (sunday_dates + weekday_dates) if need_more_sunday else (weekday_dates + sunday_dates)
+
+        for d in date_order:
             if all(sessions_done[t] >= target_sessions for t in A_teams):
                 break
+
+            pods_today = 0
 
             # Try to schedule as many pods as possible on this date across distinct adjacent slot pairs.
             for (s1, s2) in adjacent_slot_pairs_by_date.get(d, []):
                 if all(sessions_done[t] >= target_sessions for t in A_teams):
+                    break
+
+                # Cap A pods on Sundays
+                if d.weekday() == 6 and pods_today >= MAX_A_PODS_PER_SUNDAY:
                     break
 
                 free_fields = available_fields_for_pair(d, s1, s2)
@@ -1116,6 +1130,10 @@ def schedule_A_pod_doubleheaders(division_teams, team_availability, field_availa
                 pair_meets[frozenset((t4, t1))] += 1
 
                 progress = True
+                pods_today += 1
+                if d.weekday() == 6:
+                    for t in (t1, t2, t3, t4):
+                        sunday_sessions_done[t] += 1
                 # continue scanning later slot pairs on same date to potentially schedule another pod
 
         if not progress:
@@ -1921,6 +1939,61 @@ def export_schedule_to_xlsx(field_availability, schedule, division_teams, output
     )
 
     _autofit(ws_s, len(all_teams) + 1, 9, min_width=10, max_width=18)
+
+    # ---------------- Games by DOW (formulas) ----------------
+    # Formula-driven so manual edits to the Schedule sheet update automatically.
+    ws_dow = wb.create_sheet("Games by DOW")
+    ws_dow.append([
+        "Division", "Team",
+        "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun",
+        "Total", "Avg/Day", "Max", "Min", "Range"
+    ])
+    for cell in ws_dow[1]:
+        cell.font = Font(bold=True)
+        cell.fill = PatternFill("solid", fgColor="D9E1F2")
+        cell.alignment = Alignment(horizontal="center")
+
+    day_labels = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+    last_row = len(all_teams) + 1
+    for r, team in enumerate(all_teams, start=2):
+        ws_dow.cell(row=r, column=1, value=div_of(team))
+        ws_dow.cell(row=r, column=2, value=team)
+
+        # Schedule sheet: B=Day, E=Home Team, F=Away Team
+        for i, dow in enumerate(day_labels):
+            col = 3 + i  # C..I
+            ws_dow.cell(
+                row=r, column=col,
+                value=(
+                    f"=COUNTIFS(Schedule!$B:$B,\"{dow}\",Schedule!$E:$E,$B{r})"
+                    f"+COUNTIFS(Schedule!$B:$B,\"{dow}\",Schedule!$F:$F,$B{r})"
+                )
+            )
+
+        ws_dow.cell(row=r, column=10, value=f"=SUM(C{r}:I{r})")  # Total
+        ws_dow.cell(row=r, column=11, value=f"=J{r}/7")          # Avg/Day
+        ws_dow.cell(row=r, column=12, value=f"=MAX(C{r}:I{r})")  # Max
+        ws_dow.cell(row=r, column=13, value=f"=MIN(C{r}:I{r})")  # Min
+        ws_dow.cell(row=r, column=14, value=f"=L{r}-M{r}")        # Range
+
+    ws_dow.freeze_panes = "A2"
+    ws_dow.auto_filter.ref = f"A1:N{last_row}"
+
+    # Conditional formatting: highlight day counts that differ from the team's average by > 1.
+    ws_dow.conditional_formatting.add(
+        f"C2:I{last_row}",
+        FormulaRule(
+            formula=["ABS(C2-$K2)>1"],
+            fill=PatternFill("solid", fgColor="FFF2CC")
+        )
+    )
+    # Highlight large day-of-week range (very uneven distribution).
+    ws_dow.conditional_formatting.add(
+        f"N2:N{last_row}",
+        FormulaRule(formula=["$N2>=3"], fill=PatternFill("solid", fgColor="FFC7CE"))
+    )
+
+    _autofit(ws_dow, last_row, 14, min_width=6, max_width=14)
 
     # ---------------- Matchup Matrix ----------------
     ws_m = wb.create_sheet("Matchup Matrix")
