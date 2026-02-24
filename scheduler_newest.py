@@ -86,7 +86,7 @@ def effective_pair_rules(division, intra_target_per_team, n):
 # Sunday pod rotation:
 # For Sunday dates, we try to rotate which division gets pod-style doubleheaders.
 # This helps avoid one division (e.g., A) soaking up all Sunday capacity.
-SUNDAY_POD_ROTATION = ['B', 'C', 'D', 'A']  # cycle order (can change)
+SUNDAY_POD_ROTATION = ['A', 'B', 'C', 'D']  # cycle order (can change)
 SUNDAY_PODS_PER_SUNDAY = 1  # at most this many *pod sessions* across all divisions on a Sunday
 RANDOM_SEED = None           # Set to 'None' to randomize each run
 # Per-division configuration (tweak here)
@@ -1253,6 +1253,7 @@ def schedule_A_pod_doubleheaders(division_teams, team_availability, field_availa
                 continue
             if sunday_pods_used is not None and d.weekday() == 6 and sunday_pods_used.get(d, 0) >= SUNDAY_PODS_PER_SUNDAY:
                 continue
+                continue
             # If Sunday pods are being rotated, only allow A pods on Sundays assigned to A.
             if d.weekday() == 6 and sunday_assignment and sunday_assignment.get(d) not in (None, 'A'):
                 continue
@@ -1442,6 +1443,7 @@ def schedule_division_pod_doubleheaders(div, division_teams, unscheduled,
                 continue
             if sunday_pods_used is not None and d.weekday() == 6 and sunday_pods_used.get(d, 0) >= SUNDAY_PODS_PER_SUNDAY:
                 continue
+                continue
             if all(doubleheader_count[t] >= min_dh(t) for t in teams):
                 break
 
@@ -1537,7 +1539,7 @@ def schedule_division_pod_doubleheaders(div, division_teams, unscheduled,
 def schedule_games(matchups, team_availability, field_availability, team_blackouts,
                    schedule, team_stats, doubleheader_count,
                    team_game_days, team_game_slots, team_doubleheader_opponents,
-                   used_slots, timeslots_by_date):
+                   used_slots, timeslots_by_date, sunday_assignment=None):
     """
     Greedy single-game / DH-second-game placement for any remaining matchups.
 
@@ -1628,6 +1630,11 @@ def schedule_games(matchups, team_availability, field_availability, team_blackou
 
                 score = matchup_need_score(t1, t2, team_stats, doubleheader_count)
 
+                if sunday_assignment and d.weekday() == 6:
+                    assigned = sunday_assignment.get(d)
+                    if assigned and div_of(t1) == assigned and div_of(t2) == assigned:
+                        score += 500
+
                 # Pepper singles: if this placement would create a doubleheader day,
                 # prefer doing so only when that team still *needs* DH days.
                 # (Otherwise we can strand the schedule at ~15–18 games because DH
@@ -1685,7 +1692,7 @@ def schedule_games(matchups, team_availability, field_availability, team_blackou
 
 def fill_missing_games(schedule, team_stats, doubleheader_count, team_game_days, team_game_slots,
                        team_doubleheader_opponents, used_slots, timeslots_by_date, unscheduled,
-                       team_availability, team_blackouts, field_availability):
+                       team_availability, team_blackouts, field_availability, sunday_assignment=None):
     """
     Top-up pass after schedule_games. Works only with remaining unscheduled matchups.
     Uses the same bounded multi-pass greedy approach as schedule_games.
@@ -1765,6 +1772,11 @@ def fill_missing_games(schedule, team_stats, doubleheader_count, team_game_days,
                     continue
 
                 score = matchup_need_score(t1, t2, team_stats, doubleheader_count)
+
+                if sunday_assignment and d.weekday() == 6:
+                    assigned = sunday_assignment.get(d)
+                    if assigned and div_of(t1) == assigned and div_of(t2) == assigned:
+                        score += 500
 
                 dh_penalty = 0
                 for team in (t1, t2):
@@ -2282,9 +2294,10 @@ def generate_matchup_table(schedule, division_teams):
 # -------------------------------
 def main():
     if RANDOM_SEED is None:
-      random.seed()
+        random.seed()
     else:
-      random.seed(RANDOM_SEED)
+        random.seed(RANDOM_SEED)
+
     team_availability = load_team_availability('team_availability.csv')
     field_availability = load_field_availability('field_availability.csv')
     team_blackouts = load_team_blackouts('team_blackouts.csv')
@@ -2370,40 +2383,16 @@ def main():
      team_doubleheader_opponents, used_slots, unscheduled) = schedule_games(
         unscheduled, team_availability, field_availability, team_blackouts,
         schedule, team_stats, doubleheader_count, team_game_days, team_game_slots,
-        team_doubleheader_opponents, used_slots, timeslots_by_date
-    )
+        team_doubleheader_opponents, used_slots, timeslots_by_date,
+        sunday_assignment=sunday_assignment)
 
     if any(team_stats[t]['total_games'] < target_games(t) for t in all_teams):
         print("Filling missing games...")
         (schedule, team_stats, doubleheader_count, unscheduled) = fill_missing_games(
             schedule, team_stats, doubleheader_count, team_game_days, team_game_slots,
             team_doubleheader_opponents, used_slots, timeslots_by_date, unscheduled,
-            team_availability, team_blackouts, field_availability
-        )
-
-    # If we're still short, loosen the fixed matchup graph by generating additional candidate matchups
-    # among teams that are still below target (excluding A).
-    if any(team_stats[t]['total_games'] < target_games(t) for t in all_teams if div_of(t) != 'A'):
-        fillers = generate_filler_matchups(division_teams, team_stats, schedule, max_new_games=2000)
-        if fillers:
-            print("Adding {} flexible filler matchups to help finish the schedule...".format(len(fillers)))
-            (schedule, team_stats, doubleheader_count, team_game_days, team_game_slots,
-             team_doubleheader_opponents, used_slots, unscheduled2) = schedule_games(
-                fillers, team_availability, field_availability, team_blackouts,
-                schedule, team_stats, doubleheader_count, team_game_days, team_game_slots,
-                team_doubleheader_opponents, used_slots, timeslots_by_date
-            )
-            # Keep any fillers that still couldn't be placed (rare) just for reporting
-            if unscheduled2:
-                unscheduled.extend(unscheduled2)
-
-            if any(team_stats[t]['total_games'] < target_games(t) for t in all_teams):
-                print("Filling missing games (post-filler)...")
-                (schedule, team_stats, doubleheader_count, unscheduled) = fill_missing_games(
-                    schedule, team_stats, doubleheader_count, team_game_days, team_game_slots,
-                    team_doubleheader_opponents, used_slots, timeslots_by_date, unscheduled,
-                    team_availability, team_blackouts, field_availability
-                )
+            team_availability, team_blackouts, field_availability,
+            sunday_assignment=sunday_assignment)
 
     missing = [t for t in all_teams if team_stats[t]['total_games'] < target_games(t)]
     if missing:
