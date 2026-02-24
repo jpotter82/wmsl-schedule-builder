@@ -1934,29 +1934,69 @@ def output_team_remaining_needs_csv(all_teams, team_stats, doubleheader_count, o
             dh_rem = max(0, mindh - dh_done)
             w.writerow([div_of(t), t, target, scheduled, games_rem, mindh, dh_done, dh_rem])
 
-def add_unscheduled_to_workbook(wb, remaining_matchups, all_teams, team_stats, doubleheader_count):
-    """Add two sheets: Unscheduled and Remaining Needs (values, not formulas)."""
+def add_unscheduled_to_workbook(wb, remaining_matchups, all_teams, team_stats, doubleheader_count, weeks_count=None):
+    """Add two sheets: Unscheduled (one row per remaining matchup) and Remaining Needs.
+
+    Unscheduled is intentionally NOT aggregated so you can walk down the list and paste games
+    into open slots, then delete rows as you go.
+
+    Also adds a formula column that lists week numbers where BOTH teams currently have 0 games
+    scheduled (updates automatically when you edit the Schedule sheet).
+    """
     if remaining_matchups is None:
         remaining_matchups = []
 
-    _oriented, unordered = summarize_remaining_matchups(remaining_matchups)
-
-    # Unscheduled (pair counts)
+    # ---------------- Unscheduled ----------------
     ws_u = wb.create_sheet("Unscheduled")
-    ws_u.append(["Division1", "Team1", "Division2", "Team2", "RemainingGames"])
+    ws_u.append(["Home Team", "Away Team", "Home Div", "Away Div", "WeeksBothZero"])
     for cell in ws_u[1]:
         cell.font = Font(bold=True)
         cell.fill = PatternFill("solid", fgColor="D9E1F2")
         cell.alignment = Alignment(horizontal="center")
 
-    for (t1, t2), cnt in sorted(unordered.items(), key=lambda x: (-x[1], x[0][0], x[0][1])):
-        ws_u.append([div_of(t1), t1, div_of(t2), t2, cnt])
+    # Determine the Weeks range (written by export_schedule_to_xlsx)
+    # weeks_count is the number of week numbers in Weeks!A2:A{...}
+    if not weeks_count:
+        # best-effort: infer by scanning the Weeks sheet (if present)
+        try:
+            ws_w = wb["Weeks"]
+            weeks_count = max(0, ws_w.max_row - 1)
+        except Exception:
+            weeks_count = 0
 
-    _autofit(ws_u, ws_u.max_row, 5, min_width=10, max_width=18)
+    weeks_range = None
+    if weeks_count and weeks_count > 0:
+        weeks_range = f"Weeks!$A$2:$A${weeks_count+1}"
+
+    for i, (home, away) in enumerate(remaining_matchups, start=2):
+        ws_u.cell(row=i, column=1, value=home)
+        ws_u.cell(row=i, column=2, value=away)
+        ws_u.cell(row=i, column=3, value=div_of(home))
+        ws_u.cell(row=i, column=4, value=div_of(away))
+
+        if weeks_range:
+            # Excel 365 dynamic array formula
+            ws_u.cell(
+                row=i,
+                column=5,
+                value=(
+                    f'=IFERROR(LET('
+                    f'w,{weeks_range},'
+                    f'h,$A{i},a,$B{i},'
+                    f'hg,COUNTIFS(Schedule!$I:$I,w,Schedule!$E:$E,h)+COUNTIFS(Schedule!$I:$I,w,Schedule!$F:$F,h),'
+                    f'ag,COUNTIFS(Schedule!$I:$I,w,Schedule!$E:$E,a)+COUNTIFS(Schedule!$I:$I,w,Schedule!$F:$F,a),'
+                    f'TEXTJOIN(", ",TRUE,FILTER(w,(hg=0)*(ag=0)))'
+                    f'),"")'
+                )
+            )
+        else:
+            ws_u.cell(row=i, column=5, value="")
+
+    _autofit(ws_u, ws_u.max_row, 5, min_width=10, max_width=24)
     ws_u.freeze_panes = "A2"
     ws_u.auto_filter.ref = f"A1:E{ws_u.max_row}"
 
-    # Remaining Needs (per team)
+    # ---------------- Remaining Needs ----------------
     ws_n = wb.create_sheet("Remaining Needs")
     ws_n.append(["Division","Team","TargetGames","ScheduledGames","GamesRemaining","MinDH","ScheduledDHDays","DHDaysRemainingToMin"])
     for cell in ws_n[1]:
@@ -2212,7 +2252,18 @@ def export_schedule_to_xlsx(field_availability, schedule, division_teams, output
     ws_tw.freeze_panes = "A2"
     _autofit(ws_tw, r2 - 1, 5, min_width=10, max_width=20)
 
-    # ---------------- Summary (formulas) ----------------
+    
+    # ---------------- Weeks (helper for Unscheduled formulas) ----------------
+    ws_w = wb.create_sheet("Weeks")
+    ws_w.append(["WeekNum"])
+    for cell in ws_w[1]:
+        cell.font = Font(bold=True)
+        cell.fill = PatternFill("solid", fgColor="D9E1F2")
+        cell.alignment = Alignment(horizontal="center")
+    for wk in unique_weeks:
+        ws_w.append([wk])
+    ws_w.freeze_panes = "A2"
+    _autofit(ws_w, ws_w.max_row, 1, min_width=8, max_width=12)# ---------------- Summary (formulas) ----------------
     ws_s = wb.create_sheet("Summary")
     headers = ["Division", "Team", "Target", "Total Games", "Home Games", "Away Games", "DH Days", "Min DH", "Max DH"]
     ws_s.append(headers)
@@ -2346,7 +2397,7 @@ def export_schedule_to_xlsx(field_availability, schedule, division_teams, output
     )
     # ---------------- Unscheduled / Remaining Needs (optional) ----------------
     if remaining_matchups is not None and team_stats is not None and doubleheader_count is not None:
-        add_unscheduled_to_workbook(wb, remaining_matchups, all_teams, team_stats, doubleheader_count)
+        add_unscheduled_to_workbook(wb, remaining_matchups, all_teams, team_stats, doubleheader_count, weeks_count=len(unique_weeks))
 
     wb.save(output_path)
 
