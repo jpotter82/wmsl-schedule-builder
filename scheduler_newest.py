@@ -86,8 +86,8 @@ def effective_pair_rules(division, intra_target_per_team, n):
 # Sunday pod rotation:
 # For Sunday dates, we try to rotate which division gets pod-style doubleheaders.
 # This helps avoid one division (e.g., A) soaking up all Sunday capacity.
-SUNDAY_POD_ROTATION = ['A', 'B', 'C', 'D']  # cycle order (can change)
-SUNDAY_PODS_PER_SUNDAY = 1  # at most this many *pod sessions* across all divisions on a Sunday
+SUNDAY_POD_ROTATION = ['B', 'C', 'D', 'A']  # cycle order (can change)
+SUNDAY_PODS_PER_SUNDAY = 2  # at most this many *pod sessions* across all divisions on a Sunday
 RANDOM_SEED = None           # Set to 'None' to randomize each run
 # Per-division configuration (tweak here)
 DIVISION_SETTINGS = {
@@ -1259,7 +1259,7 @@ def schedule_A_pod_doubleheaders(division_teams, team_availability, field_availa
             # Sunday pod rotation + global cap:
             # - If this Sunday is assigned to a different division, only let A use it while we still
             #   need to satisfy the minimum Sunday sessions per A team.
-            if sunday_assignment and d.weekday() == 6 and sunday_assignment.get(d) not in (None, 'A') and not need_more_sunday:
+            if sunday_assignment and d.weekday() == 6 and sunday_assignment.get(d) not in (None, 'A'):
                 continue
             if sunday_pods_used is not None and d.weekday() == 6 and sunday_pods_used.get(d, 0) >= SUNDAY_PODS_PER_SUNDAY:
                 continue
@@ -1285,6 +1285,13 @@ def schedule_A_pod_doubleheaders(division_teams, team_availability, field_availa
                     continue
 
                 eligible = [t for t in A_teams if can_play_pod(t, d) and sessions_done[t] < target_sessions]
+                # If we're still trying to give every A team at least MIN_SUNDAY_SESSIONS_PER_TEAM on Sundays,
+                # restrict the pool to teams that still need a Sunday session so we don't keep re-using the same 4 teams.
+                if need_more_sunday and d.weekday() == 6:
+                    need_sun = [t for t in eligible if sunday_sessions_done[t] < MIN_SUNDAY_SESSIONS_PER_TEAM]
+                    if len(need_sun) >= 4:
+                        eligible = need_sun
+
                 if len(eligible) < 4:
                     continue
 
@@ -1447,8 +1454,17 @@ def schedule_division_pod_doubleheaders(div, division_teams, unscheduled,
 
         for d in unique_dates:
             # Sunday pod rotation: only allow this division's pods on Sundays assigned to it
-            if sunday_assignment and d.weekday() == 6 and sunday_assignment.get(d) not in (None, div):
-                continue
+            if sunday_assignment and d.weekday() == 6:
+                assigned = sunday_assignment.get(d)
+                # First pod on a Sunday is reserved for the assigned division (rotation).
+                # If there is remaining Sunday pod capacity (SUNDAY_PODS_PER_SUNDAY > 1),
+                # allow other divisions to use the extra pod(s).
+                if sunday_pods_used is None:
+                    if assigned not in (None, div):
+                        continue
+                else:
+                    if sunday_pods_used.get(d, 0) == 0 and assigned not in (None, div):
+                        continue
             if sunday_pods_used is not None and d.weekday() == 6 and sunday_pods_used.get(d, 0) >= SUNDAY_PODS_PER_SUNDAY:
                 continue
                 continue
