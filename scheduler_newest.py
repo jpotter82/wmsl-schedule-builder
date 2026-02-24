@@ -87,7 +87,7 @@ def effective_pair_rules(division, intra_target_per_team, n):
 # For Sunday dates, we try to rotate which division gets pod-style doubleheaders.
 # This helps avoid one division (e.g., A) soaking up all Sunday capacity.
 SUNDAY_POD_ROTATION = ['B', 'C', 'D', 'A']  # cycle order (can change)
-SUNDAY_PODS_PER_SUNDAY = 2  # at most this many *pod sessions* across all divisions on a Sunday
+SUNDAY_PODS_PER_SUNDAY = 3  # at most this many *pod sessions* across all divisions on a Sunday
 RANDOM_SEED = None           # Set to 'None' to randomize each run
 # Per-division configuration (tweak here)
 DIVISION_SETTINGS = {
