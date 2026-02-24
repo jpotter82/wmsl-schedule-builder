@@ -1857,6 +1857,282 @@ def output_schedule_to_csv_full(field_availability, schedule, output_file):
             writer.writerow([dt.strftime('%Y-%m-%d'), dt.strftime('%a'), slot, field, home, home_div, away, away_div])
     return rows
 
+
+# -------------------------------
+# Unscheduled matchups reporting (for manual fill)
+# -------------------------------
+def summarize_remaining_matchups(remaining_matchups):
+    """Aggregate remaining matchups into counts.
+
+    Returns:
+      oriented_counts: dict[(home, away)] -> count
+      unordered_counts: dict[(tmin, tmax)] -> count
+    """
+    oriented = defaultdict(int)
+    unordered = defaultdict(int)
+    for a, b in remaining_matchups or []:
+        oriented[(a, b)] += 1
+        t1, t2 = (a, b) if a <= b else (b, a)
+        unordered[(t1, t2)] += 1
+    return oriented, unordered
+
+def output_unscheduled_matchups_csv(remaining_matchups, output_file):
+    """Write remaining matchups to CSV, aggregated by unordered pair.
+
+    Columns: Division1, Team1, Division2, Team2, RemainingGames
+    """
+    _oriented, unordered = summarize_remaining_matchups(remaining_matchups)
+    rows = []
+    for (t1, t2), cnt in sorted(unordered.items(), key=lambda x: (-x[1], x[0][0], x[0][1])):
+        rows.append((div_of(t1), t1, div_of(t2), t2, cnt))
+
+    with open(output_file, mode='w', newline='') as f:
+        w = csv.writer(f)
+        w.writerow(["Division1", "Team1", "Division2", "Team2", "RemainingGames"])
+        for r in rows:
+            w.writerow(list(r))
+    return rows
+
+def output_team_remaining_needs_csv(all_teams, team_stats, doubleheader_count, output_file):
+    """Write per-team remaining needs to CSV.
+
+    Columns: Division, Team, TargetGames, ScheduledGames, GamesRemaining, MinDH, ScheduledDHDays, DHDaysRemainingToMin
+    """
+    with open(output_file, mode='w', newline='') as f:
+        w = csv.writer(f)
+        w.writerow(["Division","Team","TargetGames","ScheduledGames","GamesRemaining","MinDH","ScheduledDHDays","DHDaysRemainingToMin"])
+        for t in sorted(all_teams, key=lambda x: (div_of(x), x)):
+            target = target_games(t)
+            scheduled = team_stats[t]['total_games']
+            games_rem = max(0, target - scheduled)
+            mindh = min_dh(t)
+            dh_done = doubleheader_count[t]
+            dh_rem = max(0, mindh - dh_done)
+            w.writerow([div_of(t), t, target, scheduled, games_rem, mindh, dh_done, dh_rem])
+
+def add_unscheduled_to_workbook(wb, remaining_matchups, all_teams, team_stats, doubleheader_count):
+    """
+    Add two sheets to the workbook for manual scheduling support:
+      1) "Unscheduled Matchups"  - one row PER remaining matchup instance (NOT aggregated).
+      2) "Remaining Needs"       - per-team games remaining + DH days remaining.
+    """
+    if remaining_matchups is None:
+        remaining_matchups = []
+
+    # ---------------- Unscheduled Matchups (unaggregated) ----------------
+    ws_u = wb.create_sheet("Unscheduled Matchups")
+    ws_u.append(["Division1", "Team1", "Division2", "Team2", "SuggestedHome", "SuggestedAway"])
+    for cell in ws_u[1]:
+        cell.font = Font(bold=True)
+        cell.fill = PatternFill("solid", fgColor="D9E1F2")
+        cell.alignment = Alignment(horizontal="center")
+
+    # Keep the list order as-is (easier to manually tick down the list).
+    # We add a suggested home/away based on current home-game balance.
+    for (t1, t2) in remaining_matchups:
+        try:
+            home, away = decide_home_away(t1, t2, team_stats)
+        except Exception:
+            home, away = t1, t2
+        ws_u.append([div_of(t1), t1, div_of(t2), t2, home, away])
+
+    _autofit(ws_u, max_row=max(2, len(remaining_matchups) + 1), max_col=6, min_width=10, max_width=20)
+    ws_u.freeze_panes = "A2"
+    ws_u.auto_filter.ref = "A1:F{}".format(max(1, len(remaining_matchups) + 1))
+
+    # ---------------- Remaining Needs ----------------
+    ws_n = wb.create_sheet("Remaining Needs")
+    ws_n.append(["Division", "Team", "TargetGames", "ScheduledGames", "GamesRemaining", "DH Days", "Min DH", "DH Remaining"])
+    for cell in ws_n[1]:
+        cell.font = Font(bold=True)
+        cell.fill = PatternFill("solid", fgColor="D9E1F2")
+        cell.alignment = Alignment(horizontal="center")
+
+    for t in sorted(all_teams):
+        tg = target_games(t)
+        scheduled = team_stats[t]['total_games']
+        rem = max(0, tg - scheduled)
+        dh = doubleheader_count.get(t, 0)
+        mindh = min_dh(t)
+        dh_rem = max(0, mindh - dh)
+        ws_n.append([div_of(t), t, tg, scheduled, rem, dh, mindh, dh_rem])
+
+    _autofit(ws_n, max_row=len(all_teams) + 1, max_col=8, min_width=10, max_width=20)
+    ws_n.freeze_panes = "A2"
+    ws_n.auto_filter.ref = "A1:H{}".format(len(all_teams) + 1)
+
+
+
+def add_best_fit_open_slots_to_workbook(wb, field_availability, schedule, remaining_matchups,
+                                        team_availability, team_blackouts,
+                                        team_stats, doubleheader_count,
+                                        team_game_days, team_game_slots, team_doubleheader_opponents,
+                                        timeslots_by_date,
+                                        max_suggestions_per_slot=3,
+                                        max_matchups_to_score=200):
+    """
+    Create a sheet listing OPEN slots with "best-fit" matchup suggestions.
+
+    Notes:
+      - This is a heuristic helper intended for manual scheduling.
+      - It DOES NOT schedule games; it only suggests candidates that appear valid
+        under the same constraints used by schedule_games().
+      - For speed, we score only the top `max_matchups_to_score` matchups by need.
+    """
+    if not remaining_matchups:
+        return
+
+    # Build used slot keys (date,slot,field) from schedule
+    used = set()
+    for (dt, slot, field, _h, _hd, _a, _ad) in schedule:
+        used.add((dt.date(), slot, field))
+
+    # Identify open slots in the same row order as field_availability (matches the Schedule sheet)
+    open_slots = []
+    for dt, slot, field in field_availability:
+        key = (dt.date(), slot, field)
+        if key not in used:
+            open_slots.append((dt, slot, field))
+
+    ws = wb.create_sheet("Best Fit Open Slots")
+    ws.append([
+        "Date", "Day", "Time", "Diamond",
+        "Suggestion 1", "Score 1",
+        "Suggestion 2", "Score 2",
+        "Suggestion 3", "Score 3",
+        "Notes"
+    ])
+    for cell in ws[1]:
+        cell.font = Font(bold=True)
+        cell.fill = PatternFill("solid", fgColor="D9E1F2")
+        cell.alignment = Alignment(horizontal="center")
+
+    if team_availability is None:
+        team_availability = {}
+    if team_blackouts is None:
+        team_blackouts = {}
+    if team_game_days is None:
+        team_game_days = defaultdict(lambda: defaultdict(int))
+    if team_game_slots is None:
+        team_game_slots = defaultdict(lambda: defaultdict(list))
+    if team_doubleheader_opponents is None:
+        team_doubleheader_opponents = defaultdict(lambda: defaultdict(set))
+    if timeslots_by_date is None:
+        timeslots_by_date = defaultdict(list)
+
+    def slot_ok_for_team(team, d, slot):
+        # cannot play same timeslot twice in a day
+        if slot in team_game_slots[team][d]:
+            return False
+
+        # If team already has a game today, the next game must be the immediate next timeslot
+        if team_game_slots[team][d]:
+            current = team_game_slots[team][d][0]
+            sorted_slots = timeslots_by_date[d]
+            try:
+                idx = sorted_slots.index(current)
+            except ValueError:
+                return False
+            if idx + 1 >= len(sorted_slots):
+                return False
+            required_slot = sorted_slots[idx + 1]
+            return slot == required_slot
+
+        return True
+
+    def matchup_eligible_for_slot(t1, t2, dt, slot):
+        d = dt.date()
+        dow = dt.strftime('%a')
+        wk = d.isocalendar()[1]
+
+        # A games are DH-only; don't suggest singles
+        if div_of(t1) == 'A' or div_of(t2) == 'A':
+            return False, "A games are DH-only"
+
+        if dow not in team_availability.get(t1, set()) or dow not in team_availability.get(t2, set()):
+            return False, "availability"
+        if d in team_blackouts.get(t1, set()) or d in team_blackouts.get(t2, set()):
+            return False, "blackout"
+
+        if team_stats[t1]['total_games'] >= target_games(t1) or team_stats[t2]['total_games'] >= target_games(t2):
+            return False, "at target"
+
+        if (team_stats[t1]['weekly_games'][wk] >= WEEKLY_GAME_LIMIT or
+            team_stats[t2]['weekly_games'][wk] >= WEEKLY_GAME_LIMIT):
+            return False, "weekly cap"
+
+        if not (min_gap_ok(t1, d, team_game_days) and min_gap_ok(t2, d, team_game_days)):
+            return False, "min gap"
+
+        if not slot_ok_for_team(t1, d, slot) or not slot_ok_for_team(t2, d, slot):
+            return False, "DH adjacency"
+
+        # If either team is adding a 2nd game today, enforce max DH and "different opponent"
+        for team, opp in ((t1, t2), (t2, t1)):
+            if team_game_days[team][d] == 1:
+                if doubleheader_count.get(team, 0) >= max_dh(team):
+                    return False, "max DH"
+                if opp in team_doubleheader_opponents[team][d]:
+                    return False, "same opp in DH"
+
+        return True, ""
+
+    # Pre-score matchups by need (highest first), to limit work per open slot
+    scored = []
+    for (t1, t2) in remaining_matchups:
+        try:
+            s = matchup_need_score(t1, t2, team_stats, doubleheader_count)
+        except Exception:
+            s = 0
+        scored.append((s, t1, t2))
+    scored.sort(reverse=True, key=lambda x: x[0])
+    scored = scored[:max_matchups_to_score]
+
+    out_row = 2
+    for dt, slot, field in open_slots:
+        suggestions = []
+        notes = []
+
+        for s, t1, t2 in scored:
+            ok, why = matchup_eligible_for_slot(t1, t2, dt, slot)
+            if not ok:
+                continue
+            home, away = decide_home_away(t1, t2, team_stats)
+            suggestions.append((f"{home} vs {away}", s))
+            if len(suggestions) >= max_suggestions_per_slot:
+                break
+
+        if not suggestions:
+            # keep a little hint why it's empty (common culprits)
+            notes.append("No eligible remaining matchups for this slot under current constraints")
+
+        # Write row
+        ws.cell(row=out_row, column=1, value=dt.date())
+        ws.cell(row=out_row, column=2, value=dt.strftime('%a'))
+        ws.cell(row=out_row, column=3, value=slot)
+        ws.cell(row=out_row, column=4, value=field)
+
+        # Suggestions columns (up to 3)
+        for i in range(3):
+            col_match = 5 + i*2
+            col_score = col_match + 1
+            if i < len(suggestions):
+                ws.cell(row=out_row, column=col_match, value=suggestions[i][0])
+                ws.cell(row=out_row, column=col_score, value=suggestions[i][1])
+            else:
+                ws.cell(row=out_row, column=col_match, value="")
+                ws.cell(row=out_row, column=col_score, value="")
+
+        ws.cell(row=out_row, column=11, value="; ".join(notes))
+        out_row += 1
+
+    # formatting
+    for r in range(2, out_row):
+        ws.cell(row=r, column=1).number_format = "yyyy-mm-dd"
+    ws.freeze_panes = "A2"
+    ws.auto_filter.ref = "A1:K{}".format(max(1, out_row - 1))
+    _autofit(ws, max_row=max(2, out_row - 1), max_col=11, min_width=10, max_width=32)
+
 # -------------------------------
 # XLSX export (formulas + conditional formatting + matchup matrix)
 # -------------------------------
@@ -1871,7 +2147,16 @@ def _autofit(ws, max_row, max_col, min_width=10, max_width=40):
             best = max(best, len(str(v)))
         ws.column_dimensions[letter].width = max(min_width, min(max_width, best + 2))
 
-def export_schedule_to_xlsx(field_availability, schedule, division_teams, output_path):
+def export_schedule_to_xlsx(field_availability, schedule, division_teams, output_path,
+                          remaining_matchups=None,
+                          team_stats=None,
+                          doubleheader_count=None,
+                          team_availability=None,
+                          team_blackouts=None,
+                          team_game_days=None,
+                          team_game_slots=None,
+                          team_doubleheader_opponents=None,
+                          timeslots_by_date=None):
     if Workbook is None:
         raise RuntimeError("openpyxl is not installed. Run: pip install openpyxl")
 
@@ -2224,6 +2509,21 @@ def export_schedule_to_xlsx(field_availability, schedule, division_teams, output
                        mid_type='percentile', mid_value=50,
                        end_type='percentile', end_value=90)
     )
+    # ---------------- Unscheduled / Remaining Needs (optional) ----------------
+    if remaining_matchups is not None and team_stats is not None and doubleheader_count is not None:
+        add_unscheduled_to_workbook(wb, remaining_matchups, all_teams, team_stats, doubleheader_count)
+
+    # ---------------- Best-fit suggestions for open slots (optional) ----------------
+    if (remaining_matchups is not None and team_stats is not None and doubleheader_count is not None and
+        team_availability is not None and team_blackouts is not None and team_game_days is not None and
+        team_game_slots is not None and team_doubleheader_opponents is not None and timeslots_by_date is not None):
+        add_best_fit_open_slots_to_workbook(
+            wb, field_availability, schedule, remaining_matchups,
+            team_availability, team_blackouts,
+            team_stats, doubleheader_count,
+            team_game_days, team_game_slots, team_doubleheader_opponents,
+            timeslots_by_date,
+        )
 
     wb.save(output_path)
 
@@ -2404,7 +2704,21 @@ def main():
 
     # Export CSV + XLSX with full slot list (row count == field_availability)
     output_schedule_to_csv_full(field_availability, schedule, 'softball_schedule.csv')
-    export_schedule_to_xlsx(field_availability, schedule, division_teams, 'softball_schedule.xlsx')
+    # Also write templates for manual scheduling
+    output_unscheduled_matchups_csv(unscheduled, 'unscheduled_matchups.csv')
+    output_team_remaining_needs_csv(all_teams, team_stats, doubleheader_count, 'team_remaining_needs.csv')
+    export_schedule_to_xlsx(
+        field_availability, schedule, division_teams, 'softball_schedule.xlsx',
+        remaining_matchups=unscheduled,
+        team_stats=team_stats,
+        doubleheader_count=doubleheader_count,
+        team_availability=team_availability,
+        team_blackouts=team_blackouts,
+        team_game_days=team_game_days,
+        team_game_slots=team_game_slots,
+        team_doubleheader_opponents=team_doubleheader_opponents,
+        timeslots_by_date=timeslots_by_date,
+    )
 
     print("\nSchedule Generation Complete")
     print_schedule_summary(team_stats)
