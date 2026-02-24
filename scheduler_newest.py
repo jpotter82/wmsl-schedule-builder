@@ -1288,7 +1288,7 @@ def schedule_division_pod_doubleheaders(div, division_teams, unscheduled,
 
         for d in unique_dates:
             # Sunday pod rotation: only allow this division's pods on Sundays assigned to it
-            if sunday_assignment and d.weekday() == 6 and sunday_assignment.get(d) not in (None, division):
+            if sunday_assignment and d.weekday() == 6 and sunday_assignment.get(d) not in (None, div):
                 continue
             if sunday_pods_used is not None and d.weekday() == 6 and sunday_pods_used.get(d, 0) >= SUNDAY_PODS_PER_SUNDAY:
                 continue
