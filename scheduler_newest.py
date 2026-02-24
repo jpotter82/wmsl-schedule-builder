@@ -95,9 +95,9 @@ DIVISION_SETTINGS = {
     'A': {'inter': False, 'target_games': 22, 'min_dh': 11, 'max_dh': 11},
 
     # B/C/D: inter allowed, intra can top up as needed
-    'B': {'inter': True,  'target_games': 22, 'min_dh': 7,  'max_dh': 8},
-    'C': {'inter': True,  'target_games': 22, 'min_dh': 7,  'max_dh': 8},
-    'D': {'inter': True,  'target_games': 22, 'min_dh': 7,  'max_dh': 8},
+    'B': {'inter': True,  'target_games': 22, 'min_dh': 8,  'max_dh': 9},
+    'C': {'inter': True,  'target_games': 22, 'min_dh': 8,  'max_dh': 9},
+    'D': {'inter': True,  'target_games': 22, 'min_dh': 8,  'max_dh': 9},
 }
 
 # Inter-division pairing settings (only applied if BOTH divisions have inter=True)
@@ -523,6 +523,8 @@ def generate_full_matchups(division_teams):
         full_matchups.extend(generate_inter_division_matchups(d1, d2, division_teams[d1], division_teams[d2], deg))
 
     random.shuffle(full_matchups)
+
+    return full_matchups
 
 
 def generate_filler_matchups(division_teams, team_stats, schedule, max_new_games=5000):
@@ -1082,7 +1084,7 @@ def schedule_A_pod_doubleheaders(division_teams, team_availability, field_availa
 
     # Policy: limit how many A "pods" can run on any given Sunday.
     # A "pod" = 4 A-teams playing 2 games each across two fields and two adjacent slots.
-    MAX_A_PODS_PER_SUNDAY = 1
+    MAX_A_PODS_PER_SUNDAY = SUNDAY_PODS_PER_SUNDAY
     MIN_SUNDAY_SESSIONS_PER_TEAM = 0
     adjacent_slot_pairs_by_date = {}
     for d in all_dates:
@@ -1246,6 +1248,11 @@ def schedule_A_pod_doubleheaders(division_teams, team_availability, field_availa
         date_order = (sunday_dates + weekday_dates) if need_more_sunday else (weekday_dates + sunday_dates)
 
         for d in date_order:
+            # Sunday pod rotation + global cap
+            if sunday_assignment and d.weekday() == 6 and sunday_assignment.get(d) not in (None, 'A'):
+                continue
+            if sunday_pods_used is not None and d.weekday() == 6 and sunday_pods_used.get(d, 0) >= SUNDAY_PODS_PER_SUNDAY:
+                continue
             # If Sunday pods are being rotated, only allow A pods on Sundays assigned to A.
             if d.weekday() == 6 and sunday_assignment and sunday_assignment.get(d) not in (None, 'A'):
                 continue
