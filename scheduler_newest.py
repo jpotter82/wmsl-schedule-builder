@@ -88,7 +88,7 @@ def effective_pair_rules(division, intra_target_per_team, n):
 # This helps avoid one division (e.g., A) soaking up all Sunday capacity.
 SUNDAY_POD_ROTATION = ['A', 'B', 'C', 'D']  # cycle order (can change)
 SUNDAY_PODS_PER_SUNDAY = 1  # at most this many *pod sessions* across all divisions on a Sunday
-RANDOM_SEED = 42            # for repeatable schedules
+RANDOM_SEED = None           # Set to 'None' to randomize each run
 # Per-division configuration (tweak here)
 DIVISION_SETTINGS = {
     # A: 22 games, only DH => 11 DH days exactly
@@ -2131,7 +2131,10 @@ def generate_matchup_table(schedule, division_teams):
 # Main
 # -------------------------------
 def main():
-    random.seed(RANDOM_SEED)
+    if RANDOM_SEED is None:
+      random.seed()
+    else:
+      random.seed(RANDOM_SEED)
     team_availability = load_team_availability('team_availability.csv')
     field_availability = load_field_availability('field_availability.csv')
     team_blackouts = load_team_blackouts('team_blackouts.csv')
@@ -2172,14 +2175,19 @@ def main():
     # Build Sunday rotation assignment
     # ---------------------------------------------------------
     
-    SUNDAY_POD_ROTATION = ['A', 'B', 'C', 'D']  # can reorder
+    SUNDAY_POD_ROTATION = ['B', 'C', 'D', 'A']  # can reorder
     
-    sunday_dates = sorted([d for d in timeslots_by_date.keys() if d.weekday() == 6])
+    # sunday_dates = sorted([d for d in timeslots_by_date.keys() if d.weekday() == 6])
     
-    sunday_assignment = {}
-    for i, d in enumerate(sunday_dates):
-        sunday_assignment[d] = SUNDAY_POD_ROTATION[i % len(SUNDAY_POD_ROTATION)]
-    
+    # sunday_assignment = {}
+    # for i, d in enumerate(sunday_dates):
+    #     sunday_assignment[d] = SUNDAY_POD_ROTATION[i % len(SUNDAY_POD_ROTATION)]
+
+    sunday_assignment = build_sunday_pod_assignment(
+      timeslots_by_date,
+      rotation=SUNDAY_POD_ROTATION,
+      seed=(RANDOM_SEED if RANDOM_SEED is not None else random.randint(1, 10_000_000))
+    )
     # Track how many pods each division has used per Sunday
     sunday_pods_used = {}   # date -> {division: count}
   
