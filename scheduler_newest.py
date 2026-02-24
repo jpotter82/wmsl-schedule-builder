@@ -2168,6 +2168,21 @@ def main():
     for t in all_teams:
         _ = team_stats[t]
 
+    # ---------------------------------------------------------
+    # Build Sunday rotation assignment
+    # ---------------------------------------------------------
+    
+    SUNDAY_POD_ROTATION = ['A', 'B', 'C', 'D']  # can reorder
+    
+    sunday_dates = sorted([d for d in timeslots_by_date.keys() if d.weekday() == 6])
+    
+    sunday_assignment = {}
+    for i, d in enumerate(sunday_dates):
+        sunday_assignment[d] = SUNDAY_POD_ROTATION[i % len(SUNDAY_POD_ROTATION)]
+    
+    # Track how many pods each division has used per Sunday
+    sunday_pods_used = {}   # date -> {division: count}
+  
     matchups = generate_full_matchups(division_teams)
     print("\nTotal generated matchups (unscheduled): {}".format(len(matchups)))
 
