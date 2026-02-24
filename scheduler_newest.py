@@ -95,9 +95,9 @@ DIVISION_SETTINGS = {
     'A': {'inter': False, 'target_games': 22, 'min_dh': 11, 'max_dh': 11},
 
     # B/C/D: inter allowed, intra can top up as needed
-    'B': {'inter': True,  'target_games': 22, 'min_dh': 8,  'max_dh': 10},
-    'C': {'inter': True,  'target_games': 22, 'min_dh': 8,  'max_dh': 10},
-    'D': {'inter': True,  'target_games': 22, 'min_dh': 8,  'max_dh': 10},
+    'B': {'inter': True,  'target_games': 22, 'min_dh': 7,  'max_dh': 10},
+    'C': {'inter': True,  'target_games': 22, 'min_dh': 7,  'max_dh': 10},
+    'D': {'inter': True,  'target_games': 22, 'min_dh': 7,  'max_dh': 10},
 }
 
 # Inter-division pairing settings (only applied if BOTH divisions have inter=True)
