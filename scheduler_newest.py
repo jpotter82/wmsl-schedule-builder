@@ -82,15 +82,22 @@ def effective_pair_rules(division, intra_target_per_team, n):
     return min_eff, cap_eff
 
 
+
+# Sunday pod rotation:
+# For Sunday dates, we try to rotate which division gets pod-style doubleheaders.
+# This helps avoid one division (e.g., A) soaking up all Sunday capacity.
+SUNDAY_POD_ROTATION = ['A', 'B', 'C', 'D']  # cycle order (can change)
+SUNDAY_PODS_PER_SUNDAY = 1  # at most this many *pod sessions* across all divisions on a Sunday
+RANDOM_SEED = 42            # for repeatable schedules
 # Per-division configuration (tweak here)
 DIVISION_SETTINGS = {
     # A: 22 games, only DH => 11 DH days exactly
     'A': {'inter': False, 'target_games': 22, 'min_dh': 11, 'max_dh': 11},
 
     # B/C/D: inter allowed, intra can top up as needed
-    'B': {'inter': True,  'target_games': 22, 'min_dh': 7,  'max_dh': 9},
-    'C': {'inter': True,  'target_games': 22, 'min_dh': 7,  'max_dh': 9},
-    'D': {'inter': True,  'target_games': 22, 'min_dh': 7,  'max_dh': 9},
+    'B': {'inter': True,  'target_games': 22, 'min_dh': 7,  'max_dh': 8},
+    'C': {'inter': True,  'target_games': 22, 'min_dh': 7,  'max_dh': 8},
+    'D': {'inter': True,  'target_games': 22, 'min_dh': 7,  'max_dh': 8},
 }
 
 # Inter-division pairing settings (only applied if BOTH divisions have inter=True)
@@ -488,6 +495,24 @@ def generate_full_matchups(division_teams):
 # -------------------------------
 # Home/Away Helper
 # -------------------------------
+
+def build_sunday_pod_assignment(timeslots_by_date, rotation, seed=42):
+    """Return {date: division} assignment for which division gets pod-style DH priority on Sundays.
+
+    We shuffle Sundays (seeded) then round-robin assign divisions. This helps spread Sunday pods.
+    """
+    sundays = [d for d in timeslots_by_date.keys() if getattr(d, 'weekday', lambda: 0)() == 6]
+    sundays = sorted(sundays)
+    rnd = random.Random(seed)
+    rnd.shuffle(sundays)
+    if not rotation:
+        rotation = ['A', 'B', 'C', 'D']
+    mapping = {}
+    for i, d in enumerate(sundays):
+        mapping[d] = rotation[i % len(rotation)]
+    return mapping
+
+
 def decide_home_away(t1, t2, team_stats):
     if team_stats[t1]['home_games'] >= HOME_AWAY_BALANCE and team_stats[t2]['home_games'] < HOME_AWAY_BALANCE:
         return t2, t1
@@ -867,7 +892,7 @@ def force_minimum_doubleheaders(all_teams, unscheduled, team_availability, field
 # -------------------------------
 def schedule_A_pod_doubleheaders(division_teams, team_availability, field_availability, team_blackouts,
                                  timeslots_by_date, team_stats, doubleheader_count,
-                                 team_game_days, team_game_slots, used_slots, schedule=None):
+                                 team_game_days, team_game_slots, used_slots, schedule=None, sunday_assignment=None, sunday_pods_used=None):
     """
     Schedule Division A as *doubleheaders only* using 4-team "pod" sessions across BOTH fields.
 
@@ -1131,6 +1156,8 @@ def schedule_A_pod_doubleheaders(division_teams, team_availability, field_availa
 
                 progress = True
                 pods_today += 1
+                if sunday_pods_used is not None and d.weekday() == 6:
+                    sunday_pods_used[d] = sunday_pods_used.get(d, 0) + 1
                 if d.weekday() == 6:
                     for t in (t1, t2, t3, t4):
                         sunday_sessions_done[t] += 1
@@ -1162,7 +1189,7 @@ def _pop_matchup_any_orientation(unscheduled, a, b):
 def schedule_division_pod_doubleheaders(div, division_teams, unscheduled,
                                        team_availability, field_availability, team_blackouts, timeslots_by_date,
                                        team_stats, doubleheader_count, team_game_days, team_game_slots,
-                                       team_doubleheader_opponents, used_slots, schedule=None):
+                                       team_doubleheader_opponents, used_slots, schedule=None, sunday_assignment=None, sunday_pods_used=None):
     """Schedule 4-team pod doubleheaders *within a division* to satisfy min_dh() targets.
 
     This uses the same A-style pod structure (two fields, two adjacent slots) so each of the 4 teams
@@ -1260,6 +1287,11 @@ def schedule_division_pod_doubleheaders(div, division_teams, unscheduled,
             break
 
         for d in unique_dates:
+            # Sunday pod rotation: only allow this division's pods on Sundays assigned to it
+            if sunday_assignment and d.weekday() == 6 and sunday_assignment.get(d) not in (None, division):
+                continue
+            if sunday_pods_used is not None and d.weekday() == 6 and sunday_pods_used.get(d, 0) >= SUNDAY_PODS_PER_SUNDAY:
+                continue
             if all(doubleheader_count[t] >= min_dh(t) for t in teams):
                 break
 
@@ -1338,6 +1370,8 @@ def schedule_division_pod_doubleheaders(div, division_teams, unscheduled,
                     team_doubleheader_opponents[team][d].update(opps)
 
                 progress = True
+                if sunday_pods_used is not None and d.weekday() == 6:
+                    sunday_pods_used[d] = sunday_pods_used.get(d, 0) + 1
                 # continue scanning for more pods on same date
 
         if not progress:
@@ -2097,6 +2131,7 @@ def generate_matchup_table(schedule, division_teams):
 # Main
 # -------------------------------
 def main():
+    random.seed(RANDOM_SEED)
     team_availability = load_team_availability('team_availability.csv')
     field_availability = load_field_availability('field_availability.csv')
     team_blackouts = load_team_blackouts('team_blackouts.csv')
@@ -2158,7 +2193,7 @@ def main():
             team_availability, field_availability, team_blackouts, timeslots_by_date,
             team_stats, doubleheader_count, team_game_days, team_game_slots,
             team_doubleheader_opponents, used_slots, schedule
-        )
+        , sunday_assignment=sunday_assignment, sunday_pods_used=sunday_pods_used)
 
     (schedule, team_stats, doubleheader_count, team_game_days, team_game_slots,
      team_doubleheader_opponents, used_slots, unscheduled) = schedule_games(
