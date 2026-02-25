@@ -51,7 +51,7 @@ except ImportError:
 # -------------------------------
 # Configurable parameters
 # -------------------------------
-MAX_RETRIES = 50000            # scheduling backtracking limit
+MAX_RETRIES = 20000            # scheduling backtracking limit
 PREFERRED_MIN_GAP = 3         # ideal minimum days between game dates (soft preference)
 HARD_MIN_GAP = 2              # absolute minimum days between game dates (hard constraint)
 WEEKLY_GAME_LIMIT = 3          # max games per team per week
@@ -1798,8 +1798,8 @@ def fill_missing_games(schedule, team_stats, doubleheader_count, team_game_days,
                 if div_of(t1) == 'A' or div_of(t2) == 'A':
                     continue
 
-                # if both teams already at target, skip
-                if team_stats[t1]['total_games'] >= target_games(t1) and team_stats[t2]['total_games'] >= target_games(t2):
+                # hard cap: if either team already at target, skip
+                if team_stats[t1]['total_games'] >= target_games(t1) or team_stats[t2]['total_games'] >= target_games(t2):
                     continue
 
                 if day_of_week not in team_availability.get(t1, set()) or day_of_week not in team_availability.get(t2, set()):
@@ -2031,7 +2031,7 @@ def add_unscheduled_to_workbook(wb, remaining_matchups, all_teams, team_stats, d
     ws_u.auto_filter.ref = f"A1:E{ws_u.max_row}"
 
     # ---------------- Remaining Needs ----------------
-    ws_n = wb.create_sheet("Remaining Needs")
+    ws_n = wb.create_sheet("Missing Requirements")
     ws_n.append(["Division","Team","TargetGames","ScheduledGames","GamesRemaining","MinDH","ScheduledDHDays","DHDaysRemainingToMin"])
     for cell in ws_n[1]:
         cell.font = Font(bold=True)
@@ -2083,7 +2083,7 @@ def export_schedule_to_xlsx(field_availability, schedule, division_teams, output
     ws = wb.active
     ws.title = "Schedule"
 
-    headers = ["Date", "Day", "Time", "Diamond", "Home Team", "Away Team", "Home Div", "Away Div", "WeekNum", "SlotIndex"]  # last 2 will be hidden
+    headers = ["Date", "Day", "Time", "Diamond", "Home Team", "Away Team", "Home Div", "Away Div", "WeekNum", "SlotIndex", "IsIntra", "IsInter"]  # last 4 will be hidden
     ws.append(headers)
     for cell in ws[1]:
         cell.font = Font(bold=True)
@@ -2106,7 +2106,10 @@ def export_schedule_to_xlsx(field_availability, schedule, division_teams, output
             d = dt.date()
             wk = d.isocalendar()[1]
             slot_idx = slot_index_by_date_slot.get((d, slot), "")
-            ws.append([d, dt.strftime('%a'), slot, field, home, away, home_div, away_div, wk, slot_idx])
+            ws.append([d, dt.strftime('%a'), slot, field, home, away, home_div, away_div, wk, slot_idx, "", ""])
+            r = ws.max_row
+            ws.cell(row=r, column=11).value = f'=IF($E{r}="","",IF($G{r}=$H{r},1,0))'
+            ws.cell(row=r, column=12).value = f'=IF($E{r}="","",IF($G{r}<>$H{r},1,0))'
 
     n = len(rows)
     # set formats
@@ -2115,12 +2118,15 @@ def export_schedule_to_xlsx(field_availability, schedule, division_teams, output
         ws.cell(row=r, column=3).number_format = "@"
 
     # Freeze header and apply filter
+    sched_last = ws.max_row
     ws.freeze_panes = "A2"
     ws.auto_filter.ref = "A1:H{}".format(n + 1)
 
     # Hide helper columns
     ws.column_dimensions['I'].hidden = True
     ws.column_dimensions['J'].hidden = True
+    ws.column_dimensions['K'].hidden = True
+    ws.column_dimensions['L'].hidden = True
 
     # Conditional formatting removed for performance.
     _autofit(ws, n + 1, 8)
@@ -2246,8 +2252,9 @@ def export_schedule_to_xlsx(field_availability, schedule, division_teams, output
         ws_w.append([wk])
     ws_w.freeze_panes = "A2"
     _autofit(ws_w, ws_w.max_row, 1, min_width=8, max_width=12)# ---------------- Summary (formulas) ----------------
+    
     ws_s = wb.create_sheet("Summary")
-    headers = ["Division", "Team", "Target", "Total Games", "Home Games", "Away Games", "DH Days", "Min DH", "Max DH"]
+    headers = ["Division", "Team", "Target", "Total Games", "Games Needed", "Home Games", "Away Games", "Intra Games", "Inter Games", "DH Days", "Min DH", "Max DH"]
     ws_s.append(headers)
     for cell in ws_s[1]:
         cell.font = Font(bold=True)
@@ -2258,289 +2265,35 @@ def export_schedule_to_xlsx(field_availability, schedule, division_teams, output
     td_team_rng = "TeamDate!$C$2:$C${}".format(td_last)
     td_games_rng = "TeamDate!$D$2:$D${}".format(td_last)
 
+    # Schedule helper ranges
+    sched_home_rng = "Schedule!$E$2:$E${}".format(sched_last)
+    sched_away_rng = "Schedule!$F$2:$F${}".format(sched_last)
+    intra_rng = "Schedule!$K$2:$K${}".format(sched_last)
+    inter_rng = "Schedule!$L$2:$L${}".format(sched_last)
+
     for i, t in enumerate(all_teams, start=2):
         ws_s.cell(row=i, column=1, value=div_of(t))
         ws_s.cell(row=i, column=2, value=t)
         ws_s.cell(row=i, column=3, value=target_games(t))
 
         # total games (home + away)
-        ws_s.cell(row=i, column=4, value='=COUNTIF({0},$B{1})+COUNTIF({2},$B{1})'.format(home_rng, i, away_rng))
-        ws_s.cell(row=i, column=5, value='=COUNTIF({0},$B{1})'.format(home_rng, i))
-        ws_s.cell(row=i, column=6, value='=COUNTIF({0},$B{1})'.format(away_rng, i))
+        ws_s.cell(row=i, column=4, value='=COUNTIF({0},$B{1})+COUNTIF({2},$B{1})'.format(sched_home_rng, i, sched_away_rng))
+        ws_s.cell(row=i, column=5, value='=MAX(0,$C{0}-$D{0})'.format(i))
+        ws_s.cell(row=i, column=6, value='=COUNTIF({0},$B{1})'.format(sched_home_rng, i))
+        ws_s.cell(row=i, column=7, value='=COUNTIF({0},$B{1})'.format(sched_away_rng, i))
+
+        # intra/inter games via helper columns on Schedule
+        ws_s.cell(row=i, column=8, value='=SUMIFS({0},{1},$B{2})+SUMIFS({0},{3},$B{2})'.format(intra_rng, sched_home_rng, i, sched_away_rng))
+        ws_s.cell(row=i, column=9, value='=SUMIFS({0},{1},$B{2})+SUMIFS({0},{3},$B{2})'.format(inter_rng, sched_home_rng, i, sched_away_rng))
 
         # DH days = count TeamDate rows where team==this and GamesThatDay>=2
-        ws_s.cell(row=i, column=7, value='=COUNTIFS({0},$B{1},{2},">=2")'.format(td_team_rng, i, td_games_rng))
-        ws_s.cell(row=i, column=8, value=min_dh(t))
-        ws_s.cell(row=i, column=9, value=max_dh(t))
+        ws_s.cell(row=i, column=10, value='=COUNTIFS({0},$B{1},{2},">=2")'.format(td_team_rng, i, td_games_rng))
+        ws_s.cell(row=i, column=11, value=min_dh(t))
+        ws_s.cell(row=i, column=12, value=max_dh(t))
 
     ws_s.freeze_panes = "A2"
-    ws_s.auto_filter.ref = "A1:I{}".format(len(all_teams) + 1)
+    ws_s.auto_filter.ref = "A1:L{}".format(len(all_teams) + 1)
+    _autofit(ws_s, len(all_teams) + 1, 12, min_width=10, max_width=18)
 
     # Conditional formatting removed for performance.
-    _autofit(ws_s, len(all_teams) + 1, 9, min_width=10, max_width=18)
-
-    # ---------------- Games by DOW (formulas) ----------------
-    # Formula-driven so manual edits to the Schedule sheet update automatically.
-    ws_dow = wb.create_sheet("Games by DOW")
-    ws_dow.append([
-        "Division", "Team",
-        "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun",
-        "Total", "Avg/Day", "Max", "Min", "Range"
-    ])
-    for cell in ws_dow[1]:
-        cell.font = Font(bold=True)
-        cell.fill = PatternFill("solid", fgColor="D9E1F2")
-        cell.alignment = Alignment(horizontal="center")
-
-    day_labels = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
-    last_row = len(all_teams) + 1
-    for r, team in enumerate(all_teams, start=2):
-        ws_dow.cell(row=r, column=1, value=div_of(team))
-        ws_dow.cell(row=r, column=2, value=team)
-
-        # Schedule sheet: B=Day, E=Home Team, F=Away Team
-        for i, dow in enumerate(day_labels):
-            col = 3 + i  # C..I
-            ws_dow.cell(
-                row=r, column=col,
-                value=(
-                    f"=COUNTIFS(Schedule!$B:$B,\"{dow}\",Schedule!$E$2:$E${sched_last},$B{r})"
-                    f"+COUNTIFS(Schedule!$B:$B,\"{dow}\",Schedule!$F$2:$F${sched_last},$B{r})"
-                )
-            )
-
-        ws_dow.cell(row=r, column=10, value=f"=SUM(C{r}:I{r})")  # Total
-        ws_dow.cell(row=r, column=11, value=f"=J{r}/7")          # Avg/Day
-        ws_dow.cell(row=r, column=12, value=f"=MAX(C{r}:I{r})")  # Max
-        ws_dow.cell(row=r, column=13, value=f"=MIN(C{r}:I{r})")  # Min
-        ws_dow.cell(row=r, column=14, value=f"=L{r}-M{r}")        # Range
-
-    ws_dow.freeze_panes = "A2"
-    ws_dow.auto_filter.ref = f"A1:N{last_row}"
-
-    # Conditional formatting removed for performance.
-    _autofit(ws_dow, last_row, 14, min_width=6, max_width=14)
-
-    # ---------------- Matchup Matrix ----------------
-    ws_m = wb.create_sheet("Matchup Matrix")
-    ws_m.append(["Team"] + all_teams)
-    for cell in ws_m[1]:
-        cell.font = Font(bold=True)
-        cell.fill = PatternFill("solid", fgColor="D9E1F2")
-        cell.alignment = Alignment(horizontal="center")
-
-    for r, team_r in enumerate(all_teams, start=2):
-        ws_m.cell(row=r, column=1, value=team_r).font = Font(bold=True)
-        for c, team_c in enumerate(all_teams, start=2):
-            # symmetric count of games regardless of home/away
-            ws_m.cell(
-                row=r, column=c,
-                value='=COUNTIFS({0},$A{2},{1},{3})+COUNTIFS({0},{3},{1},$A{2})'.format(
-                    home_rng, away_rng, r, get_column_letter(c) + "1"
-                )
-            )
-        # diagonal blank
-        ws_m.cell(row=r, column=r).value = ""
-
-    ws_m.freeze_panes = "B2"
-    _autofit(ws_m, len(all_teams) + 1, len(all_teams) + 1, min_width=6, max_width=14)
-
-    # Conditional formatting removed for performance.
-
-    wb.save(output_path)
-
-# -------------------------------
-# Console summaries
-# -------------------------------
-def print_schedule_summary(team_stats):
-    rows = []
-    for team, stats in sorted(team_stats.items()):
-        rows.append([div_of(team), team, target_games(team), stats['total_games'], stats['home_games'], stats['away_games']])
-
-    print("\nSchedule Summary:")
-    if PrettyTable:
-        table = PrettyTable()
-        table.field_names = ["Division", "Team", "Target", "Total Games", "Home Games", "Away Games"]
-        for r in rows:
-            table.add_row(r)
-        print(table)
-    else:
-        header = ["Division","Team","Target","Total","Home","Away"]
-        print(" | ".join(header))
-        for r in rows:
-            print(" | ".join(map(str, r)))
-
-def print_doubleheader_summary(doubleheader_count):
-    rows = []
-    for team in sorted(doubleheader_count.keys()):
-        rows.append([team, div_of(team), doubleheader_count[team], min_dh(team), max_dh(team)])
-
-    print("\nDoubleheader Summary (Days with 2 games):")
-    if PrettyTable:
-        table = PrettyTable()
-        table.field_names = ["Team", "Division", "DH Days", "Min", "Max"]
-        for r in rows:
-            table.add_row(r)
-        print(table)
-    else:
-        header = ["Team","Div","DH","Min","Max"]
-        print(" | ".join(header))
-        for r in rows:
-            print(" | ".join(map(str, r)))
-
-def generate_matchup_table(schedule, division_teams):
-    matchup_count = defaultdict(lambda: defaultdict(int))
-    for date, slot, field, home_team, home_div, away_team, away_div in schedule:
-        matchup_count[home_team][away_team] += 1
-        matchup_count[away_team][home_team] += 1
-
-    all_teams = sorted([team for teams in division_teams.values() for team in teams])
-
-    if PrettyTable:
-        table = PrettyTable()
-        table.field_names = ["Team"] + all_teams
-        for team in all_teams:
-            row = [team] + [matchup_count[team][opp] for opp in all_teams]
-            table.add_row(row)
-        print("\nMatchup Table:")
-        print(table)
-    else:
-        print("\nMatchup Table (CSV):")
-        print("Team," + ",".join(all_teams))
-        for team in all_teams:
-            row = [str(matchup_count[team][opp]) for opp in all_teams]
-            print(team + "," + ",".join(row))
-
-# -------------------------------
-# Main
-# -------------------------------
-def main():
-    if RANDOM_SEED is None:
-        random.seed()
-    else:
-        random.seed(RANDOM_SEED)
-
-    team_availability = load_team_availability('team_availability.csv')
-    field_availability = load_field_availability('field_availability.csv')
-    team_blackouts = load_team_blackouts('team_blackouts.csv')
-
-    division_teams = {
-        'A': ["A{}".format(i+1) for i in range(8)],
-        'B': ["B{}".format(i+1) for i in range(8)],
-        'C': ["C{}".format(i+1) for i in range(6)],
-        'D': ["D{}".format(i+1) for i in range(6)],
-    }
-    all_teams = [t for div in ('A', 'B', 'C', 'D') for t in division_teams[div]]
-
-    schedule = []
-    team_stats = defaultdict(lambda: {
-        'total_games': 0,
-        'home_games': 0,
-        'away_games': 0,
-        'weekly_games': defaultdict(int),
-            })
-    used_slots = {}
-    team_game_days = defaultdict(lambda: defaultdict(int))
-    team_game_slots = defaultdict(lambda: defaultdict(list))
-    team_doubleheader_opponents = defaultdict(lambda: defaultdict(set))
-    doubleheader_count = defaultdict(int)
-
-    timeslots_by_date = defaultdict(list)
-    for date, slot, field in field_availability:
-        d = date.date()
-        if slot not in timeslots_by_date[d]:
-            timeslots_by_date[d].append(slot)
-    for d in timeslots_by_date:
-        timeslots_by_date[d].sort(key=lambda s: datetime.strptime(s.strip(), "%I:%M %p"))
-
-    for t in all_teams:
-        _ = team_stats[t]
-
-    # ---------------------------------------------------------
-    # Sunday pod rotation assignment (for pod-style doubleheaders on Sundays)
-    # ---------------------------------------------------------
-    # We rotate which division is allowed to run *pod* doubleheaders on each Sunday.
-    # This prevents one division (often A) from soaking up all Sunday inventory.
-    #
-    # IMPORTANT: This affects pod-style DH only. Singles can still be scheduled on Sundays.
-    sunday_assignment = build_sunday_pod_assignment(
-        timeslots_by_date,
-        rotation=SUNDAY_POD_ROTATION,
-        seed=(RANDOM_SEED if RANDOM_SEED is not None else random.randint(1, 10_000_000))
-    )
-
-    # Track total pods used per Sunday across all divisions (hard cap via SUNDAY_PODS_PER_SUNDAY)
-    # Format: {date: int}
-    sunday_pods_used = {}
-  
-    matchups = generate_full_matchups(division_teams)
-    print("\nTotal generated matchups (unscheduled): {}".format(len(matchups)))
-
-    unscheduled = matchups[:]
-
-    # Schedule Division A FIRST so B/C/D don't consume the prime Sunday + adjacent-slot inventory
-    # that A requires to hit 11 DH days per team.
-    (schedule, team_stats, doubleheader_count, team_game_days, team_game_slots,
-     used_slots) = schedule_A_pod_doubleheaders(
-        division_teams, team_availability, field_availability, team_blackouts, timeslots_by_date,
-        team_stats, doubleheader_count, team_game_days, team_game_slots, used_slots, schedule,
-        sunday_assignment=sunday_assignment, sunday_pods_used=sunday_pods_used
-    )
-
-    # Remove any remaining A matchups from the single-game pool (A is DH-only).
-    unscheduled = [m for m in unscheduled if div_of(m[0]) != 'A' and div_of(m[1]) != 'A']
-
-    # Build B/C/D doubleheader pods (same-day 2-game sets) BEFORE single-game placement.
-    # Pod structure guarantees teams do NOT play the same opponent back-to-back in a DH.
-    for div in ('B', 'C', 'D'):
-        (schedule, team_stats, doubleheader_count, team_game_days, team_game_slots,
-         team_doubleheader_opponents, used_slots, unscheduled) = schedule_division_pod_doubleheaders(
-            div, division_teams, unscheduled,
-            team_availability, field_availability, team_blackouts, timeslots_by_date,
-            team_stats, doubleheader_count, team_game_days, team_game_slots,
-            team_doubleheader_opponents, used_slots, schedule
-        , sunday_assignment=sunday_assignment, sunday_pods_used=sunday_pods_used)
-
-    (schedule, team_stats, doubleheader_count, team_game_days, team_game_slots,
-     team_doubleheader_opponents, used_slots, unscheduled) = schedule_games(
-        unscheduled, team_availability, field_availability, team_blackouts,
-        schedule, team_stats, doubleheader_count, team_game_days, team_game_slots,
-        team_doubleheader_opponents, used_slots, timeslots_by_date,
-        sunday_assignment=sunday_assignment)
-
-    if any(team_stats[t]['total_games'] < target_games(t) for t in all_teams):
-        print("Filling missing games...")
-        (schedule, team_stats, doubleheader_count, unscheduled) = fill_missing_games(
-            schedule, team_stats, doubleheader_count, team_game_days, team_game_slots,
-            team_doubleheader_opponents, used_slots, timeslots_by_date, unscheduled,
-            team_availability, team_blackouts, field_availability,
-            sunday_assignment=sunday_assignment)
-
-    missing = [t for t in all_teams if team_stats[t]['total_games'] < target_games(t)]
-
-    over = [t for t in all_teams if team_stats[t]['total_games'] > target_games(t)]
-    if over:
-        print('Critical: Teams ABOVE target games (hard cap violated): {}'.format(over))
-    if missing:
-        print("Critical: Teams below target games: {}".format(missing))
-
-    under_dh = [t for t in all_teams if doubleheader_count[t] < min_dh(t)]
-    if under_dh:
-        print("Critical: Teams below minimum DH days: {}".format(under_dh))
-
-    # Export CSV + XLSX with full slot list (row count == field_availability)
-    output_schedule_to_csv_full(field_availability, schedule, 'softball_schedule.csv')
-    # Also write templates for manual scheduling
-    output_unscheduled_matchups_csv(unscheduled, 'unscheduled_matchups.csv')
-    output_team_remaining_needs_csv(all_teams, team_stats, doubleheader_count, 'team_remaining_needs.csv')
-    export_schedule_to_xlsx(field_availability, schedule, division_teams, 'softball_schedule.xlsx', remaining_matchups=unscheduled, team_stats=team_stats, doubleheader_count=doubleheader_count)
-
-    print("\nSchedule Generation Complete")
-    print_schedule_summary(team_stats)
-    print_doubleheader_summary(doubleheader_count)
-    generate_matchup_table(schedule, division_teams)
-    print("\nWrote: softball_schedule.csv ({} rows)".format(len(field_availability)))
-    print("Wrote: softball_schedule.xlsx")
-
-if __name__ == "__main__":
-    main()
+    _autofit(ws_s, len(all_teams) + 1, 12, min_width=10, max_width=18)
