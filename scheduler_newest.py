@@ -1268,14 +1268,31 @@ def schedule_A_pod_doubleheaders(division_teams, team_availability, field_availa
 
         need_more_sunday = any(sunday_sessions_done[t] < MIN_SUNDAY_SESSIONS_PER_TEAM for t in A_teams)
 
+        # Balance A-division day-of-week distribution:
+        # Prefer dates whose weekday is currently under-used by A, with a small seeded shuffle
+        # to avoid repeatedly picking the same day pattern.
+        a_dow_load = defaultdict(int)
+        for _dt, _slot, _field, _home, _hdiv, _away, _adiv in schedule:
+            if (_home and _home[0] == 'A') or (_away and _away[0] == 'A'):
+                a_dow_load[_dt.strftime('%a')] += 1
+
+        rnd = random.Random(RANDOM_SEED + (_pass * 97) + 13)
+
+        def _date_key(dd):
+            # lower load first; then randomized tie-break; then chronological
+            return (a_dow_load.get(dd.strftime('%a'), 0), rnd.random(), dd)
+
         # If we have a Sunday rotation, push Sundays assigned to A to the front of the Sunday list.
         if sunday_assignment:
-            sunday_dates_ordered = [sd for sd in sunday_dates if sunday_assignment.get(sd) == 'A'] + \
-                                   [sd for sd in sunday_dates if sunday_assignment.get(sd) != 'A']
+            sunday_dates_ordered = [sd for sd in sunday_dates if sunday_assignment.get(sd) == 'A'] +                                    [sd for sd in sunday_dates if sunday_assignment.get(sd) != 'A']
         else:
             sunday_dates_ordered = list(sunday_dates)
 
-        date_order = (sunday_dates_ordered + weekday_dates) if need_more_sunday else (weekday_dates + sunday_dates_ordered)
+        # Sort within weekday/Sunday groups by current A day-load to smooth out heavy Mondays/Tuesdays.
+        weekday_dates_ordered = sorted(list(weekday_dates), key=_date_key)
+        sunday_dates_ordered = sorted(list(sunday_dates_ordered), key=_date_key)
+
+        date_order = (sunday_dates_ordered + weekday_dates_ordered) if need_more_sunday else (weekday_dates_ordered + sunday_dates_ordered)
 
         for d in date_order:
             # Sunday pod rotation + global cap:
