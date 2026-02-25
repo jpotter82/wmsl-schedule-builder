@@ -52,7 +52,8 @@ except ImportError:
 # Configurable parameters
 # -------------------------------
 MAX_RETRIES = 20000            # scheduling backtracking limit
-MIN_GAP = 2                    # minimum days between game dates
+PREFERRED_MIN_GAP = 3         # ideal minimum days between game dates (soft preference)
+HARD_MIN_GAP = 2              # absolute minimum days between game dates (hard constraint)
 WEEKLY_GAME_LIMIT = 3          # max games per team per week
 HOME_AWAY_BALANCE = 11         # desired home games per team (for 22-game seasons)
 
@@ -170,11 +171,29 @@ def pair_degree(d1, d2):
     return INTER_DEGREE.get(key, 0)
 
 def min_gap_ok(team, d, team_game_days):
-    """Return True if 'team' has no game scheduled within MIN_GAP days of date d."""
+    """Hard gap check: return True if 'team' has no game within HARD_MIN_GAP days of date d."""
     for gd in team_game_days[team]:
-        if gd != d and abs((d - gd).days) < MIN_GAP:
+        if gd != d and abs((d - gd).days) < HARD_MIN_GAP:
             return False
     return True
+
+def preferred_gap_penalty(team, d, team_game_days, penalty_per_day=500):
+    """Soft preference penalty when gap is smaller than PREFERRED_MIN_GAP.
+    Returns 0 if the closest existing game day is >= PREFERRED_MIN_GAP days away.
+    """
+    closest = None
+    for gd in team_game_days[team]:
+        if gd == d:
+            continue
+        delta = abs((d - gd).days)
+        if closest is None or delta < closest:
+            closest = delta
+    if closest is None:
+        return 0
+    if closest >= PREFERRED_MIN_GAP:
+        return 0
+    return (PREFERRED_MIN_GAP - closest) * penalty_per_day
+
 
 # -------------------------------
 # Data loading functions
@@ -532,7 +551,7 @@ def generate_filler_matchups(division_teams, team_stats, schedule, max_new_games
 
     Why this exists:
       - The heuristic scheduler starts with a *fixed* list of matchups (opponent graph).
-      - With tight calendar constraints (MIN_GAP, WEEKLY_GAME_LIMIT, availability/blackouts),
+      - With tight calendar constraints (HARD_MIN_GAP, WEEKLY_GAME_LIMIT, availability/blackouts),
         that fixed list can become impossible to place even though there are still plenty of open slots.
       - This function creates *extra* candidate matchups among teams that are still below target,
         preferring intra-division and respecting inter-division enablement rules.
@@ -1220,6 +1239,9 @@ def schedule_A_pod_doubleheaders(division_teams, team_availability, field_availa
         dt = dt_by_key.get((d, slot, field))
         if dt is None:
             return False
+        # Hard cap
+        if team_stats[home]['total_games'] >= target_games(home) or team_stats[away]['total_games'] >= target_games(away):
+            return False
         schedule.append((dt, slot, field, home, home[0], away, away[0]))
         used_slots[(dt, slot, field)] = True
 
@@ -1424,7 +1446,11 @@ def schedule_division_pod_doubleheaders(div, division_teams, unscheduled,
         dt = dt_by_key.get((d, slot, field))
         if dt is None:
             return False
+        # Hard cap
+        if team_stats[t1]['total_games'] >= target_games(t1) or team_stats[t2]['total_games'] >= target_games(t2):
+            return False
         home, away = decide_home_away(t1, t2, team_stats)
+
         # hard cap: never exceed target home balance too much
         if team_stats[home]['home_games'] >= HOME_AWAY_BALANCE and team_stats[away]['home_games'] < HOME_AWAY_BALANCE:
             home, away = away, home
@@ -1653,6 +1679,14 @@ def schedule_games(matchups, team_availability, field_availability, team_blackou
                     continue
 
                 score = matchup_need_score(t1, t2, team_stats, doubleheader_count)
+
+                # Soft gap preference (allow 2-day gaps, prefer 3+)
+                score -= preferred_gap_penalty(t1, d, team_game_days)
+                score -= preferred_gap_penalty(t2, d, team_game_days)
+
+                # Soft gap preference (allow 2-day gaps, prefer 3+)
+                score -= preferred_gap_penalty(t1, d, team_game_days)
+                score -= preferred_gap_penalty(t2, d, team_game_days)
 
                 if sunday_assignment and d.weekday() == 6:
                     assigned = sunday_assignment.get(d)
@@ -1934,7 +1968,7 @@ def output_team_remaining_needs_csv(all_teams, team_stats, doubleheader_count, o
             dh_rem = max(0, mindh - dh_done)
             w.writerow([div_of(t), t, target, scheduled, games_rem, mindh, dh_done, dh_rem])
 
-def add_unscheduled_to_workbook(wb, remaining_matchups, all_teams, team_stats, doubleheader_count, weeks_count=None):
+def add_unscheduled_to_workbook(wb, remaining_matchups, all_teams, team_stats, doubleheader_count, sched_last, weeks_count=None):
     """Add two sheets: Unscheduled (one row per remaining matchup) and Remaining Needs.
 
     Unscheduled is intentionally NOT aggregated so you can walk down the list and paste games
@@ -1983,8 +2017,8 @@ def add_unscheduled_to_workbook(wb, remaining_matchups, all_teams, team_stats, d
                     f'=IFERROR(LET('
                     f'w,{weeks_range},'
                     f'h,$A{i},a,$B{i},'
-                    f'hg,COUNTIFS(Schedule!$I:$I,w,Schedule!$E:$E,h)+COUNTIFS(Schedule!$I:$I,w,Schedule!$F:$F,h),'
-                    f'ag,COUNTIFS(Schedule!$I:$I,w,Schedule!$E:$E,a)+COUNTIFS(Schedule!$I:$I,w,Schedule!$F:$F,a),'
+                    f'hg,COUNTIFS(Schedule!$I$2:$I${sched_last},w,Schedule!$E$2:$E${sched_last},h)+COUNTIFS(Schedule!$I$2:$I${sched_last},w,Schedule!$F$2:$F${sched_last},h),'
+                    f'ag,COUNTIFS(Schedule!$I$2:$I${sched_last},w,Schedule!$E$2:$E${sched_last},a)+COUNTIFS(Schedule!$I$2:$I${sched_last},w,Schedule!$F$2:$F${sched_last},a),'
                     f'TEXTJOIN(", ",TRUE,FILTER(w,(hg=0)*(ag=0)))'
                     f'),"")'
                 )
@@ -2088,60 +2122,7 @@ def export_schedule_to_xlsx(field_availability, schedule, division_teams, output
     ws.column_dimensions['I'].hidden = True
     ws.column_dimensions['J'].hidden = True
 
-    # Conditional formatting
-    # (1) Unused slot (Home blank) -> light gray
-    ws.conditional_formatting.add(
-        "A2:H{}".format(n + 1),
-        FormulaRule(formula=['$E2=""'], fill=PatternFill("solid", fgColor="F2F2F2"))
-    )
-    # (2) Home==Away (bad) -> red fill
-    ws.conditional_formatting.add(
-        "E2:F{}".format(n + 1),
-        FormulaRule(formula=['AND($E2<>"",$F2<>"",$E2=$F2)'], fill=PatternFill("solid", fgColor="FFC7CE"))
-    )
-    # (2b) Same opponent repeated on same date (either order) -> red fill across row
-    ws.conditional_formatting.add(
-        "A2:H{}".format(n + 1),
-        FormulaRule(
-            formula=[('AND($E2<>"",$F2<>"",'
-                      '(COUNTIFS($A:$A,$A2,$E:$E,$E2,$F:$F,$F2)'
-                      '+COUNTIFS($A:$A,$A2,$E:$E,$F2,$F:$F,$E2))>1)')],
-            fill=PatternFill("solid", fgColor="FFC7CE")
-        )
-    )
-
-
-    # (3) Illegal A vs C (or C vs A) -> red fill across row
-    ws.conditional_formatting.add(
-        "A2:H{}".format(n + 1),
-        FormulaRule(formula=['OR(AND(LEFT($E2,1)="A",LEFT($F2,1)="C"),AND(LEFT($E2,1)="C",LEFT($F2,1)="A"))'],
-                   fill=PatternFill("solid", fgColor="FFC7CE"))
-    )
-
-    
-    # (4) Non-adjacent doubleheader slots for a team on the same date -> orange fill across row
-    ws.conditional_formatting.add(
-        "A2:H{}".format(n + 1),
-        FormulaRule(
-            formula=[('OR('
-                      'AND($E2<>"",COUNTIFS(TeamDate!$B:$B,$A2,TeamDate!$C:$C,$E2,TeamDate!$G:$G,1)>0),'
-                      'AND($F2<>"",COUNTIFS(TeamDate!$B:$B,$A2,TeamDate!$C:$C,$F2,TeamDate!$G:$G,1)>0)'
-                      ')')],
-            fill=PatternFill("solid", fgColor="FFF2CC")
-        )
-    )
-
-    # (5) Weekly limit violation for a team -> purple fill across row
-    ws.conditional_formatting.add(
-        "A2:H{}".format(n + 1),
-        FormulaRule(
-            formula=[('OR('
-                      'AND($E2<>"",COUNTIFS(TeamWeek!$B:$B,$E2,TeamWeek!$C:$C,$I2,TeamWeek!$E:$E,1)>0),'
-                      'AND($F2<>"",COUNTIFS(TeamWeek!$B:$B,$F2,TeamWeek!$C:$C,$I2,TeamWeek!$E:$E,1)>0)'
-                      ')')],
-            fill=PatternFill("solid", fgColor="E4DFEC")
-        )
-    )
+    # Conditional formatting removed for performance.
     _autofit(ws, n + 1, 8)
 
     # ---------------- Teams ----------------
@@ -2174,6 +2155,7 @@ def export_schedule_to_xlsx(field_availability, schedule, division_teams, output
     away_rng = "Schedule!$F${}:$F${}".format(sched_first, sched_last)
     week_rng = "Schedule!$I${}:$I${}".format(sched_first, sched_last)
     slotidx_rng = "Schedule!$J${}:$J${}".format(sched_first, sched_last)
+    day_rng = "Schedule!$B${}:$B${}".format(sched_first, sched_last)
 
     row_idx = 2
     for d in unique_dates:
@@ -2294,17 +2276,7 @@ def export_schedule_to_xlsx(field_availability, schedule, division_teams, output
     ws_s.freeze_panes = "A2"
     ws_s.auto_filter.ref = "A1:I{}".format(len(all_teams) + 1)
 
-    # conditional formatting: flag teams under target games
-    ws_s.conditional_formatting.add(
-        "D2:D{}".format(len(all_teams) + 1),
-        FormulaRule(formula=['$D2<$C2'], fill=PatternFill("solid", fgColor="FFC7CE"))
-    )
-    # flag teams under min DH
-    ws_s.conditional_formatting.add(
-        "G2:G{}".format(len(all_teams) + 1),
-        FormulaRule(formula=['$G2<$H2'], fill=PatternFill("solid", fgColor="FFC7CE"))
-    )
-
+    # Conditional formatting removed for performance.
     _autofit(ws_s, len(all_teams) + 1, 9, min_width=10, max_width=18)
 
     # ---------------- Games by DOW (formulas) ----------------
@@ -2332,8 +2304,8 @@ def export_schedule_to_xlsx(field_availability, schedule, division_teams, output
             ws_dow.cell(
                 row=r, column=col,
                 value=(
-                    f"=COUNTIFS(Schedule!$B:$B,\"{dow}\",Schedule!$E:$E,$B{r})"
-                    f"+COUNTIFS(Schedule!$B:$B,\"{dow}\",Schedule!$F:$F,$B{r})"
+                    f"=COUNTIFS(Schedule!$B:$B,\"{dow}\",Schedule!$E$2:$E${sched_last},$B{r})"
+                    f"+COUNTIFS(Schedule!$B:$B,\"{dow}\",Schedule!$F$2:$F${sched_last},$B{r})"
                 )
             )
 
@@ -2346,20 +2318,7 @@ def export_schedule_to_xlsx(field_availability, schedule, division_teams, output
     ws_dow.freeze_panes = "A2"
     ws_dow.auto_filter.ref = f"A1:N{last_row}"
 
-    # Conditional formatting: highlight day counts that differ from the team's average by > 1.
-    ws_dow.conditional_formatting.add(
-        f"C2:I{last_row}",
-        FormulaRule(
-            formula=["ABS(C2-$K2)>1"],
-            fill=PatternFill("solid", fgColor="FFF2CC")
-        )
-    )
-    # Highlight large day-of-week range (very uneven distribution).
-    ws_dow.conditional_formatting.add(
-        f"N2:N{last_row}",
-        FormulaRule(formula=["$N2>=3"], fill=PatternFill("solid", fgColor="FFC7CE"))
-    )
-
+    # Conditional formatting removed for performance.
     _autofit(ws_dow, last_row, 14, min_width=6, max_width=14)
 
     # ---------------- Matchup Matrix ----------------
@@ -2386,18 +2345,7 @@ def export_schedule_to_xlsx(field_availability, schedule, division_teams, output
     ws_m.freeze_panes = "B2"
     _autofit(ws_m, len(all_teams) + 1, len(all_teams) + 1, min_width=6, max_width=14)
 
-    # Heatmap style for matrix values (exclude headers)
-    start_cell = "B2"
-    end_cell = "{}{}".format(get_column_letter(len(all_teams) + 1), len(all_teams) + 1)
-    ws_m.conditional_formatting.add(
-        "{}:{}".format(start_cell, end_cell),
-        ColorScaleRule(start_type='num', start_value=0,
-                       mid_type='percentile', mid_value=50,
-                       end_type='percentile', end_value=90)
-    )
-    # ---------------- Unscheduled / Remaining Needs (optional) ----------------
-    if remaining_matchups is not None and team_stats is not None and doubleheader_count is not None:
-        add_unscheduled_to_workbook(wb, remaining_matchups, all_teams, team_stats, doubleheader_count, weeks_count=len(unique_weeks))
+    # Conditional formatting removed for performance.
 
     wb.save(output_path)
 
@@ -2569,6 +2517,10 @@ def main():
             sunday_assignment=sunday_assignment)
 
     missing = [t for t in all_teams if team_stats[t]['total_games'] < target_games(t)]
+
+    over = [t for t in all_teams if team_stats[t]['total_games'] > target_games(t)]
+    if over:
+        print('Critical: Teams ABOVE target games (hard cap violated): {}'.format(over))
     if missing:
         print("Critical: Teams below target games: {}".format(missing))
 
