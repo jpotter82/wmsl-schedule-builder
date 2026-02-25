@@ -89,7 +89,7 @@ def effective_pair_rules(division, intra_target_per_team, n):
 # This helps avoid one division (e.g., A) soaking up all Sunday capacity.
 SUNDAY_POD_ROTATION = ['B', 'C', 'D', 'A']  # cycle order (can change)
 SUNDAY_PODS_PER_SUNDAY = 3  # at most this many *pod sessions* across all divisions on a Sunday
-RANDOM_SEED = None           # Set to 'None' to randomize each run
+RANDOM_SEED = 42            # for repeatable schedules
 # Per-division configuration (tweak here)
 DIVISION_SETTINGS = {
     # A: 22 games, only DH => 11 DH days exactly
@@ -1276,7 +1276,7 @@ def schedule_A_pod_doubleheaders(division_teams, team_availability, field_availa
             if (_home and _home[0] == 'A') or (_away and _away[0] == 'A'):
                 a_dow_load[_dt.strftime('%a')] += 1
 
-        rnd = random.Random(RANDOM_SEED + (_pass * 97) + 13)
+        rnd = random.Random((RANDOM_SEED or 0) + (_pass * 97) + 13)
 
         def _date_key(dd):
             # lower load first; then randomized tie-break; then chronological
@@ -1491,11 +1491,26 @@ def schedule_division_pod_doubleheaders(div, division_teams, unscheduled,
     for _pass in range(10):
         progress = False
 
+        # Light day-of-week balancing:
+        # Prefer scheduling pods on days this division has used less so far.
+        dow_counts = defaultdict(int)
+        for (dt0, _slot0, _field0, home0, _hd0, away0, _ad0) in schedule:
+            if div_of(home0) == div and div_of(away0) == div:
+                dow_counts[dt0.strftime('%a')] += 1
+
+        rnd = random.Random((RANDOM_SEED or 0) + (_pass * 131) + ord(div))
+        # Keep Sundays early (rotation applies), but within that prefer under-used DOWs.
+        date_order = sorted(unique_dates, key=lambda dd: (
+            0 if dd.weekday() == 6 else 1,
+            dow_counts[dd.strftime('%a')],
+            rnd.random()
+        ))
+
         # Stop early if everyone in division has hit min DH
         if all(doubleheader_count[t] >= min_dh(t) for t in teams):
             break
 
-        for d in unique_dates:
+        for d in date_order:
             # Sunday pod rotation: only allow this division's pods on Sundays assigned to it
             if sunday_assignment and d.weekday() == 6:
                 assigned = sunday_assignment.get(d)
@@ -1645,7 +1660,9 @@ def schedule_games(matchups, team_availability, field_availability, team_blackou
     for _pass in range(max_passes):
         progress_made = False
 
-        for date, slot, field in field_availability:
+        rnd = random.Random((RANDOM_SEED or 0) + (_pass * 97) + 7)
+        slots_iter = sorted(field_availability, key=lambda x: (0 if x[0].weekday() == 6 else 1, rnd.random()))
+        for date, slot, field in slots_iter:
             if used_slots.get((date, slot, field), False):
                 continue
 
@@ -1800,7 +1817,9 @@ def fill_missing_games(schedule, team_stats, doubleheader_count, team_game_days,
         if not any(team_stats[t]['total_games'] < target_games(t) for t in team_stats.keys()):
             break
 
-        for date, slot, field in field_availability:
+        rnd = random.Random((RANDOM_SEED or 0) + (_pass * 101) + 11)
+        slots_iter = sorted(field_availability, key=lambda x: (0 if x[0].weekday() == 6 else 1, rnd.random()))
+        for date, slot, field in slots_iter:
             if used_slots.get((date, slot, field), False):
                 continue
 
@@ -2450,7 +2469,7 @@ def main():
     if RANDOM_SEED is None:
         random.seed()
     else:
-        random.seed(RANDOM_SEED)
+        random.seed(RANDOM_SEED or 0)
 
     team_availability = load_team_availability('team_availability.csv')
     field_availability = load_field_availability('field_availability.csv')
