@@ -1,3 +1,29 @@
+
+# --- deterministic day-of-week labels (avoid locale issues) ---
+DOWS = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun']
+
+def dow_label(d):
+    """Return fixed 3-letter DOW label for date/datetime."""
+    return DOWS[d.weekday()]
+
+# Run seed: None => randomize every run
+RUN_SEED = None
+
+def check_schedule_against_availability(schedule, team_availability):
+    """Return list of (date, day, time, field, team, allowed_days) for any availability violations."""
+    violations = []
+    for (d, time_str, field_id, home, home_div, away, away_div) in schedule:
+        if not home or not away:
+            continue
+        day = dow_label(d)
+        for team in (home, away):
+            allowed = team_availability.get(team)
+            if allowed is None:
+                continue
+            if day not in allowed:
+                violations.append((d.strftime('%Y-%m-%d'), day, time_str, field_id, team, ",".join(sorted(allowed))))
+    return violations
+
 #!/usr/bin/env python3
 """
 Softball scheduler (heuristic) + Excel export.
@@ -185,7 +211,7 @@ def min_gap_ok(team, d, team_game_days):
 def dow_abbrev(d):
     """Return 3-letter day abbrev (Mon/Tue/...) for a date or datetime."""
     try:
-        return d.strftime('%a')
+        return dow_label(d)
     except Exception:
         return str(d)[:3].title()
 
@@ -755,7 +781,7 @@ def schedule_doubleheaders_preemptively(all_teams, unscheduled, team_availabilit
     # Prefer filling Sundays first (league preference: easiest full-day inventory)
     date_order = sorted(timeslots_by_date.keys(), key=lambda dd: (0 if dd.weekday() == 6 else 1, dd))
     for d in date_order:
-        day_of_week = d.strftime('%a')
+        day_of_week = dow_label(d)
         week_num = d.isocalendar()[1]
         slots = timeslots_by_date[d]
         if not slots:
@@ -939,7 +965,7 @@ def force_minimum_doubleheaders(all_teams, unscheduled, team_availability, field
 
         date_order = sorted(timeslots_by_date.keys(), key=lambda dd: (0 if dd.weekday() == 6 else 1, dd))
         for d in date_order:
-            day_of_week = d.strftime('%a')
+            day_of_week = dow_label(d)
             if d in team_blackouts.get(team, set()) or day_of_week not in team_availability.get(team, set()):
                 continue
             week_num = d.isocalendar()[1]
@@ -1025,7 +1051,7 @@ def force_minimum_doubleheaders(all_teams, unscheduled, team_availability, field
             scheduled = False
             date_order = sorted(timeslots_by_date.keys(), key=lambda dd: (0 if dd.weekday() == 6 else 1, dd))
             for d in date_order:
-                day_of_week = d.strftime('%a')
+                day_of_week = dow_label(d)
                 if d in team_blackouts.get(team, set()) or day_of_week not in team_availability.get(team, set()):
                     continue
                 week_num = d.isocalendar()[1]
@@ -1331,13 +1357,13 @@ def schedule_A_pod_doubleheaders(division_teams, team_availability, field_availa
         a_dow_load = defaultdict(int)
         for _dt, _slot, _field, _home, _hdiv, _away, _adiv in schedule:
             if (_home and _home[0] == 'A') or (_away and _away[0] == 'A'):
-                a_dow_load[_dt.strftime('%a')] += 1
+                a_dow_load[dow_label(_dt)] += 1
 
         rnd = random.Random((RANDOM_SEED or 0) + (_pass * 97) + 13)
 
         def _date_key(dd):
             # lower load first; then randomized tie-break; then chronological
-            return (a_dow_load.get(dd.strftime('%a'), 0), rnd.random(), dd)
+            return (a_dow_load.get(dow_label(dd), 0), rnd.random(), dd)
 
         # If we have a Sunday rotation, push Sundays assigned to A to the front of the Sunday list.
         if sunday_assignment:
@@ -1551,13 +1577,13 @@ def schedule_division_pod_doubleheaders(div, division_teams, unscheduled,
         dow_counts = defaultdict(int)
         for (dt0, _slot0, _field0, home0, _hd0, away0, _ad0) in schedule:
             if div_of(home0) == div and div_of(away0) == div:
-                dow_counts[dt0.strftime('%a')] += 1
+                dow_counts[dow_label(dt0)] += 1
 
         rnd = random.Random((RANDOM_SEED or 0) + (_pass * 131) + ord(div))
         # Keep Sundays early (rotation applies), but within that prefer under-used DOWs.
         date_order = sorted(unique_dates, key=lambda dd: (
             0 if dd.weekday() == 6 else 1,
-            dow_counts[dd.strftime('%a')],
+            dow_counts[dow_label(dd)],
             rnd.random()
         ))
 
@@ -1722,7 +1748,7 @@ def schedule_games(matchups, team_availability, field_availability, team_blackou
                 continue
 
             d = date.date()
-            day_of_week = date.strftime('%a')
+            day_of_week = dow_label(date)
             week_num = date.isocalendar()[1]
 
             best = None
@@ -1877,7 +1903,7 @@ def fill_missing_games(schedule, team_stats, doubleheader_count, team_game_days,
                 continue
 
             d = date.date()
-            day_of_week = date.strftime('%a')
+            day_of_week = dow_label(date)
             week_num = date.isocalendar()[1]
 
             best = None
@@ -1999,7 +2025,7 @@ def output_schedule_to_csv_full(field_availability, schedule, output_file):
         writer = csv.writer(file)
         writer.writerow(["Date", "Day", "Time", "Diamond", "Home Team", "Home Division", "Away Team", "Away Division"])
         for dt, slot, field, home, home_div, away, away_div in rows:
-            writer.writerow([dt.strftime('%Y-%m-%d'), dt.strftime('%a'), slot, field, home, home_div, away, away_div])
+            writer.writerow([dt.strftime('%Y-%m-%d'), dow_label(dt), slot, field, home, home_div, away, away_div])
     return rows
 
 
@@ -2193,7 +2219,7 @@ def export_schedule_to_xlsx(field_availability, schedule, division_teams, output
             d = dt.date()
             wk = d.isocalendar()[1]
             slot_idx = slot_index_by_date_slot.get((d, slot), "")
-            ws.append([d, dt.strftime('%a'), slot, field, home, away, home_div, away_div, wk, slot_idx])
+            ws.append([d, dow_label(dt), slot, field, home, away, home_div, away_div, wk, slot_idx])
 
     n = len(rows)
     # set formats
@@ -2517,6 +2543,7 @@ def generate_matchup_table(schedule, division_teams):
 # Main
 # -------------------------------
 def main():
+    global RUN_SEED
     # --- RNG setup ---
     global RANDOM_SEED
 
@@ -2530,6 +2557,16 @@ def main():
     print(f"Using RNG seed: {RUN_SEED}")
 
     team_availability = load_team_availability('team_availability.csv')
+    # Debug: confirm we loaded what we think we loaded
+    _ta_path = os.path.abspath('team_availability.csv')
+    print(f"Loaded team availability from: {_ta_path} (teams={len(team_availability)})")
+    for _t in sorted([t for t in team_availability if len(team_availability[t]) < 6]):
+        print(f"  Restricted: {_t}: {sorted(team_availability[_t])}")
+    if 'C1' in team_availability:
+        print(f"  Sanity C1: {sorted(team_availability['C1'])}")
+    if 'C2' in team_availability:
+        print(f"  Sanity C2: {sorted(team_availability['C2'])}")
+
     field_availability = load_field_availability('field_availability.csv')
     team_blackouts = load_team_blackouts('team_blackouts.csv')
 
@@ -2638,6 +2675,14 @@ def main():
         print("Critical: Teams below minimum DH days: {}".format(under_dh))
 
     # Export CSV + XLSX with full slot list (row count == field_availability)
+    # Hard validation: no team is scheduled on a disallowed day
+    _av_viol = check_schedule_against_availability(schedule, team_availability)
+    if _av_viol:
+        print(\"\nERROR: Team availability violations detected (showing up to 50):\")
+        for v in _av_viol[:50]:
+            print(\"  \", v)
+        raise SystemExit(2)
+
     output_schedule_to_csv_full(field_availability, schedule, 'softball_schedule.csv')
     # Also write templates for manual scheduling
     output_unscheduled_matchups_csv(unscheduled, 'unscheduled_matchups.csv')
