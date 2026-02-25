@@ -89,7 +89,7 @@ def effective_pair_rules(division, intra_target_per_team, n):
 # This helps avoid one division (e.g., A) soaking up all Sunday capacity.
 SUNDAY_POD_ROTATION = ['B', 'C', 'D', 'A']  # cycle order (can change)
 SUNDAY_PODS_PER_SUNDAY = 3  # at most this many *pod sessions* across all divisions on a Sunday
-RANDOM_SEED = 42            # for repeatable schedules
+RANDOM_SEED = None            # for repeatable schedules
 # Per-division configuration (tweak here)
 DIVISION_SETTINGS = {
     # A: 22 games, only DH => 11 DH days exactly
