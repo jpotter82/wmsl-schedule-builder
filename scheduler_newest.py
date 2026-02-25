@@ -53,7 +53,7 @@ except ImportError:
 # -------------------------------
 MAX_RETRIES = 20000            # scheduling backtracking limit
 MIN_GAP = 3                    # minimum days between game dates
-WEEKLY_GAME_LIMIT = 2          # max games per team per week
+WEEKLY_GAME_LIMIT = 3          # max games per team per week
 HOME_AWAY_BALANCE = 11         # desired home games per team (for 22-game seasons)
 
 # Division A opponent-balance controls (A is DH-only)
