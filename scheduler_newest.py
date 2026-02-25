@@ -91,7 +91,7 @@ def effective_pair_rules(division, intra_target_per_team, n):
 # This helps avoid one division (e.g., A) soaking up all Sunday capacity.
 SUNDAY_POD_ROTATION = ['B', 'C', 'D', 'A']  # cycle order (can change)
 SUNDAY_PODS_PER_SUNDAY = 3  # at most this many *pod sessions* across all divisions on a Sunday
-RANDOM_SEED = random.randint(1, 100000)            # for repeatable schedules
+RANDOM_SEED = None           # for repeatable schedules
 # Per-division configuration (tweak here)
 DIVISION_SETTINGS = {
     # A: 22 games, only DH => 11 DH days exactly
@@ -2517,12 +2517,15 @@ def generate_matchup_table(schedule, division_teams):
 # Main
 # -------------------------------
 def main():
+    # --- RNG setup ---
+    global RANDOM_SEED
+
     if RANDOM_SEED is None:
-        random.seed()
+        import os
+        RUN_SEED = int.from_bytes(os.urandom(4), "big")
     else:
         RUN_SEED = RANDOM_SEED
-    if RUN_SEED is None:
-        RUN_SEED = int.from_bytes(os.urandom(4), "big")
+
     random.seed(RUN_SEED)
     print(f"Using RNG seed: {RUN_SEED}")
 
