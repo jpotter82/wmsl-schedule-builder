@@ -22,6 +22,8 @@ import csv
 import itertools
 import random
 import math
+import re
+import os
 from datetime import datetime
 from collections import defaultdict
 
@@ -177,6 +179,26 @@ def min_gap_ok(team, d, team_game_days):
             return False
     return True
 
+# -------------------------------
+# Availability helpers
+# -------------------------------
+def dow_abbrev(d):
+    """Return 3-letter day abbrev (Mon/Tue/...) for a date or datetime."""
+    try:
+        return d.strftime('%a')
+    except Exception:
+        return str(d)[:3].title()
+
+def is_team_available(team, d, team_availability, team_blackouts):
+    """True if team can play on date d according to weekly availability + blackout dates."""
+    dd = d if hasattr(d, "weekday") and not hasattr(d, "date") else d.date()
+    dow = dow_abbrev(dd)
+    if dow not in team_availability.get(team, set()):
+        return False
+    if dd in team_blackouts.get(team, set()):
+        return False
+    return True
+
 def preferred_gap_penalty(team, d, team_game_days, penalty_per_day=500):
     """Soft preference penalty when gap is smaller than PREFERRED_MIN_GAP.
     Returns 0 if the closest existing game day is >= PREFERRED_MIN_GAP days away.
@@ -199,14 +221,53 @@ def preferred_gap_penalty(team, d, team_game_days, penalty_per_day=500):
 # Data loading functions
 # -------------------------------
 def load_team_availability(file_path):
+    """Load per-team day-of-week availability.
+
+    Accepts CSV where each team row contains day tokens in any of these forms:
+      - Separate columns: Mon, Tue, Wed, ...
+      - A single cell with delimiters: "Mon;Tue;Wed" or "Mon, Tue, Wed"
+      - Whitespace-separated: "Mon Tue Wed"
+      - Full day names ("Monday") are accepted and normalized to 3-letter form.
+
+    Returns: dict[team] -> set({"Mon","Tue","Wed","Thu","Fri","Sat","Sun"})
+    """
+    VALID = {"Mon","Tue","Wed","Thu","Fri","Sat","Sun"}
+    def norm(tok: str):
+        tok = (tok or "").strip()
+        if not tok:
+            return None
+        # accept full day names
+        t3 = tok[:3].title()
+        if t3 in VALID:
+            return t3
+        return None
+
     availability = {}
     with open(file_path, mode='r') as file:
         reader = csv.reader(file)
-        next(reader)  # header
+        next(reader, None)  # header
         for row in reader:
-            team = row[0].strip()
-            days = row[1:]
-            availability[team] = {day.strip() for day in days if day and day.strip()}
+            if not row:
+                continue
+            team = (row[0] or "").strip()
+            if not team:
+                continue
+            tokens = []
+            for cell in row[1:]:
+                cell = (cell or "").strip()
+                if not cell:
+                    continue
+                # split on common delimiters
+                for part in re.split(r"[;,\s]+", cell):
+                    part = part.strip()
+                    if part:
+                        tokens.append(part)
+            days = set()
+            for t in tokens:
+                d = norm(t)
+                if d:
+                    days.add(d)
+            availability[team] = days
     return availability
 
 def load_field_availability(file_path):
@@ -706,9 +767,7 @@ def schedule_doubleheaders_preemptively(all_teams, unscheduled, team_availabilit
                 continue
             if doubleheader_count[team] >= min_dh(team):
                 continue
-            if day_of_week not in team_availability.get(team, set()):
-                continue
-            if d in team_blackouts.get(team, set()):
+            if not is_team_available(team, d, team_availability, team_blackouts):
                 continue
 
             games_today = team_game_days[team].get(d, 0)
@@ -738,9 +797,9 @@ def schedule_doubleheaders_preemptively(all_teams, unscheduled, team_availabilit
                         if opp1 == opp2:
                             continue
 
-                        if day_of_week not in team_availability.get(opp1, set()) or d in team_blackouts.get(opp1, set()):
+                        if not is_team_available(opp1, d, team_availability, team_blackouts):
                             continue
-                        if day_of_week not in team_availability.get(opp2, set()) or d in team_blackouts.get(opp2, set()):
+                        if not is_team_available(opp2, d, team_availability, team_blackouts):
                             continue
                         if team_game_days[opp1].get(d, 0) != 0 or team_game_days[opp2].get(d, 0) != 0:
                             continue
@@ -826,7 +885,7 @@ def schedule_doubleheaders_preemptively(all_teams, unscheduled, team_availabilit
                     opp = m[0] if m[1] == team else m[1]
                     if opp == already_opp:
                         continue
-                    if day_of_week not in team_availability.get(opp, set()) or d in team_blackouts.get(opp, set()):
+                    if not is_team_available(opp, d, team_availability, team_blackouts):
                         continue
                     if team_game_days[opp].get(d, 0) != 0:
                         continue
@@ -919,7 +978,7 @@ def force_minimum_doubleheaders(all_teams, unscheduled, team_availability, field
                 opp = m[0] if m[1] == team else m[1]
                 if opp == already_opp:
                     continue
-                if day_of_week not in team_availability.get(opp, set()) or d in team_blackouts.get(opp, set()):
+                if not is_team_available(opp, d, team_availability, team_blackouts):
                     continue
                 if team_game_days[opp].get(d, 0) != 0:
                     continue
@@ -1000,7 +1059,7 @@ def force_minimum_doubleheaders(all_teams, unscheduled, team_availability, field
                         opp = m[0] if m[1] == team else m[1]
                         if opp == already_opp:
                             continue
-                        if day_of_week not in team_availability.get(opp, set()) or d in team_blackouts.get(opp, set()):
+                        if not is_team_available(opp, d, team_availability, team_blackouts):
                             continue
                         if team_game_days[opp].get(d, 0) != 0:
                             continue
@@ -1119,10 +1178,8 @@ def schedule_A_pod_doubleheaders(division_teams, team_availability, field_availa
         fields_by_date[date_dt.date()].add(field)
 
     def can_play_pod(team, d):
-        dow = d.strftime('%a')
-        if dow not in team_availability.get(team, set()):
-            return False
-        if d in team_blackouts.get(team, set()):
+        dow = dow_abbrev(d)
+        if not is_team_available(team, d, team_availability, team_blackouts):
             return False
         # must have no other games that date
         if team_game_days[team].get(d, 0) != 0:
@@ -1428,10 +1485,8 @@ def schedule_division_pod_doubleheaders(div, division_teams, unscheduled,
         fields_by_date[dt.date()].add(field)
 
     def can_play_pod(team, d):
-        dow = d.strftime('%a')
-        if dow not in team_availability.get(team, set()):
-            return False
-        if d in team_blackouts.get(team, set()):
+        dow = dow_abbrev(d)
+        if not is_team_available(team, d, team_availability, team_blackouts):
             return False
         if team_game_days[team].get(d, 0) != 0:
             return False
@@ -1679,9 +1734,7 @@ def schedule_games(matchups, team_availability, field_availability, team_blackou
                     continue
 
                 # availability / blackouts
-                if day_of_week not in team_availability.get(t1, set()) or day_of_week not in team_availability.get(t2, set()):
-                    continue
-                if d in team_blackouts.get(t1, set()) or d in team_blackouts.get(t2, set()):
+                if not (is_team_available(t1, d, team_availability, team_blackouts) and is_team_available(t2, d, team_availability, team_blackouts)):
                     continue
 
                 # target / weekly limits
@@ -1838,9 +1891,7 @@ def fill_missing_games(schedule, team_stats, doubleheader_count, team_game_days,
                 if team_stats[t1]['total_games'] >= target_games(t1) or team_stats[t2]['total_games'] >= target_games(t2):
                     continue
 
-                if day_of_week not in team_availability.get(t1, set()) or day_of_week not in team_availability.get(t2, set()):
-                    continue
-                if d in team_blackouts.get(t1, set()) or d in team_blackouts.get(t2, set()):
+                if not (is_team_available(t1, d, team_availability, team_blackouts) and is_team_available(t2, d, team_availability, team_blackouts)):
                     continue
 
                 if (team_stats[t1]['weekly_games'][week_num] >= WEEKLY_GAME_LIMIT or
@@ -2469,7 +2520,11 @@ def main():
     if RANDOM_SEED is None:
         random.seed()
     else:
-        random.seed(RANDOM_SEED or 0)
+        RUN_SEED = RANDOM_SEED
+    if RUN_SEED is None:
+        RUN_SEED = int.from_bytes(os.urandom(4), "big")
+    random.seed(RUN_SEED)
+    print(f"Using RNG seed: {RUN_SEED}")
 
     team_availability = load_team_availability('team_availability.csv')
     field_availability = load_field_availability('field_availability.csv')
