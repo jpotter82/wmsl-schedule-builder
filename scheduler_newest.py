@@ -51,7 +51,7 @@ except ImportError:
 # -------------------------------
 # Configurable parameters
 # -------------------------------
-MAX_RETRIES = 20000            # scheduling backtracking limit
+MAX_RETRIES = 50000            # scheduling backtracking limit
 PREFERRED_MIN_GAP = 3         # ideal minimum days between game dates (soft preference)
 HARD_MIN_GAP = 2              # absolute minimum days between game dates (hard constraint)
 WEEKLY_GAME_LIMIT = 3          # max games per team per week
