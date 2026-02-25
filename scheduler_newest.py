@@ -52,7 +52,7 @@ except ImportError:
 # Configurable parameters
 # -------------------------------
 MAX_RETRIES = 20000            # scheduling backtracking limit
-MIN_GAP = 5                    # minimum days between game dates
+MIN_GAP = 3                    # minimum days between game dates
 WEEKLY_GAME_LIMIT = 2          # max games per team per week
 HOME_AWAY_BALANCE = 11         # desired home games per team (for 22-game seasons)
 
