@@ -2678,7 +2678,7 @@ def main():
     # Hard validation: no team is scheduled on a disallowed day
     _av_viol = check_schedule_against_availability(schedule, team_availability)
     if _av_viol:
-        print(\"\nERROR: Team availability violations detected (showing up to 50):\")
+        print("\nERROR: Team availability violations detected (showing up to 50):")
         for v in _av_viol[:50]:
             print(\"  \", v)
         raise SystemExit(2)
