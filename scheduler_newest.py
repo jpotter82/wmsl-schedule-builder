@@ -2432,8 +2432,8 @@ def export_schedule_to_xlsx(field_availability, schedule, division_teams, output
             ws_dow.cell(
                 row=r, column=col,
                 value=(
-                    f"=COUNTIFS(Schedule!$B:$B,\"{dow}\",Schedule!$E$2:$E${sched_last},$B{r})"
-                    f"+COUNTIFS(Schedule!$B:$B,\"{dow}\",Schedule!$F$2:$F${sched_last},$B{r})"
+                    f"=COUNTIFS(Schedule!$B$2:$B${sched_last},{col}$1,Schedule!$E$2:$E${sched_last},$B{r})"
+                    f"+COUNTIFS(Schedule!$B$2:$B${sched_last},{col}$1,Schedule!$F$2:$F${sched_last},$B{r})"
                 )
             )
 
@@ -2680,7 +2680,7 @@ def main():
     if _av_viol:
         print("ERROR: Team availability violations detected (showing up to 50):")
         for v in _av_viol[:50]:
-            print(\"  \", v)
+            print("  ", v)
         raise SystemExit(2)
 
     output_schedule_to_csv_full(field_availability, schedule, 'softball_schedule.csv')
