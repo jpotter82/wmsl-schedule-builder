@@ -2429,11 +2429,12 @@ def export_schedule_to_xlsx(field_availability, schedule, division_teams, output
         # Schedule sheet: B=Day, E=Home Team, F=Away Team
         for i, dow in enumerate(day_labels):
             col = 3 + i  # C..I
+            col_letter = get_column_letter(col)  # "C".."I"
             ws_dow.cell(
                 row=r, column=col,
                 value=(
-                    f"=COUNTIFS(Schedule!$B$2:$B${sched_last},{col}$1,Schedule!$E$2:$E${sched_last},$B{r})"
-                    f"+COUNTIFS(Schedule!$B$2:$B${sched_last},{col}$1,Schedule!$F$2:$F${sched_last},$B{r})"
+                    f"=COUNTIFS(Schedule!$B$2:$B${sched_last},{col_letter}$1,Schedule!$E$2:$E${sched_last},$B{r})"
+                    f"+COUNTIFS(Schedule!$B$2:$B${sched_last},{col_letter}$1,Schedule!$F$2:$F${sched_last},$B{r})"
                 )
             )
 
