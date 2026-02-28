@@ -9,6 +9,33 @@ def dow_label(d):
 # Run seed: None => randomize every run
 RUN_SEED = None
 
+
+def _common_avail_days(team1, team2, team_availability):
+    """Return comma-separated DOW labels both teams can play."""
+    if not team_availability:
+        return ""
+    a1 = set(team_availability.get(team1, []))
+    a2 = set(team_availability.get(team2, []))
+    common = a1 & a2
+    if not common:
+        return ""
+    order = {d:i for i,d in enumerate(DOWS)}
+    return ", ".join(sorted(common, key=lambda d: order.get(d, 99)))
+
+def _blackout_summary(team1, team2, team_blackouts, max_dates=30):
+    """Return comma-separated blackout dates (YYYY-MM-DD) where either team cannot play."""
+    if not team_blackouts:
+        return ""
+    b1 = set(team_blackouts.get(team1, []))
+    b2 = set(team_blackouts.get(team2, []))
+    dates = sorted(b1 | b2)
+    if not dates:
+        return ""
+    out = [d.strftime("%Y-%m-%d") for d in dates[:max_dates]]
+    if len(dates) > max_dates:
+        out.append(f"...(+{len(dates)-max_dates} more)")
+    return ", ".join(out)
+
 def check_schedule_against_availability(schedule, team_availability):
     """Return list of (date, day, time, field, team, allowed_days) for any availability violations."""
     violations = []
@@ -2178,7 +2205,7 @@ def _autofit(ws, max_row, max_col, min_width=10, max_width=40):
             best = max(best, len(str(v)))
         ws.column_dimensions[letter].width = max(min_width, min(max_width, best + 2))
 
-def export_schedule_to_xlsx(field_availability, schedule, division_teams, output_path, remaining_matchups=None, team_stats=None, doubleheader_count=None):
+def export_schedule_to_xlsx(field_availability, schedule, division_teams, output_path, remaining_matchups=None, team_stats=None, doubleheader_count=None, team_availability=None, team_blackouts=None):
     if Workbook is None:
         raise RuntimeError("openpyxl is not installed. Run: pip install openpyxl")
 
@@ -2253,7 +2280,7 @@ def export_schedule_to_xlsx(field_availability, schedule, division_teams, output
     # ---------------- Unscheduled Matches ----------------
     # Lists remaining required matchups that could not be placed into a slot.
     ws_u = wb.create_sheet("Unscheduled Matches")
-    ws_u.append(["Home Div", "Home Team", "Away Div", "Away Team", "Remaining", "Home Needs", "Away Needs", "Type"])
+    ws_u.append(["Home Div", "Home Team", "Away Div", "Away Team", "Remaining", "Home Needs", "Away Needs", "Type", "Available Days", "Blackouts"])
     for cell in ws_u[1]:
         cell.font = Font(bold=True)
         cell.fill = PatternFill("solid", fgColor="D9E1F2")
@@ -2287,7 +2314,9 @@ def export_schedule_to_xlsx(field_availability, schedule, division_teams, output
                     int(cnt),
                     int(needs.get(home, 0)),
                     int(needs.get(away, 0)),
-                    "INTRA" if div_of(home) == div_of(away) else "INTER"
+                    "INTRA" if div_of(home) == div_of(away) else "INTER",
+                    _common_avail_days(home, away, team_availability),
+                    _blackout_summary(home, away, team_blackouts)
                 ))
 
         rows_u.sort(key=lambda r: (-r[4], r[0], r[1], r[2], r[3]))
@@ -2297,8 +2326,13 @@ def export_schedule_to_xlsx(field_availability, schedule, division_teams, output
 
     last_u = max(2, len(rows_u) + 1)
     ws_u.freeze_panes = "A2"
-    ws_u.auto_filter.ref = f"A1:H{last_u}"
-    _autofit(ws_u, last_u, 8, min_width=10, max_width=18)
+    ws_u.auto_filter.ref = f"A1:J{last_u}"
+    
+    # Wrap text for availability/blackouts columns (can be long)
+    for rr in range(2, last_u + 1):
+        ws_u.cell(row=rr, column=9).alignment = Alignment(wrap_text=True, vertical="top")
+        ws_u.cell(row=rr, column=10).alignment = Alignment(wrap_text=True, vertical="top")
+_autofit(ws_u, last_u, 10, min_width=10, max_width=22)
 
 
 
@@ -2740,7 +2774,7 @@ def main():
     # Also write templates for manual scheduling
     output_unscheduled_matchups_csv(unscheduled, 'unscheduled_matchups.csv')
     output_team_remaining_needs_csv(all_teams, team_stats, doubleheader_count, 'team_remaining_needs.csv')
-    export_schedule_to_xlsx(field_availability, schedule, division_teams, 'softball_schedule.xlsx', remaining_matchups=unscheduled, team_stats=team_stats, doubleheader_count=doubleheader_count)
+    export_schedule_to_xlsx(field_availability, schedule, division_teams, 'softball_schedule.xlsx', remaining_matchups=unscheduled, team_stats=team_stats, doubleheader_count=doubleheader_count, team_availability=team_availability, team_blackouts=team_blackouts)
 
     print("\nSchedule Generation Complete")
     print_schedule_summary(team_stats)
