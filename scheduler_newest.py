@@ -2250,6 +2250,58 @@ def export_schedule_to_xlsx(field_availability, schedule, division_teams, output
     _autofit(ws_t, len(all_teams) + 1, 2, min_width=8, max_width=16)
 
 
+    # ---------------- Unscheduled Matches ----------------
+    # Lists remaining required matchups that could not be placed into a slot.
+    ws_u = wb.create_sheet("Unscheduled Matches")
+    ws_u.append(["Home Div", "Home Team", "Away Div", "Away Team", "Remaining", "Home Needs", "Away Needs", "Type"])
+    for cell in ws_u[1]:
+        cell.font = Font(bold=True)
+        cell.fill = PatternFill("solid", fgColor="D9E1F2")
+        cell.alignment = Alignment(horizontal="center")
+
+    rows_u = []
+    if remaining_matchups:
+        # Current games played (from team_stats if provided, else derive from schedule)
+        if team_stats is not None:
+            current_games = {t: int(team_stats[t].get('total_games', 0)) for t in all_teams}
+        else:
+            current_games = {t: 0 for t in all_teams}
+            for (d, time_str, field_id, home, home_div, away, away_div) in schedule:
+                if home and away:
+                    current_games[home] = current_games.get(home, 0) + 1
+                    current_games[away] = current_games.get(away, 0) + 1
+
+        needs = {t: max(0, target_games(t) - current_games.get(t, 0)) for t in all_teams}
+        below = {t for t in all_teams if needs.get(t, 0) > 0}
+
+        oriented, _unordered = summarize_remaining_matchups(remaining_matchups)
+
+        for (home, away), cnt in oriented.items():
+            if home == away:
+                continue
+            # Focus on teams still below target games (what you need to manually top-up)
+            if (home in below) or (away in below):
+                rows_u.append((
+                    div_of(home), home,
+                    div_of(away), away,
+                    int(cnt),
+                    int(needs.get(home, 0)),
+                    int(needs.get(away, 0)),
+                    "INTRA" if div_of(home) == div_of(away) else "INTER"
+                ))
+
+        rows_u.sort(key=lambda r: (-r[4], r[0], r[1], r[2], r[3]))
+
+    for r in rows_u:
+        ws_u.append(list(r))
+
+    last_u = max(2, len(rows_u) + 1)
+    ws_u.freeze_panes = "A2"
+    ws_u.auto_filter.ref = f"A1:H{last_u}"
+    _autofit(ws_u, last_u, 8, min_width=10, max_width=18)
+
+
+
     # ---------------- TeamDate (helper: games/day + non-adjacent DH detection) ----------------
     ws_td = wb.create_sheet("TeamDate")
     ws_td.append(["Key", "Date", "Team", "GamesThatDay", "MinSlot", "MaxSlot", "NonAdjFlag", "WeekNum"])
@@ -2429,7 +2481,7 @@ def export_schedule_to_xlsx(field_availability, schedule, division_teams, output
         # Schedule sheet: B=Day, E=Home Team, F=Away Team
         for i, dow in enumerate(day_labels):
             col = 3 + i  # C..I
-            col_letter = get_column_letter(col)  # "C".."I"
+            col_letter = get_column_letter(col)
             ws_dow.cell(
                 row=r, column=col,
                 value=(
