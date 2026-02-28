@@ -2332,7 +2332,8 @@ def export_schedule_to_xlsx(field_availability, schedule, division_teams, output
     for rr in range(2, last_u + 1):
         ws_u.cell(row=rr, column=9).alignment = Alignment(wrap_text=True, vertical="top")
         ws_u.cell(row=rr, column=10).alignment = Alignment(wrap_text=True, vertical="top")
-_autofit(ws_u, last_u, 10, min_width=10, max_width=22)
+
+    _autofit(ws_u, last_u, 10, min_width=10, max_width=22)
 
 
 
