@@ -1,11 +1,11 @@
 Team,Availability
 A1,Mon,Tue,Wed,Thu,Fri,Sun
-A2,Mon,Tue,Wed,Thu,Fri,Sun
+A2,Mon,Wed,Thu,Fri,Sun
 A3,Mon,Tue,Wed,Thu,Fri,Sun
 A4,Mon,Tue,Wed,Thu,Fri,Sun
 A5,Mon,Tue,Wed,Thu,Fri,Sun
 A6,Mon,Tue,Wed,Thu,Fri,Sun
-A7,Mon,Tue,Wed,Thu,Fri,Sun
+A7,Tue,Wed,Thu,Fri,Sun
 A8,Mon,Tue,Wed,Thu,Fri,Sun
 B1,Mon,Wed,Fri,Sun
 B2,Mon,Tue,Wed,Thu,Fri,Sun
