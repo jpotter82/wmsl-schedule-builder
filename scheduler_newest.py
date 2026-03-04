@@ -2074,6 +2074,125 @@ def summarize_remaining_matchups(remaining_matchups):
         unordered[(t1, t2)] += 1
     return oriented, unordered
 
+
+def _current_unordered_meet_counts(schedule):
+    """Return dict[(tmin,tmax)] -> games already scheduled between the pair."""
+    counts = defaultdict(int)
+    for (date_str, time_str, field_id, home, home_div, away, away_div) in schedule or []:
+        if not home or not away:
+            continue
+        t1, t2 = (home, away) if home <= away else (away, home)
+        counts[(t1, t2)] += 1
+    return counts
+
+
+def suggest_best_fit_manual_matchups(all_teams, schedule, team_stats, doubleheader_count,
+                                     team_availability=None, team_blackouts=None, max_pairs=None):
+    """Greedy 'best fit' list of matchups among ONLY teams currently short of target games.
+
+    Goal: produce a simple, reasonable list to manually place that:
+      - fixes game deficits (as much as possible)
+      - prefers pairs that have played each other the least (based on current schedule matrix)
+      - breaks ties by pairing teams with bigger deficits
+
+    Returns list of dict rows ready for XLSX export.
+    """
+    if not team_stats:
+        return []
+
+    # 1) identify teams short
+    needs = {t: max(0, target_games(t) - int(team_stats[t].get('total_games', 0))) for t in all_teams}
+    short = sorted([t for t in all_teams if needs.get(t, 0) > 0])
+    if not short:
+        return []
+
+    total_missing = sum(needs[t] for t in short)
+    meet_counts = _current_unordered_meet_counts(schedule)
+
+    # 2) greedy pairing
+    remaining = dict(needs)
+    rows = []
+    # Cap to what math allows
+    target_pairs = total_missing // 2
+    if max_pairs is not None:
+        target_pairs = min(target_pairs, int(max_pairs))
+
+    def _pair_key(t1, t2):
+        a, b = (t1, t2) if t1 <= t2 else (t2, t1)
+        played = meet_counts.get((a, b), 0)
+        # lower played is better; higher opponent need is better; prefer intra slightly (optional)
+        same_div = 1 if div_of(t1) == div_of(t2) else 0
+        return (played, -remaining.get(t2, 0), -same_div, t2)
+
+    while len(rows) < target_pairs:
+        # pick the team with biggest games deficit; tie-break by DH deficit
+        candidates1 = [t for t in short if remaining.get(t, 0) > 0]
+        if len(candidates1) < 2:
+            break
+        t1 = sorted(candidates1, key=lambda t: (-remaining[t], -dh_deficit(t, doubleheader_count), t))[0]
+
+        candidates2 = [t for t in candidates1 if t != t1]
+        if not candidates2:
+            break
+        t2 = sorted(candidates2, key=lambda t: _pair_key(t1, t))[0]
+
+        a, b = (t1, t2) if t1 <= t2 else (t2, t1)
+        played = meet_counts.get((a, b), 0)
+
+        rows.append({
+            "Team 1": t1,
+            "Div 1": div_of(t1),
+            "Needs 1": int(remaining.get(t1, 0)),
+            "DH Need 1": int(dh_deficit(t1, doubleheader_count)),
+            "Team 2": t2,
+            "Div 2": div_of(t2),
+            "Needs 2": int(remaining.get(t2, 0)),
+            "DH Need 2": int(dh_deficit(t2, doubleheader_count)),
+            "Current Meetings": int(played),
+            "Type": "INTRA" if div_of(t1) == div_of(t2) else "INTER",
+            "Common Avail Days": _common_avail_days(t1, t2, team_availability),
+            "Blackouts": _blackout_summary(t1, t2, team_blackouts),
+        })
+
+        # update remaining deficits
+        remaining[t1] = max(0, remaining.get(t1, 0) - 1)
+        remaining[t2] = max(0, remaining.get(t2, 0) - 1)
+
+    # Add a small tail note if odd deficit remains (can't be paired cleanly)
+    leftover = [(t, remaining[t]) for t in short if remaining.get(t, 0) > 0]
+    if leftover:
+        rows.append({
+            "Team 1": "",
+            "Div 1": "",
+            "Needs 1": "",
+            "DH Need 1": "",
+            "Team 2": "",
+            "Div 2": "",
+            "Needs 2": "",
+            "DH Need 2": "",
+            "Current Meetings": "",
+            "Type": "",
+            "Common Avail Days": "",
+            "Blackouts": "",
+        })
+        rows.append({
+            "Team 1": "Leftover needs (odd / not pairable):",
+            "Div 1": "",
+            "Needs 1": ", ".join([f"{t}:{n}" for t, n in leftover]),
+            "DH Need 1": "",
+            "Team 2": "",
+            "Div 2": "",
+            "Needs 2": "",
+            "DH Need 2": "",
+            "Current Meetings": "",
+            "Type": "",
+            "Common Avail Days": "",
+            "Blackouts": "",
+        })
+
+    return rows
+
+
 def output_unscheduled_matchups_csv(remaining_matchups, output_file):
     """Write remaining matchups to CSV, aggregated by unordered pair.
 
@@ -2277,7 +2396,43 @@ def export_schedule_to_xlsx(field_availability, schedule, division_teams, output
     _autofit(ws_t, len(all_teams) + 1, 2, min_width=8, max_width=16)
 
 
-    # ---------------- Unscheduled Matches ----------------
+    
+    # ---------------- Suggested Manual Matchups ----------------
+    # Best-fit list of matchups among ONLY teams currently short, to help with manual top-ups.
+    ws_s = wb.create_sheet("Suggested Matchups")
+    ws_s.append(["Team 1", "Div 1", "Needs 1", "DH Need 1",
+                 "Team 2", "Div 2", "Needs 2", "DH Need 2",
+                 "Current Meetings", "Type", "Common Avail Days", "Blackouts"])
+    for cell in ws_s[1]:
+        cell.font = Font(bold=True)
+        cell.fill = PatternFill("solid", fgColor="D9E1F2")
+        cell.alignment = Alignment(horizontal="center")
+
+    suggested_rows = suggest_best_fit_manual_matchups(
+        all_teams=all_teams,
+        schedule=schedule,
+        team_stats=team_stats,
+        doubleheader_count=doubleheader_count or {t: 0 for t in all_teams},
+        team_availability=team_availability,
+        team_blackouts=team_blackouts,
+    )
+
+    for row in suggested_rows:
+        ws_s.append([
+            row.get("Team 1", ""), row.get("Div 1", ""), row.get("Needs 1", ""), row.get("DH Need 1", ""),
+            row.get("Team 2", ""), row.get("Div 2", ""), row.get("Needs 2", ""), row.get("DH Need 2", ""),
+            row.get("Current Meetings", ""), row.get("Type", ""), row.get("Common Avail Days", ""), row.get("Blackouts", "")
+        ])
+
+    last_s = max(2, len(suggested_rows) + 1)
+    ws_s.freeze_panes = "A2"
+    ws_s.auto_filter.ref = f"A1:L{last_s}"
+    for rr in range(2, last_s + 1):
+        ws_s.cell(row=rr, column=11).alignment = Alignment(wrap_text=True, vertical="top")
+        ws_s.cell(row=rr, column=12).alignment = Alignment(wrap_text=True, vertical="top")
+    _autofit(ws_s, last_s, 12, min_width=10, max_width=24)
+
+# ---------------- Unscheduled Matches ----------------
     # Lists remaining required matchups that could not be placed into a slot.
     ws_u = wb.create_sheet("Unscheduled Matches")
     ws_u.append(["Home Div", "Home Team", "Away Div", "Away Team", "Remaining", "Home Needs", "Away Needs", "Type", "Available Days", "Blackouts"])
