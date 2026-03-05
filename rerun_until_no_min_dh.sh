@@ -3,7 +3,7 @@ set -euo pipefail
 
 SCRIPT="${1:-scheduler_newest.py}"     # or scheduler_new.py / scheduler_newest.py
 PY="${PY:-python3.11}"
-MAX_TRIES="${MAX_TRIES:-500}"          # safety cap
+MAX_TRIES="${MAX_TRIES:-1500}"          # safety cap
 OUTDIR="${OUTDIR:-runs_$(date +%Y%m%d_%H%M%S)}"
 
 mkdir -p "$OUTDIR"
@@ -86,7 +86,7 @@ for ((i=1; i<=MAX_TRIES; i++)); do
 
   # 2) Fail if below-target list has >= 10 teams
   BELOW_COUNT="$(echo "$OUTPUT" | count_below_target_teams)"
-  if [[ "$BELOW_COUNT" -ge 10 ]]; then
+  if [[ "$BELOW_COUNT" -ne 0 ]]; then
     echo "Attempt $i: Teams below target games = $BELOW_COUNT (>=10). (seed=$SEED)"
     cleanup_outputs
     continue
