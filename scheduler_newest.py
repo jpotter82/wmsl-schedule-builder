@@ -119,6 +119,10 @@ PREFERRED_DAY_BONUS_BOTH = 400   # both teams are on a preferred day
 PREFERRED_DAY_BONUS_ONE = 150    # only one team is on a preferred day
 LATE_DATE_PENALTY_PER_DAY = 12   # discourages consuming late-season inventory too early
 SUNDAYS_FIRST = False            # keep chronology natural; Sunday preference should come from scoring, not slot order
+SEASON_START_DATE = None          # set in main() from field availability
+MAX_CONSECUTIVE_BYE_WEEKS = 1     # allow one bye week, but not two straight empty weeks
+BYE_URGENCY_WEIGHT = 2500         # scoring bonus for teams at risk of a second consecutive bye week
+
 
 # Division A opponent-balance controls (A is DH-only)
 A_PAIR_MIN_GAMES = 2          # each A-vs-A pairing should occur at least this many times
@@ -325,6 +329,68 @@ def check_max_idle_gap(schedule, teams, max_idle_days=MAX_IDLE_DAYS):
             if gap > max_idle_days:
                 violations.append((team, dates[i - 1].strftime('%Y-%m-%d'), dates[i].strftime('%Y-%m-%d'), gap))
     return violations
+
+
+def season_week_index(d, season_start=None):
+    """Return a stable season week index (0-based) using Monday-based weeks."""
+    from datetime import timedelta
+    dd = d.date() if hasattr(d, 'date') and not hasattr(d, 'weekday') else d
+    start = season_start or SEASON_START_DATE or dd
+    start_monday = start - timedelta(days=start.weekday())
+    return (dd - start_monday).days // 7
+
+
+def team_weeks_played(team, team_game_days, season_start=None):
+    return sorted({season_week_index(dd, season_start) for dd in team_game_days[team].keys()})
+
+
+def max_consecutive_byes(team, team_game_days, season_start=None):
+    weeks = team_weeks_played(team, team_game_days, season_start)
+    if len(weeks) < 2:
+        return 0
+    return max(max(0, weeks[i] - weeks[i - 1] - 1) for i in range(1, len(weeks)))
+
+
+def max_consecutive_byes_after_adding(team, d, team_game_days, season_start=None):
+    weeks = set(team_weeks_played(team, team_game_days, season_start))
+    weeks.add(season_week_index(d, season_start))
+    weeks = sorted(weeks)
+    if len(weeks) < 2:
+        return 0
+    return max(max(0, weeks[i] - weeks[i - 1] - 1) for i in range(1, len(weeks)))
+
+
+def no_two_consecutive_byes_after_adding(team, d, team_game_days, season_start=None, max_consecutive_byes=MAX_CONSECUTIVE_BYE_WEEKS):
+    """True if adding date d does not create more than the allowed consecutive bye weeks between games."""
+    return max_consecutive_byes_after_adding(team, d, team_game_days, season_start) <= max_consecutive_byes
+
+
+def bye_week_urgency_bonus(team, d, team_game_days, season_start=None):
+    """Score bonus for placements that reduce/avoid consecutive bye-week stretches."""
+    before = max_consecutive_byes(team, team_game_days, season_start)
+    after = max_consecutive_byes_after_adding(team, d, team_game_days, season_start)
+    if after < before:
+        return (before - after) * (BYE_URGENCY_WEIGHT * 2)
+    weeks = team_weeks_played(team, team_game_days, season_start)
+    if not weeks:
+        return 0
+    w = season_week_index(d, season_start)
+    bonus = 0
+    prev_weeks = [wk for wk in weeks if wk < w]
+    next_weeks = [wk for wk in weeks if wk > w]
+    if prev_weeks:
+        gap_from_prev = w - prev_weeks[-1]
+        if gap_from_prev == 2:
+            bonus += BYE_URGENCY_WEIGHT
+        elif gap_from_prev > 2:
+            bonus += BYE_URGENCY_WEIGHT * 2
+    if next_weeks:
+        gap_to_next = next_weeks[0] - w
+        if gap_to_next == 2:
+            bonus += BYE_URGENCY_WEIGHT
+        elif gap_to_next > 2:
+            bonus += BYE_URGENCY_WEIGHT * 2
+    return bonus
 
 
 # -------------------------------
@@ -1376,6 +1442,8 @@ def schedule_A_pod_doubleheaders(division_teams, team_availability, field_availa
         # gap constraint vs other days
         if not min_gap_ok(team, d, team_game_days):
             return False
+        if not no_two_consecutive_byes_after_adding(team, d, team_game_days):
+            return False
         wk = d.isocalendar()[1]
         if team_stats[team]['weekly_games'].get(wk, 0) + 2 > WEEKLY_GAME_LIMIT:
             return False
@@ -1953,6 +2021,10 @@ def schedule_games(matchups, team_availability, field_availability, team_blackou
                 if not (min_gap_ok(t1, d, team_game_days) and min_gap_ok(t2, d, team_game_days)):
                     continue
 
+                # hard cadence rule: no two consecutive bye weeks
+                if not (no_two_consecutive_byes_after_adding(t1, d, team_game_days) and no_two_consecutive_byes_after_adding(t2, d, team_game_days)):
+                    continue
+
                 # slot adjacency rules for DH second game
                 if not slot_ok_for_team(t1, d, slot) or not slot_ok_for_team(t2, d, slot):
                     continue
@@ -1979,6 +2051,10 @@ def schedule_games(matchups, team_availability, field_availability, team_blackou
                 # Strong preference for placements that break up long layoffs
                 score += idle_gap_repair_bonus(t1, d, team_game_days)
                 score += idle_gap_repair_bonus(t2, d, team_game_days)
+
+                # Strong preference for teams at risk of a second straight bye week
+                score += bye_week_urgency_bonus(t1, d, team_game_days)
+                score += bye_week_urgency_bonus(t2, d, team_game_days)
 
                 # Prefer team-friendly days where possible
                 score += preferred_day_bonus(t1, t2, d, team_preferred_days)
@@ -2135,6 +2211,10 @@ def fill_missing_games(schedule, team_stats, doubleheader_count, team_game_days,
                 # Strong preference for placements that break up long layoffs
                 score += idle_gap_repair_bonus(t1, d, team_game_days)
                 score += idle_gap_repair_bonus(t2, d, team_game_days)
+
+                # Strong preference for teams at risk of a second straight bye week
+                score += bye_week_urgency_bonus(t1, d, team_game_days)
+                score += bye_week_urgency_bonus(t2, d, team_game_days)
 
                 # Prefer team-friendly days where possible
                 score += preferred_day_bonus(t1, t2, d, team_preferred_days)
@@ -2970,20 +3050,15 @@ def generate_matchup_table(schedule, division_teams):
             row = [str(matchup_count[team][opp]) for opp in all_teams]
             print(team + "," + ",".join(row))
 
+# -------------------------------
+# Main
+# -------------------------------
 
 def print_schedule_summary(team_stats):
     rows = []
     for team in sorted(team_stats.keys(), key=lambda t: (t[0], int(t[1:]) if t[1:].isdigit() else t[1:])):
         stats = team_stats[team]
-        rows.append([
-            team[0],
-            team,
-            target_games(team),
-            stats.get('total_games', 0),
-            stats.get('home_games', 0),
-            stats.get('away_games', 0),
-        ])
-
+        rows.append([team[0], team, target_games(team), stats.get('total_games', 0), stats.get('home_games', 0), stats.get('away_games', 0)])
     print("\nSchedule Summary:")
     if PrettyTable:
         table = PrettyTable()
@@ -3001,7 +3076,6 @@ def print_doubleheader_summary(doubleheader_count):
     rows = []
     for team in sorted(doubleheader_count.keys(), key=lambda t: (t[0], int(t[1:]) if t[1:].isdigit() else t[1:])):
         rows.append([team[0], team, min_dh(team), doubleheader_count.get(team, 0)])
-
     print("\nDoubleheader Summary:")
     if PrettyTable:
         table = PrettyTable()
@@ -3014,9 +3088,7 @@ def print_doubleheader_summary(doubleheader_count):
         for row in rows:
             print(",".join(str(x) for x in row))
 
-# -------------------------------
-# Main
-# -------------------------------
+
 def main():
     global RUN_SEED
     # --- RNG setup ---
@@ -3053,6 +3125,8 @@ def main():
         print("No team_preferred_days.csv found (preferred day bonus disabled).")
 
     field_availability = load_field_availability('field_availability.csv')
+    global SEASON_START_DATE
+    SEASON_START_DATE = min((dt.date() for dt, _slot, _field in field_availability), default=None)
     team_blackouts = load_team_blackouts('team_blackouts.csv')
 
     division_teams = {
@@ -3166,6 +3240,12 @@ def main():
         print("Critical: Teams with layoff gaps greater than {} days (showing up to 50):".format(MAX_IDLE_DAYS))
         for v in idle_gap_violations[:50]:
             print("  ", v)
+
+    bye_week_violations = [(t, max_consecutive_byes(t, team_game_days)) for t in all_teams if max_consecutive_byes(t, team_game_days) > MAX_CONSECUTIVE_BYE_WEEKS]
+    if bye_week_violations:
+        print("Critical: Teams with more than {} consecutive bye week(s):".format(MAX_CONSECUTIVE_BYE_WEEKS))
+        for t, gap in bye_week_violations:
+            print("   {} -> {} consecutive bye weeks".format(t, gap))
 
     # Export CSV + XLSX with full slot list (row count == field_availability)
     # Hard validation: no team is scheduled on a disallowed day
