@@ -111,6 +111,8 @@ PREFERRED_MIN_GAP = 3         # ideal minimum days between game dates (soft pref
 HARD_MIN_GAP = 2              # absolute minimum days between game dates (hard constraint)
 WEEKLY_GAME_LIMIT = 3          # max games per team per week
 HOME_AWAY_BALANCE = 11         # desired home games per team (for 22-game seasons)
+MAX_IDLE_DAYS = 14             # hard target: no more than one open week between game dates
+IDLE_GAP_REPAIR_WEIGHT = 1500  # scoring bonus for placements that shrink long layoffs
 
 # Division A opponent-balance controls (A is DH-only)
 A_PAIR_MIN_GAMES = 2          # each A-vs-A pairing should occur at least this many times
@@ -268,6 +270,55 @@ def preferred_gap_penalty(team, d, team_game_days, penalty_per_day=500):
     if closest >= PREFERRED_MIN_GAP:
         return 0
     return (PREFERRED_MIN_GAP - closest) * penalty_per_day
+
+def longest_idle_gap(team, team_game_days):
+    """Largest day gap between consecutive game dates already scheduled for a team."""
+    dates = sorted(team_game_days[team])
+    if len(dates) < 2:
+        return 0
+    return max((dates[i] - dates[i - 1]).days for i in range(1, len(dates)))
+
+
+def longest_idle_gap_after_adding(team, d, team_game_days):
+    """Largest day gap after hypothetically adding date d for team."""
+    dates = sorted(set(team_game_days[team]) | {d})
+    if len(dates) < 2:
+        return 0
+    return max((dates[i] - dates[i - 1]).days for i in range(1, len(dates)))
+
+
+def idle_gap_repair_bonus(team, d, team_game_days):
+    """
+    Positive score when placing team on date d shrinks an existing long layoff.
+    This works better than a pure hard reject with the current non-chronological
+    greedy passes, because later placements can still split a large gap.
+    """
+    before = longest_idle_gap(team, team_game_days)
+    after = longest_idle_gap_after_adding(team, d, team_game_days)
+    if after < before:
+        bonus = (before - after) * IDLE_GAP_REPAIR_WEIGHT
+        if before > MAX_IDLE_DAYS:
+            bonus += (before - MAX_IDLE_DAYS) * IDLE_GAP_REPAIR_WEIGHT
+        return bonus
+    return 0
+
+
+def check_max_idle_gap(schedule, teams, max_idle_days=MAX_IDLE_DAYS):
+    """Return (team, previous_date, next_date, gap_days) for long layoff violations."""
+    by_team = defaultdict(set)
+    for (dt, _time, _field, home, _home_div, away, _away_div) in schedule:
+        dd = dt.date() if hasattr(dt, 'date') else dt
+        by_team[home].add(dd)
+        by_team[away].add(dd)
+
+    violations = []
+    for team in teams:
+        dates = sorted(by_team.get(team, set()))
+        for i in range(1, len(dates)):
+            gap = (dates[i] - dates[i - 1]).days
+            if gap > max_idle_days:
+                violations.append((team, dates[i - 1].strftime('%Y-%m-%d'), dates[i].strftime('%Y-%m-%d'), gap))
+    return violations
 
 
 # -------------------------------
@@ -1824,9 +1875,9 @@ def schedule_games(matchups, team_availability, field_availability, team_blackou
                 score -= preferred_gap_penalty(t1, d, team_game_days)
                 score -= preferred_gap_penalty(t2, d, team_game_days)
 
-                # Soft gap preference (allow 2-day gaps, prefer 3+)
-                score -= preferred_gap_penalty(t1, d, team_game_days)
-                score -= preferred_gap_penalty(t2, d, team_game_days)
+                # Strong preference for placements that break up long layoffs
+                score += idle_gap_repair_bonus(t1, d, team_game_days)
+                score += idle_gap_repair_bonus(t2, d, team_game_days)
 
                 if sunday_assignment and d.weekday() == 6:
                     assigned = sunday_assignment.get(d)
@@ -1970,6 +2021,10 @@ def fill_missing_games(schedule, team_stats, doubleheader_count, team_game_days,
                     continue
 
                 score = matchup_need_score(t1, t2, team_stats, doubleheader_count)
+
+                # Strong preference for placements that break up long layoffs
+                score += idle_gap_repair_bonus(t1, d, team_game_days)
+                score += idle_gap_repair_bonus(t2, d, team_game_days)
 
                 if sunday_assignment and d.weekday() == 6:
                     assigned = sunday_assignment.get(d)
@@ -2916,6 +2971,12 @@ def main():
     under_dh = [t for t in all_teams if doubleheader_count[t] < min_dh(t)]
     if under_dh:
         print("Critical: Teams below minimum DH days: {}".format(under_dh))
+
+    idle_gap_violations = check_max_idle_gap(schedule, all_teams)
+    if idle_gap_violations:
+        print("Critical: Teams with layoff gaps greater than {} days (showing up to 50):".format(MAX_IDLE_DAYS))
+        for v in idle_gap_violations[:50]:
+            print("  ", v)
 
     # Export CSV + XLSX with full slot list (row count == field_availability)
     # Hard validation: no team is scheduled on a disallowed day
