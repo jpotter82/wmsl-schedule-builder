@@ -2970,6 +2970,50 @@ def generate_matchup_table(schedule, division_teams):
             row = [str(matchup_count[team][opp]) for opp in all_teams]
             print(team + "," + ",".join(row))
 
+
+def print_schedule_summary(team_stats):
+    rows = []
+    for team in sorted(team_stats.keys(), key=lambda t: (t[0], int(t[1:]) if t[1:].isdigit() else t[1:])):
+        stats = team_stats[team]
+        rows.append([
+            team[0],
+            team,
+            target_games(team),
+            stats.get('total_games', 0),
+            stats.get('home_games', 0),
+            stats.get('away_games', 0),
+        ])
+
+    print("\nSchedule Summary:")
+    if PrettyTable:
+        table = PrettyTable()
+        table.field_names = ["Division", "Team", "Target", "Total Games", "Home Games", "Away Games"]
+        for row in rows:
+            table.add_row(row)
+        print(table)
+    else:
+        print("Division,Team,Target,Total Games,Home Games,Away Games")
+        for row in rows:
+            print(",".join(str(x) for x in row))
+
+
+def print_doubleheader_summary(doubleheader_count):
+    rows = []
+    for team in sorted(doubleheader_count.keys(), key=lambda t: (t[0], int(t[1:]) if t[1:].isdigit() else t[1:])):
+        rows.append([team[0], team, min_dh(team), doubleheader_count.get(team, 0)])
+
+    print("\nDoubleheader Summary:")
+    if PrettyTable:
+        table = PrettyTable()
+        table.field_names = ["Division", "Team", "Min DH", "DH Days"]
+        for row in rows:
+            table.add_row(row)
+        print(table)
+    else:
+        print("Division,Team,Min DH,DH Days")
+        for row in rows:
+            print(",".join(str(x) for x in row))
+
 # -------------------------------
 # Main
 # -------------------------------
