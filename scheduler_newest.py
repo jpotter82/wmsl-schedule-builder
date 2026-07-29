@@ -160,12 +160,12 @@ RANDOM_SEED = None           # for repeatable schedules
 # Per-division configuration (tweak here)
 DIVISION_SETTINGS = {
     # A: 22 games, only DH => 11 DH days exactly
-    'A': {'inter': False, 'target_games': 14, 'min_dh': 7, 'max_dh': 7},
+    'A': {'inter': False, 'target_games': 11, 'min_dh': 6, 'max_dh': 6},
 
     # B/C/D: inter allowed, intra can top up as needed
-    'B': {'inter': False, 'target_games': 14, 'min_dh': 7, 'max_dh': 7},
-    'C': {'inter': False, 'target_games': 14, 'min_dh': 7, 'max_dh': 7},
-    'D': {'inter': True,  'target_games': 22, 'min_dh': 7,  'max_dh': 10},
+    'B': {'inter': False, 'target_games': 11, 'min_dh': 6, 'max_dh': 6},
+    'C': {'inter': False, 'target_games': 11, 'min_dh': 6, 'max_dh': 6},
+    # 'D': {'inter': True,  'target_games': 11, 'min_dh': 6,  'max_dh': 6},
 }
 
 # Inter-division pairing settings (only applied if BOTH divisions have inter=True)
