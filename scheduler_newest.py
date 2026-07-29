@@ -109,8 +109,8 @@ except ImportError:
 MAX_RETRIES = 20000            # scheduling backtracking limit
 PREFERRED_MIN_GAP = 3         # ideal minimum days between game dates (soft preference)
 HARD_MIN_GAP = 2              # absolute minimum days between game dates (hard constraint)
-WEEKLY_GAME_LIMIT = 3          # max games per team per week
-HOME_AWAY_BALANCE = 11         # desired home games per team (for 22-game seasons)
+WEEKLY_GAME_LIMIT = 4          # max games per team per week
+HOME_AWAY_BALANCE = 7          # desired home games per team (for 22-game seasons)
 MAX_IDLE_DAYS = 14             # hard target: no more than one open week between game dates
 IDLE_GAP_REPAIR_WEIGHT = 1500  # scoring bonus for placements that shrink long layoffs
 
@@ -134,8 +134,8 @@ A_PAIR_SOFT_CAP = 4           # avoid exceeding this for a pair while some requi
 PAIR_RULES = {
     'A': {'min': A_PAIR_MIN_GAMES, 'soft_cap': A_PAIR_SOFT_CAP},
     'B': {'min': 2, 'soft_cap': 4},
-    'C': {'min': 2, 'soft_cap': 5},  # 6-team divisions naturally have higher repeats
-    'D': {'min': 2, 'soft_cap': 5},
+    'C': {'min': 2, 'soft_cap': 4},  # 6-team divisions naturally have higher repeats
+    'D': {'min': 2, 'soft_cap': 4},
 }
 
 def effective_pair_rules(division, intra_target_per_team, n):
@@ -160,11 +160,11 @@ RANDOM_SEED = None           # for repeatable schedules
 # Per-division configuration (tweak here)
 DIVISION_SETTINGS = {
     # A: 22 games, only DH => 11 DH days exactly
-    'A': {'inter': False, 'target_games': 22, 'min_dh': 11, 'max_dh': 11},
+    'A': {'inter': False, 'target_games': 14, 'min_dh': 7, 'max_dh': 7},
 
     # B/C/D: inter allowed, intra can top up as needed
-    'B': {'inter': True,  'target_games': 22, 'min_dh': 7,  'max_dh': 10},
-    'C': {'inter': True,  'target_games': 22, 'min_dh': 7,  'max_dh': 10},
+    'B': {'inter': False, 'target_games': 14, 'min_dh': 7, 'max_dh': 7},
+    'C': {'inter': False, 'target_games': 14, 'min_dh': 7, 'max_dh': 7},
     'D': {'inter': True,  'target_games': 22, 'min_dh': 7,  'max_dh': 10},
 }
 
@@ -3130,13 +3130,13 @@ def main():
     team_blackouts = load_team_blackouts('team_blackouts.csv')
 
     division_teams = {
-        'A': ["A{}".format(i+1) for i in range(8)],
-        'B': ["B{}".format(i+1) for i in range(8)],
+        'A': ["A{}".format(i+1) for i in range(6)],
+        'B': ["B{}".format(i+1) for i in range(6)],
         'C': ["C{}".format(i+1) for i in range(6)],
-        'D': ["D{}".format(i+1) for i in range(6)],
+        # 'D': ["D{}".format(i+1) for i in range(6)],
     }
-    all_teams = [t for div in ('A', 'B', 'C', 'D') for t in division_teams[div]]
-
+    # all_teams = [t for div in ('A', 'B', 'C', 'D') for t in division_teams[div]]
+    all_teams = [t for div in ('A', 'B', 'C') for t in division_teams[div]]
     schedule = []
     team_stats = defaultdict(lambda: {
         'total_games': 0,
