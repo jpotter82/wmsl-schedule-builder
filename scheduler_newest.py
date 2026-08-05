@@ -178,7 +178,6 @@ DIVISION_SETTINGS = {
     'B': {'inter': False, 'target_games': 14, 'min_dh': 5, 'max_dh': 6},
     'C': {'inter': False, 'target_games': 14, 'min_dh': 5, 'max_dh': 6},
 }
-}
 
 # Inter-division pairing settings (only applied if BOTH divisions have inter=True)
 INTER_PAIR_SETTINGS = {
