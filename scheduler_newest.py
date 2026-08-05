@@ -133,9 +133,9 @@ A_PAIR_SOFT_CAP = 4           # avoid exceeding this for a pair while some requi
 # clamp the effective minimum to floor(avg_games_vs_opponent).
 PAIR_RULES = {
     'A': {'min': A_PAIR_MIN_GAMES, 'soft_cap': A_PAIR_SOFT_CAP},
-    'B': {'min': 1, 'soft_cap': 2},
+    'B': {'min': 1, 'soft_cap': 3},
     'C': {'min': 1, 'soft_cap': 2},  # 6-team divisions naturally have higher repeats
-    'D': {'min': 1, 'soft_cap': 2},
+    # 'D': {'min': 1, 'soft_cap': 2},
 }
 
 def effective_pair_rules(division, intra_target_per_team, n):
@@ -154,18 +154,30 @@ def effective_pair_rules(division, intra_target_per_team, n):
 # Sunday pod rotation:
 # For Sunday dates, we try to rotate which division gets pod-style doubleheaders.
 # This helps avoid one division (e.g., A) soaking up all Sunday capacity.
-SUNDAY_POD_ROTATION = ['B', 'C', 'D', 'A']  # cycle order (can change)
+# SPRING PARAMS
+# SUNDAY_POD_ROTATION = ['B', 'C', 'D', 'A']  # cycle order (can change)
+# SUNDAY_PODS_PER_SUNDAY = 3  # at most this many *pod sessions* across all divisions on a Sunday
+# FALL PARAMS
+SUNDAY_POD_ROTATION = ['B', 'C', 'A']  # cycle order (can change)
 SUNDAY_PODS_PER_SUNDAY = 3  # at most this many *pod sessions* across all divisions on a Sunday
 RANDOM_SEED = None           # for repeatable schedules
 # Per-division configuration (tweak here)
 DIVISION_SETTINGS = {
+    # SPRING LEAGUE
     # A: 22 games, only DH => 11 DH days exactly
-    'A': {'inter': False, 'target_games': 11, 'min_dh': 4, 'max_dh': 4},
+    # 'A': {'inter': False, 'target_games': 11, 'min_dh': 4, 'max_dh': 4},
 
     # B/C/D: inter allowed, intra can top up as needed
-    'B': {'inter': False, 'target_games': 11, 'min_dh': 4, 'max_dh': 4},
-    'C': {'inter': False, 'target_games': 11, 'min_dh': 4, 'max_dh': 4},
-    # 'D': {'inter': True,  'target_games': 11, 'min_dh': 6,  'max_dh': 6},
+    # 'B': {'inter': False, 'target_games': 22, 'min_dh': 8, 'max_dh': 9},
+    # 'C': {'inter': False, 'target_games': 22, 'min_dh': 8, 'max_dh': 9},
+    # 'D': {'inter': True,  'target_games': 22, 'min_dh': 8,  'max_dh': 9},
+
+    # FALL LEAGUE
+
+    'A': {'inter': False, 'target_games': 14, 'min_dh': 5, 'max_dh': 6},
+    'B': {'inter': False, 'target_games': 14, 'min_dh': 5, 'max_dh': 6},
+    'C': {'inter': False, 'target_games': 14, 'min_dh': 5, 'max_dh': 6},
+}
 }
 
 # Inter-division pairing settings (only applied if BOTH divisions have inter=True)
@@ -173,8 +185,8 @@ INTER_PAIR_SETTINGS = {
     ('A', 'B'): False,
     ('A', 'C'): False,
     ('A', 'D'): False,
-    ('B', 'C'): True,
-    ('C', 'D'): True,
+    ('B', 'C'): False,
+    ('C', 'D'): False,
     ('B', 'D'): False,
 }
 
