@@ -125,16 +125,19 @@ BYE_URGENCY_WEIGHT = 2500         # scoring bonus for teams at risk of a second 
 
 
 # Division A opponent-balance controls (A is DH-only)
-A_PAIR_MIN_GAMES = 2          # each A-vs-A pairing should occur at least this many times
-A_PAIR_SOFT_CAP = 4           # avoid exceeding this for a pair while some required pairs still unmet
-
+A_PAIR_MIN_GAMES = 1          # each A-vs-A pairing should occur at least this many times
+A_PAIR_SOFT_CAP = 3           # avoid exceeding this for a pair while some required pairs still unmet
+B_PAIR_MIN_GAMES = 2          # each A-vs-A pairing should occur at least this many times
+B_PAIR_SOFT_CAP = 2           # avoid exceeding this for a pair while some required pairs still unmet
+C_PAIR_MIN_GAMES = 1          # each A-vs-A pairing should occur at least this many times
+C_PAIR_SOFT_CAP = 3           # avoid exceeding this for a pair while some required pairs still unmet
 # Pairing balance rules (min games per opponent + soft cap to avoid lopsided repeats)
 # NOTE: For divisions where the intra_target_per_team makes min infeasible, the code will automatically
 # clamp the effective minimum to floor(avg_games_vs_opponent).
 PAIR_RULES = {
     'A': {'min': A_PAIR_MIN_GAMES, 'soft_cap': A_PAIR_SOFT_CAP},
-    'B': {'min': 1, 'soft_cap': 3},
-    'C': {'min': 1, 'soft_cap': 2},  # 6-team divisions naturally have higher repeats
+    'B': {'min': B_PAIR_MIN_GAMES, 'soft_cap': B_PAIR_SOFT_CAP},
+    'C': {'min': C_PAIR_MIN_GAMES, 'soft_cap': C_PAIR_SOFT_CAP},  # 6-team divisions naturally have higher repeats
     # 'D': {'min': 1, 'soft_cap': 2},
 }
 
@@ -210,7 +213,7 @@ def min_dh(team):
 def max_dh(team):
     return DIVISION_SETTINGS[div_of(team)]['max_dh']
 
-DIV_PRIORITY = {'D': 3, 'C': 2, 'B': 1, 'A': 0}
+DIV_PRIORITY = {'C': 2, 'B': 1, 'A': 0}
 
 def game_deficit(team, team_stats):
     return max(0, target_games(team) - team_stats[team]['total_games'])
