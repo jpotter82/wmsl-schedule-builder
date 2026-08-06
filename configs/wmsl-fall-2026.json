@@ -1,0 +1,75 @@
+{
+  "divisions": {
+    "A": {
+      "team_count": 6,
+      "inter": false,
+      "dh_only": false,
+      "target_games": 14,
+      "min_dh": 6,
+      "max_dh": 7
+    },
+    "B": {
+      "team_count": 8,
+      "inter": false,
+      "dh_only": false,
+      "target_games": 14,
+      "min_dh": 6,
+      "max_dh": 7
+    },
+    "C": {
+      "team_count": 6,
+      "inter": false,
+      "dh_only": false,
+      "target_games": 14,
+      "min_dh": 6,
+      "max_dh": 7
+    }
+  },
+  "general": {
+    "weekly_game_limit": 4,
+    "home_away_balance": 7,
+    "hard_min_gap": 2,
+    "preferred_min_gap": 3,
+    "max_retries": 20000,
+    "random_seed": null,
+    "attempts": 150,
+    "weekly_soft_target": null,
+    "weekly_balance_penalty": 0
+  },
+  "pair_rules": {
+    "A": {
+      "min": 2,
+      "soft_cap": 3
+    },
+    "B": {
+      "min": 2,
+      "soft_cap": 3
+    },
+    "C": {
+      "min": 2,
+      "soft_cap": 3
+    }
+  },
+  "inter_pairs": {
+    "A-B": {
+      "enabled": false,
+      "degree": 0
+    },
+    "A-C": {
+      "enabled": false,
+      "degree": 0
+    },
+    "B-C": {
+      "enabled": false,
+      "degree": 4
+    }
+  },
+  "sunday_pod_rotation": [
+    "B",
+    "C",
+    "A"
+  ],
+  "sunday_pods_per_sunday": 4,
+  "sunday_priority": 0,
+  "sunday_pods_only": false
+}
