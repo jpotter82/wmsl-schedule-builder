@@ -312,7 +312,21 @@ def _score_attempt(all_teams, team_stats, doubleheader_count, unscheduled, viola
     # Teams left with a layoff longer than the target. Counted here so best-of-N
     # prefers schedules without long dead stretches, not just ones with more games.
     idle_violations = sn.check_max_idle_gap(schedule or [], all_teams)
-    worst_idle = max((g for _t, g, _s, _e in idle_violations), default=0)
+    # The true longest layoff across every team, not just those over the target --
+    # check_max_idle_gap only reports violations, so reading its max would show 0
+    # for a clean schedule instead of the actual worst gap.
+    _dates = defaultdict(set)
+    for entry in (schedule or []):
+        if entry is None:
+            continue
+        dt, _s, _f, home, _hd, away, _ad = entry
+        _dates[home].add(dt.date())
+        _dates[away].add(dt.date())
+    worst_idle = 0
+    for _team, _ds in _dates.items():
+        ds = sorted(_ds)
+        for i in range(1, len(ds)):
+            worst_idle = max(worst_idle, (ds[i] - ds[i - 1]).days)
 
     score = (
         games_short * 10000

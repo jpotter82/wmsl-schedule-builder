@@ -260,6 +260,27 @@ FRONT_LOAD_BONUS = 4000    # score bonus for placing a game inside the front-loa
 MAX_IDLE_DAYS = 14
 IDLE_GAP_REPAIR_WEIGHT = 1500
 
+# --- Restored during the main merge -------------------------------------------
+# The merge kept the functions below that use these constants but dropped the
+# definitions themselves, leaving the module unable to import at all. Values are
+# main's originals.
+PREFERRED_DAY_BONUS_BOTH = 400    # both teams are on a preferred day
+PREFERRED_DAY_BONUS_ONE = 150     # only one team is on a preferred day
+LATE_DATE_PENALTY_PER_DAY = 12    # discourages consuming late-season inventory too early
+SEASON_START_DATE = None          # set at run start from field availability
+MAX_CONSECUTIVE_BYE_WEEKS = 1     # allow one bye week, but not two straight empty weeks
+BYE_URGENCY_WEIGHT = 2500         # bonus for teams at risk of a second consecutive bye week
+
+# Whether load_field_availability sorts Sundays ahead of weekdays.
+#
+# main set this False, on the reasoning that Sunday preference belongs in scoring
+# rather than slot order. This branch's Sunday handling was built and measured
+# against the sorted-first behaviour, so it stays True here; the Sunday Preference
+# setting provides the scoring-side control main was after. Flip to False to adopt
+# main's ordering.
+SUNDAYS_FIRST = True
+# -------------------------------------------------------------------------------
+
 # Soft cap on games per team per week.
 #
 # WEEKLY_GAME_LIMIT is the HARD ceiling (a team may never exceed it). This soft
@@ -567,54 +588,15 @@ def preferred_gap_penalty(team, d, team_game_days, penalty_per_day=500):
         return 0
     return (PREFERRED_MIN_GAP - closest) * penalty_per_day
 
-def longest_idle_gap(team, team_game_days):
-    """Largest day gap between consecutive game dates already scheduled for a team."""
-    dates = sorted(team_game_days[team])
-    if len(dates) < 2:
-        return 0
-    return max((dates[i] - dates[i - 1]).days for i in range(1, len(dates)))
-
-
-def longest_idle_gap_after_adding(team, d, team_game_days):
-    """Largest day gap after hypothetically adding date d for team."""
-    dates = sorted(set(team_game_days[team]) | {d})
-    if len(dates) < 2:
-        return 0
-    return max((dates[i] - dates[i - 1]).days for i in range(1, len(dates)))
-
-
-def idle_gap_repair_bonus(team, d, team_game_days):
-    """
-    Positive score when placing team on date d shrinks an existing long layoff.
-    This works better than a pure hard reject with the current non-chronological
-    greedy passes, because later placements can still split a large gap.
-    """
-    before = longest_idle_gap(team, team_game_days)
-    after = longest_idle_gap_after_adding(team, d, team_game_days)
-    if after < before:
-        bonus = (before - after) * IDLE_GAP_REPAIR_WEIGHT
-        if before > MAX_IDLE_DAYS:
-            bonus += (before - MAX_IDLE_DAYS) * IDLE_GAP_REPAIR_WEIGHT
-        return bonus
-    return 0
-
-
-def check_max_idle_gap(schedule, teams, max_idle_days=MAX_IDLE_DAYS):
-    """Return (team, previous_date, next_date, gap_days) for long layoff violations."""
-    by_team = defaultdict(set)
-    for (dt, _time, _field, home, _home_div, away, _away_div) in schedule:
-        dd = dt.date() if hasattr(dt, 'date') else dt
-        by_team[home].add(dd)
-        by_team[away].add(dd)
-
-    violations = []
-    for team in teams:
-        dates = sorted(by_team.get(team, set()))
-        for i in range(1, len(dates)):
-            gap = (dates[i] - dates[i - 1]).days
-            if gap > max_idle_days:
-                violations.append((team, dates[i - 1].strftime('%Y-%m-%d'), dates[i].strftime('%Y-%m-%d'), gap))
-    return violations
+# NOTE: the idle-gap helpers live earlier in this file (see _played_dates and
+# longest_idle_gap above). A second copy arrived here when main was merged in.
+# They were NOT equivalent, so the duplicates were removed rather than kept:
+#   - the earlier copies filter out dates whose game count has dropped to zero,
+#     which matters because repair_schedule (merged in from the other side) leaves
+#     a date key behind when it moves a game away;
+#   - check_max_idle_gap returned its tuple in a different order in each copy
+#     ((team, gap, start, end) vs (team, start, end, gap)), and Python keeps the
+#     last definition, so the surviving one silently disagreed with its caller.
 
 
 def season_week_index(d, season_start=None):
@@ -3217,7 +3199,153 @@ def _autofit(ws, max_row, max_col, min_width=10, max_width=40):
             best = max(best, len(str(v)))
         ws.column_dimensions[letter].width = max(min_width, min(max_width, best + 2))
 
-def export_schedule_to_xlsx(field_availability, schedule, division_teams, output_path, remaining_matchups=None, team_stats=None, doubleheader_count=None, team_availability=None, team_blackouts=None, diagnostics=None):
+# --- Restored during the main merge -------------------------------------------
+# export_schedule_to_xlsx below calls both of these, but the merge dropped their
+# definitions while keeping the call sites, so any XLSX export raised NameError.
+# Taken unchanged from main.
+# -------------------------------------------------------------------------------
+def _schedule_row_annotations(rows, team_preferred_days=None):
+    """Return per-row annotations for Schedule export."""
+    scheduled_only = []
+    for idx, (dt, slot, field, home, home_div, away, away_div) in enumerate(rows, start=2):
+        if home and away:
+            scheduled_only.append((idx, dt, slot, field, home, home_div, away, away_div))
+
+    # Running totals / previous dates per team
+    running = defaultdict(int)
+    previous_dates = {}
+    metadata = {}
+    by_team_date = defaultdict(int)
+    by_pair = defaultdict(list)
+
+    for idx, dt, slot, field, home, home_div, away, away_div in scheduled_only:
+        d = dt.date()
+        by_team_date[(home, d)] += 1
+        by_team_date[(away, d)] += 1
+        by_pair[tuple(sorted((home, away)))].append(d)
+
+    pair_seen = defaultdict(int)
+    for idx, dt, slot, field, home, home_div, away, away_div in scheduled_only:
+        d = dt.date()
+        running[home] += 1
+        running[away] += 1
+        home_last = previous_dates.get(home)
+        away_last = previous_dates.get(away)
+        home_days = (d - home_last).days if home_last else ""
+        away_days = (d - away_last).days if away_last else ""
+
+        same_day_home = by_team_date[(home, d)]
+        same_day_away = by_team_date[(away, d)]
+        is_dh = same_day_home > 1 or same_day_away > 1
+        pair_key = tuple(sorted((home, away)))
+        pair_seen[pair_key] += 1
+        pair_dates = sorted(set(by_pair[pair_key]))
+        recent_repeat = False
+        if len(pair_dates) > 1:
+            pos = pair_dates.index(d)
+            prev_d = pair_dates[pos - 1] if pos > 0 else None
+            next_d = pair_dates[pos + 1] if pos + 1 < len(pair_dates) else None
+            if prev_d and (d - prev_d).days < 14:
+                recent_repeat = True
+            if next_d and (next_d - d).days < 14:
+                recent_repeat = True
+
+        game_type_parts = ["INTRA" if home_div == away_div else "INTER"]
+        if is_dh:
+            game_type_parts.append("DH")
+        else:
+            game_type_parts.append("SINGLE")
+
+        pref_label = "N/A"
+        if team_preferred_days:
+            dow = dow_label(dt)
+            home_pref = dow in team_preferred_days.get(home, set())
+            away_pref = dow in team_preferred_days.get(away, set())
+            if home_pref and away_pref:
+                pref_label = "Both"
+            elif home_pref or away_pref:
+                pref_label = "One"
+            else:
+                pref_label = "None"
+
+        flags = []
+        if home_days != "" and home_days > MAX_IDLE_DAYS:
+            flags.append(f"{home} layoff")
+        if away_days != "" and away_days > MAX_IDLE_DAYS:
+            flags.append(f"{away} layoff")
+        if pref_label == "None":
+            flags.append("Non-preferred day")
+        if recent_repeat:
+            flags.append("Quick rematch")
+
+        metadata[idx] = {
+            "game_type": " ".join(game_type_parts),
+            "home_after": running[home],
+            "away_after": running[away],
+            "home_last": home_last,
+            "away_last": away_last,
+            "home_days_since": home_days,
+            "away_days_since": away_days,
+            "preferred_match": pref_label,
+            "flag": "; ".join(flags) if flags else "OK",
+        }
+        previous_dates[home] = d
+        previous_dates[away] = d
+
+    return metadata
+
+
+def _build_team_summary(schedule, all_teams, team_stats, doubleheader_count, team_preferred_days=None):
+    by_team_dates = defaultdict(list)
+    preferred_hits = defaultdict(int)
+    preferred_misses = defaultdict(int)
+
+    for (dt, _time, _field, home, _home_div, away, _away_div) in sorted(schedule, key=lambda g: (g[0], g[1], g[2])):
+        d = dt.date() if hasattr(dt, 'date') else dt
+        by_team_dates[home].append(d)
+        by_team_dates[away].append(d)
+        if team_preferred_days:
+            dow = dow_label(dt)
+            for t in (home, away):
+                if dow in team_preferred_days.get(t, set()):
+                    preferred_hits[t] += 1
+                else:
+                    preferred_misses[t] += 1
+
+    rows = []
+    for t in sorted(all_teams, key=lambda x: (div_of(x), x)):
+        dates = sorted(set(by_team_dates.get(t, [])))
+        longest_gap = 0
+        max_gap_warning = ""
+        if len(dates) >= 2:
+            longest_gap = max((dates[i] - dates[i - 1]).days for i in range(1, len(dates)))
+            if longest_gap > MAX_IDLE_DAYS:
+                max_gap_warning = f"> {MAX_IDLE_DAYS} days"
+        rows.append({
+            "Division": div_of(t),
+            "Team": t,
+            "Team Name": "",
+            "Total Games": int(team_stats[t].get('total_games', 0)) if team_stats else 0,
+            "Home": int(team_stats[t].get('home_games', 0)) if team_stats else 0,
+            "Away": int(team_stats[t].get('away_games', 0)) if team_stats else 0,
+            "DH Days": int(doubleheader_count[t]) if doubleheader_count else 0,
+            "Last Scheduled Game": dates[-1] if dates else "",
+            "Longest Gap": longest_gap,
+            "Max Gap Warning": max_gap_warning or "OK",
+            "Preferred Hits": preferred_hits[t] if team_preferred_days else "",
+            "Preferred Misses": preferred_misses[t] if team_preferred_days else "",
+            "Games Remaining": max(0, target_games(t) - (int(team_stats[t].get('total_games', 0)) if team_stats else 0)),
+            "DH Remaining To Min": max(0, min_dh(t) - (int(doubleheader_count[t]) if doubleheader_count else 0)),
+        })
+    return rows
+
+
+# NOTE: this signature carries parameters from both sides of the main merge --
+# `diagnostics` (this branch, used for the diagnostics sheet) and
+# `team_preferred_days` (main, used for row annotations and the team summary).
+# The merge kept this branch's signature but main's body, so the body referenced a
+# parameter that no longer existed and every XLSX export raised NameError.
+def export_schedule_to_xlsx(field_availability, schedule, division_teams, output_path, remaining_matchups=None, team_stats=None, doubleheader_count=None, team_availability=None, team_blackouts=None, diagnostics=None, team_preferred_days=None):
     if Workbook is None:
         raise RuntimeError("openpyxl is not installed. Run: pip install openpyxl")
 
