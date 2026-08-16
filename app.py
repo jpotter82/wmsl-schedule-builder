@@ -87,21 +87,20 @@ def delete_config(name):
 @app.route('/api/upload', methods=['POST'])
 def upload_csvs():
     required = ['team_availability', 'field_availability', 'team_blackouts']
-    saved = {}
+
     for key in required:
         f = request.files.get(key)
         if not f or not f.filename:
             return jsonify({'error': f'Missing file: {key}'}), 400
-        dest = UPLOADS_DIR / f'{key}.csv'
-        f.save(str(dest))
-        saved[key] = str(dest)
+        f.save(str(UPLOADS_DIR / f'{key}.csv'))
 
     summary = {}
     for key in required:
         path = UPLOADS_DIR / f'{key}.csv'
         with open(path, encoding='utf-8-sig') as fh:
             lines = fh.readlines()
-        summary[key] = {'rows': max(0, len(lines) - 1), 'filename': request.files[key].filename}
+        summary[key] = {'rows': max(0, len(lines) - 1),
+                        'filename': request.files[key].filename}
 
     return jsonify({'uploaded': summary})
 
