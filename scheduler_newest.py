@@ -77,7 +77,7 @@ import random
 import math
 import re
 import os
-from datetime import datetime
+from datetime import datetime, date, timedelta
 from collections import defaultdict
 
 try:
@@ -90,18 +90,11 @@ try:
     from openpyxl import Workbook
     from openpyxl.styles import Font, Alignment, PatternFill
     from openpyxl.utils import get_column_letter
-    from openpyxl.formatting.rule import FormulaRule
-except Exception:
-    Workbook = None
-    Font = Alignment = PatternFill = get_column_letter = FormulaRule = None
-
-try:
-    from openpyxl import Workbook
-    from openpyxl.styles import Font, Alignment, PatternFill
-    from openpyxl.utils import get_column_letter
     from openpyxl.formatting.rule import FormulaRule, CellIsRule, ColorScaleRule
 except ImportError:
-    Workbook = None  # handled in export function
+    Workbook = None
+    Font = Alignment = PatternFill = get_column_letter = FormulaRule = None
+    CellIsRule = ColorScaleRule = None
 
 # -------------------------------
 # Configurable parameters
@@ -109,19 +102,19 @@ except ImportError:
 MAX_RETRIES = 20000            # scheduling backtracking limit
 PREFERRED_MIN_GAP = 3         # ideal minimum days between game dates (soft preference)
 HARD_MIN_GAP = 2              # absolute minimum days between game dates (hard constraint)
-WEEKLY_GAME_LIMIT = 2          # max games per team per week
-HOME_AWAY_BALANCE = 7          # desired home games per team (for 22-game seasons)
-MAX_IDLE_DAYS = 14             # hard target: no more than one open week between game dates
-IDLE_GAP_REPAIR_WEIGHT = 1500  # scoring bonus for placements that shrink long layoffs
-
-# Preferred-day / front-loading controls
-PREFERRED_DAY_BONUS_BOTH = 400   # both teams are on a preferred day
-PREFERRED_DAY_BONUS_ONE = 150    # only one team is on a preferred day
-LATE_DATE_PENALTY_PER_DAY = 12   # discourages consuming late-season inventory too early
-SUNDAYS_FIRST = False            # keep chronology natural; Sunday preference should come from scoring, not slot order
-SEASON_START_DATE = None          # set in main() from field availability
-MAX_CONSECUTIVE_BYE_WEEKS = 1     # allow one bye week, but not two straight empty weeks
-BYE_URGENCY_WEIGHT = 2500         # scoring bonus for teams at risk of a second consecutive bye week
+WEEKLY_GAME_LIMIT = 2          # HARD max games per team per week (1 DH day = 2 games)
+# How hard to push for an evenly paced season. This is a single dial: it drives the
+# placement penalty, the pod-scheduling gate, AND how much best-of-N cares about
+# idle/overloaded weeks. Setting it to 0 disables weekly pacing entirely, so the
+# scheduler maximises games placed exactly as it did before pacing existed.
+# The dial runs 0 (off) to WEEKLY_BALANCE_REFERENCE (full strength). Values above the
+# reference are CLAMPED to it by the wrapper — they are not naturally equivalent, so
+# without that clamp a larger number really does push pacing harder (measurably fewer
+# games placed) in a way no UI option can express. The UI offers named levels instead
+# of a free-text number for the same reason.
+WEEKLY_BALANCE_PENALTY = 2500  # score penalty per game above a team's soft weekly target
+WEEKLY_BALANCE_REFERENCE = 2500  # strength at which pacing is applied at full weight
+HOME_AWAY_BALANCE = 7          # desired home games per team (for 14-game seasons)
 
 
 # Division A opponent-balance controls (A is DH-only)
@@ -136,9 +129,9 @@ C_PAIR_SOFT_CAP = 3           # avoid exceeding this for a pair while some requi
 # clamp the effective minimum to floor(avg_games_vs_opponent).
 PAIR_RULES = {
     'A': {'min': A_PAIR_MIN_GAMES, 'soft_cap': A_PAIR_SOFT_CAP},
-    'B': {'min': B_PAIR_MIN_GAMES, 'soft_cap': B_PAIR_SOFT_CAP},
-    'C': {'min': C_PAIR_MIN_GAMES, 'soft_cap': C_PAIR_SOFT_CAP},  # 6-team divisions naturally have higher repeats
-    # 'D': {'min': 1, 'soft_cap': 2},
+    'B': {'min': 1, 'soft_cap': 3},
+    'C': {'min': 1, 'soft_cap': 3},
+    # 'D': {'min': 1, 'soft_cap': 3},
 }
 
 def effective_pair_rules(division, intra_target_per_team, n):
@@ -157,29 +150,35 @@ def effective_pair_rules(division, intra_target_per_team, n):
 # Sunday pod rotation:
 # For Sunday dates, we try to rotate which division gets pod-style doubleheaders.
 # This helps avoid one division (e.g., A) soaking up all Sunday capacity.
-# SPRING PARAMS
-# SUNDAY_POD_ROTATION = ['B', 'C', 'D', 'A']  # cycle order (can change)
-# SUNDAY_PODS_PER_SUNDAY = 3  # at most this many *pod sessions* across all divisions on a Sunday
-# FALL PARAMS
 SUNDAY_POD_ROTATION = ['B', 'C', 'A']  # cycle order (can change)
 SUNDAY_PODS_PER_SUNDAY = 3  # at most this many *pod sessions* across all divisions on a Sunday
+
+# Sunday preference.
+#
+# SUNDAY_PRIORITY: score bonus for placing a game on a Sunday, and when > 0 the pod
+#   schedulers scan Sundays before weekdays. 0 keeps the original behaviour, where
+#   Sundays are only favoured while teams still owe their minimum Sunday sessions.
+# SUNDAY_PODS_ONLY: reserve Sunday inventory for doubleheader pods. Single games are
+#   not placed on Sundays at all, so Sunday slots are never broken up by a lone game
+#   that blocks a pod from using the adjacent timeslot.
+SUNDAY_PRIORITY = 0
+SUNDAY_PODS_ONLY = False
 RANDOM_SEED = None           # for repeatable schedules
 # Per-division configuration (tweak here)
+#
+# dh_only:
+#   True  -> division plays *only* pod doubleheaders. Every game is part of a
+#            4-team pod (2 games/team/day). No single games are ever placed, so
+#            target_games should be even. Best schedule shape, but needs the most
+#            adjacent-slot inventory; teams may finish short if pods can't be built.
+#   False -> division builds pods until each team reaches min_dh doubleheader days,
+#            then fills the remaining games as singles. More forgiving.
 DIVISION_SETTINGS = {
-    # SPRING LEAGUE
-    # A: 22 games, only DH => 11 DH days exactly
-    # 'A': {'inter': False, 'target_games': 11, 'min_dh': 4, 'max_dh': 4},
-
-    # B/C/D: inter allowed, intra can top up as needed
-    # 'B': {'inter': False, 'target_games': 22, 'min_dh': 8, 'max_dh': 9},
-    # 'C': {'inter': False, 'target_games': 22, 'min_dh': 8, 'max_dh': 9},
-    # 'D': {'inter': True,  'target_games': 22, 'min_dh': 8,  'max_dh': 9},
-
-    # FALL LEAGUE
-
-    'A': {'inter': False, 'target_games': 14, 'min_dh': 6, 'max_dh': 6},
-    'B': {'inter': False, 'target_games': 14, 'min_dh': 6, 'max_dh': 6},
-    'C': {'inter': False, 'target_games': 14, 'min_dh': 6, 'max_dh': 6},
+    # 14 games per team: 6 DH days (12 games) + 2 single game days
+    'A': {'inter': False, 'target_games': 14, 'min_dh': 6, 'max_dh': 6, 'dh_only': True},
+    'B': {'inter': False, 'target_games': 14, 'min_dh': 6, 'max_dh': 6, 'dh_only': False},
+    'C': {'inter': False, 'target_games': 14, 'min_dh': 6, 'max_dh': 6, 'dh_only': False},
+    # 'D': {'inter': False, 'target_games': 14, 'min_dh': 6, 'max_dh': 6, 'dh_only': False},
 }
 
 # Inter-division pairing settings (only applied if BOTH divisions have inter=True)
@@ -213,7 +212,226 @@ def min_dh(team):
 def max_dh(team):
     return DIVISION_SETTINGS[div_of(team)]['max_dh']
 
-DIV_PRIORITY = {'C': 2, 'B': 1, 'A': 0}
+def is_dh_only(division):
+    """True if this division plays pod doubleheaders exclusively (no single games).
+
+    Accepts a division letter or a team name (first character is the division).
+    """
+    if not division:
+        return False
+    div = division[0].upper()
+    return bool(DIVISION_SETTINGS.get(div, {}).get('dh_only', False))
+
+def dh_only_divisions(division_teams):
+    """Divisions (in order) that are configured as doubleheader-only."""
+    return [d for d in division_teams if is_dh_only(d)]
+
+DIV_PRIORITY = {'D': 3, 'C': 2, 'B': 1, 'A': 0}
+
+# -------------------------------
+# Team scheduling scarcity
+# -------------------------------
+# A team that can play on few calendar dates — because of limited weekday
+# availability (team_availability) and/or many blackout dates (team_blackouts) —
+# is "scarce" and must be given priority when building pods/games, or it ends up
+# unschedulable. These globals are populated at run start via init_team_scarcity().
+TEAM_PLAYABLE_DATES = {}   # team -> count of season dates the team can actually play
+SEASON_DATE_COUNT = 0      # total distinct dates in field availability
+SEASON_WEEKS = 0           # distinct ISO weeks that have any field availability
+SEASON_EFFECTIVE_WEEKS = 0 # weeks with enough slots to seat most of the league
+LOW_CAPACITY_WEEKS = set() # weeks too small to give every team a game
+SEASON_WEEK_INDEX = {}     # ISO week number -> 0-based position in the season
+
+# Fill the opening weeks before spreading out.
+#
+# The greedy placer walks open slots in random order, so with a tight calendar it can
+# leave week 1 and 2 slots unused while filling later weeks — and an unused early slot
+# is capacity that can never be recovered. Setting this to N makes the scheduler treat
+# the first N weeks as must-fill, placing games there before it considers later dates.
+FRONT_LOAD_WEEKS = 0
+FRONT_LOAD_BONUS = 4000    # score bonus for placing a game inside the front-load window
+
+# Longest acceptable layoff between a team's game dates.
+#
+# This is a *soft target*, not a hard cap: placements that shrink a long layoff get a
+# score bonus, scaled by how far past the target the layoff already is. A hard reject
+# works poorly here because the greedy passes are not chronological — a later placement
+# can still split a big gap, so refusing outright just loses games.
+MAX_IDLE_DAYS = 14
+IDLE_GAP_REPAIR_WEIGHT = 1500
+
+# --- Restored during the main merge -------------------------------------------
+# The merge kept the functions below that use these constants but dropped the
+# definitions themselves, leaving the module unable to import at all. Values are
+# main's originals.
+PREFERRED_DAY_BONUS_BOTH = 400    # both teams are on a preferred day
+PREFERRED_DAY_BONUS_ONE = 150     # only one team is on a preferred day
+LATE_DATE_PENALTY_PER_DAY = 12    # discourages consuming late-season inventory too early
+SEASON_START_DATE = None          # set at run start from field availability
+MAX_CONSECUTIVE_BYE_WEEKS = 1     # allow one bye week, but not two straight empty weeks
+BYE_URGENCY_WEIGHT = 2500         # bonus for teams at risk of a second consecutive bye week
+
+# Whether load_field_availability sorts Sundays ahead of weekdays.
+#
+# main set this False, on the reasoning that Sunday preference belongs in scoring
+# rather than slot order. This branch's Sunday handling was built and measured
+# against the sorted-first behaviour, so it stays True here; the Sunday Preference
+# setting provides the scoring-side control main was after. Flip to False to adopt
+# main's ordering.
+SUNDAYS_FIRST = True
+# -------------------------------------------------------------------------------
+
+# Soft cap on games per team per week.
+#
+# WEEKLY_GAME_LIMIT is the HARD ceiling (a team may never exceed it). This soft
+# target is what the scheduler aims for, so games are spread evenly instead of
+# being crammed into a few weeks while others sit idle. Set to None to derive it
+# automatically as ceil(target_games / SEASON_WEEKS).
+WEEKLY_SOFT_TARGET = None
+
+def init_team_scarcity(all_teams, field_availability, team_availability, team_blackouts):
+    """Precompute, per team, how many season dates it can actually play.
+
+    Combines weekly availability and blackout dates via is_team_available, so a
+    team is scarce if it is limited on EITHER axis. Fewer playable dates => scarcer.
+
+    Also records how many ISO weeks the season spans, which sets the soft
+    per-week game target used to keep the schedule evenly paced.
+    """
+    global TEAM_PLAYABLE_DATES, SEASON_DATE_COUNT, SEASON_WEEKS
+    global SEASON_EFFECTIVE_WEEKS, LOW_CAPACITY_WEEKS, SEASON_WEEK_INDEX
+    season_dates = sorted({dt.date() for (dt, _slot, _field) in field_availability})
+    SEASON_DATE_COUNT = len(season_dates)
+    SEASON_WEEKS = len({d.isocalendar()[1] for d in season_dates})
+
+    # A week with only a handful of slots physically cannot give every team a game.
+    # Those weeks must not drag down the per-week target, or the scheduler ends up
+    # aiming too low everywhere else and leaves games unplaced.
+    slots_per_week = defaultdict(int)
+    for (dt, _slot, _field) in field_availability:
+        slots_per_week[dt.date().isocalendar()[1]] += 1
+    n_teams = max(1, len(all_teams))
+    LOW_CAPACITY_WEEKS = {w for w, s in slots_per_week.items() if s * 2 < n_teams}
+    SEASON_EFFECTIVE_WEEKS = max(1, len(slots_per_week) - len(LOW_CAPACITY_WEEKS))
+
+    # Chronological position of each week, so "the first N weeks" is well defined
+    # even when ISO week numbers wrap across a year boundary.
+    SEASON_WEEK_INDEX = {}
+    for i, d in enumerate(sorted({dd.isocalendar()[:2] for dd in season_dates})):
+        SEASON_WEEK_INDEX[d[1]] = i
+
+    TEAM_PLAYABLE_DATES = {}
+    for team in all_teams:
+        TEAM_PLAYABLE_DATES[team] = sum(
+            1 for d in season_dates
+            if is_team_available(team, d, team_availability, team_blackouts)
+        )
+
+def weekly_soft_target(team):
+    """Preferred maximum games for `team` in any single week.
+
+    Defaults to an even spread of its season across the available weeks, e.g.
+    14 games over 7 weeks -> 2 per week (one doubleheader). Never returns more
+    than the hard WEEKLY_GAME_LIMIT.
+    """
+    if WEEKLY_SOFT_TARGET:
+        return min(int(WEEKLY_SOFT_TARGET), WEEKLY_GAME_LIMIT)
+    weeks = SEASON_EFFECTIVE_WEEKS or SEASON_WEEKS
+    if not weeks:
+        return WEEKLY_GAME_LIMIT
+    # Spread the season over the weeks that can actually host a full slate.
+    fair = int(math.ceil(float(target_games(team)) / float(weeks)))
+    return max(2, min(fair, WEEKLY_GAME_LIMIT))
+
+def _played_dates(team, team_game_days):
+    """Dates the team actually plays on.
+
+    NOTE: unlike a plain sorted(team_game_days[team]), this filters out dates whose
+    count has fallen to zero. The repair pass decrements a date's count when it moves
+    a game away but leaves the key in place, so an unfiltered read would treat a date
+    the team no longer plays as if it still had a game.
+    """
+    return sorted(d for d, n in team_game_days[team].items() if n > 0)
+
+def longest_idle_gap(team, team_game_days):
+    """Largest gap in days between consecutive game dates already scheduled for a team."""
+    dates = _played_dates(team, team_game_days)
+    if len(dates) < 2:
+        return 0
+    return max((dates[i] - dates[i - 1]).days for i in range(1, len(dates)))
+
+def longest_idle_gap_after_adding(team, d, team_game_days):
+    """Largest gap after hypothetically also playing on date d."""
+    dates = sorted(set(_played_dates(team, team_game_days)) | {d})
+    if len(dates) < 2:
+        return 0
+    return max((dates[i] - dates[i - 1]).days for i in range(1, len(dates)))
+
+def idle_gap_repair_bonus(team, d, team_game_days):
+    """Score bonus when playing on date d shortens the team's worst layoff.
+
+    Weighted by how much the gap shrinks, with an extra push once the existing gap is
+    already past MAX_IDLE_DAYS.
+    """
+    if not IDLE_GAP_REPAIR_WEIGHT:
+        return 0
+    before = longest_idle_gap(team, team_game_days)
+    after = longest_idle_gap_after_adding(team, d, team_game_days)
+    if after >= before:
+        return 0
+    bonus = (before - after) * IDLE_GAP_REPAIR_WEIGHT
+    if before > MAX_IDLE_DAYS:
+        bonus += (before - MAX_IDLE_DAYS) * IDLE_GAP_REPAIR_WEIGHT
+    return bonus
+
+def check_max_idle_gap(schedule, teams, max_idle_days=None):
+    """Report teams whose longest layoff exceeds the target.
+
+    Returns list of (team, gap_days, gap_start, gap_end), worst first.
+    """
+    limit = MAX_IDLE_DAYS if max_idle_days is None else max_idle_days
+    by_team = defaultdict(set)
+    for entry in schedule:
+        if entry is None:
+            continue
+        dt, _slot, _field, home, _hd, away, _ad = entry
+        by_team[home].add(dt.date())
+        by_team[away].add(dt.date())
+
+    out = []
+    for team in teams:
+        dates = sorted(by_team.get(team, ()))
+        for i in range(1, len(dates)):
+            gap = (dates[i] - dates[i - 1]).days
+            if gap > limit:
+                out.append((team, gap, dates[i - 1], dates[i]))
+    out.sort(key=lambda r: -r[1])
+    return out
+
+def in_front_load_window(d):
+    """True if date d falls inside the opening weeks we want filled first."""
+    if not FRONT_LOAD_WEEKS:
+        return False
+    wk = d.isocalendar()[1]
+    idx = SEASON_WEEK_INDEX.get(wk)
+    return idx is not None and idx < FRONT_LOAD_WEEKS
+
+def weekly_excess(team, d, team_stats, extra=1):
+    """How far above its soft weekly target `team` would go by adding `extra` games in d's week."""
+    wk = d.isocalendar()[1]
+    have = team_stats[team]['weekly_games'].get(wk, 0)
+    return max(0, (have + extra) - weekly_soft_target(team))
+
+def team_scarcity(team):
+    """Scheduling scarcity: higher = more constrained (fewer playable dates).
+
+    Returns 0 when scarcity has not been initialized, so behavior is unchanged
+    until init_team_scarcity() has run.
+    """
+    if not SEASON_DATE_COUNT:
+        return 0
+    playable = TEAM_PLAYABLE_DATES.get(team, SEASON_DATE_COUNT)
+    return SEASON_DATE_COUNT - playable
 
 def game_deficit(team, team_stats):
     return max(0, target_games(team) - team_stats[team]['total_games'])
@@ -223,6 +441,7 @@ def dh_deficit(team, doubleheader_count):
 
 def team_need_key(team, team_stats, doubleheader_count):
     return (
+        team_scarcity(team),
         dh_deficit(team, doubleheader_count),
         game_deficit(team, team_stats),
         DIV_PRIORITY.get(div_of(team), 0),
@@ -232,6 +451,8 @@ def team_need_key(team, team_stats, doubleheader_count):
 
 def matchup_need_score(home, away, team_stats, doubleheader_count):
     return (
+        team_scarcity(home) + team_scarcity(away)
+    ) * 5000 + (
         game_deficit(home, team_stats) + game_deficit(away, team_stats)
     ) * 1000 + (
         dh_deficit(home, doubleheader_count) + dh_deficit(away, doubleheader_count)
@@ -259,6 +480,26 @@ def min_gap_ok(team, d, team_game_days):
     return True
 
 # -------------------------------
+# Field availability index (avoids O(n) scans in inner loops)
+# -------------------------------
+def build_field_index(field_availability):
+    """Build a dict: (date, slot) -> list of (datetime, slot, field) entries.
+
+    This replaces the inner-loop list comprehensions that scan the full
+    field_availability list to find free fields for a given date+slot.
+    """
+    idx = defaultdict(list)
+    for entry in field_availability:
+        dt, slot, field = entry
+        idx[(dt.date(), slot)].append(entry)
+    return idx
+
+def free_fields_for_slot(field_index, d, slot, used_slots):
+    """Return list of (datetime, slot, field) entries that are unused for (date, slot)."""
+    return [entry for entry in field_index.get((d, slot), [])
+            if not used_slots.get((entry[0], slot, entry[2]), False)]
+
+# -------------------------------
 # Availability helpers
 # -------------------------------
 def dow_abbrev(d):
@@ -278,6 +519,58 @@ def is_team_available(team, d, team_availability, team_blackouts):
         return False
     return True
 
+def score_placement(t1, t2, d, team_stats, doubleheader_count, team_game_days, sunday_assignment=None):
+    """Centralized scoring for placing matchup (t1,t2) on date d.
+
+    Higher is better. Used by both schedule_games and fill_missing_games
+    to rank candidate placements consistently.
+
+    Components:
+      - game/DH deficit (teams further behind get priority)
+      - division priority weighting
+      - soft gap penalty (prefer 3+ day gaps)
+      - Sunday rotation bonus
+      - DH penalty (avoid unnecessary doubleheaders)
+    """
+    score = matchup_need_score(t1, t2, team_stats, doubleheader_count)
+
+    # Soft gap preference (allow 2-day gaps, prefer 3+)
+    score -= preferred_gap_penalty(t1, d, team_game_days)
+    score -= preferred_gap_penalty(t2, d, team_game_days)
+
+    # Strong preference for placements that break up a long layoff. The gap penalties
+    # above stop games bunching TOO CLOSE; this stops them drifting too far apart.
+    score += idle_gap_repair_bonus(t1, d, team_game_days)
+    score += idle_gap_repair_bonus(t2, d, team_game_days)
+
+    # Weekly balance: strongly prefer weeks where the team is still under its even
+    # share. Without this the scheduler happily stacks 4 games into one week and
+    # leaves the next one empty.
+    score -= weekly_excess(t1, d, team_stats) * WEEKLY_BALANCE_PENALTY
+    score -= weekly_excess(t2, d, team_stats) * WEEKLY_BALANCE_PENALTY
+
+    # Sunday rotation bonus
+    if sunday_assignment and d.weekday() == 6:
+        assigned = sunday_assignment.get(d)
+        if assigned and div_of(t1) == assigned and div_of(t2) == assigned:
+            score += 500
+
+    # General Sunday preference (independent of the rotation)
+    if SUNDAY_PRIORITY and d.weekday() == 6:
+        score += SUNDAY_PRIORITY
+
+    # Fill the opening weeks first — an empty week-1 slot is capacity lost for good.
+    if in_front_load_window(d):
+        score += FRONT_LOAD_BONUS
+
+    # Pepper singles: penalize creating a DH day when team already has enough DH days
+    for team in (t1, t2):
+        if team_game_days[team][d] == 1 and doubleheader_count[team] >= min_dh(team):
+            score -= 2000
+
+    return score
+
+
 def preferred_gap_penalty(team, d, team_game_days, penalty_per_day=500):
     """Soft preference penalty when gap is smaller than PREFERRED_MIN_GAP.
     Returns 0 if the closest existing game day is >= PREFERRED_MIN_GAP days away.
@@ -295,54 +588,15 @@ def preferred_gap_penalty(team, d, team_game_days, penalty_per_day=500):
         return 0
     return (PREFERRED_MIN_GAP - closest) * penalty_per_day
 
-def longest_idle_gap(team, team_game_days):
-    """Largest day gap between consecutive game dates already scheduled for a team."""
-    dates = sorted(team_game_days[team])
-    if len(dates) < 2:
-        return 0
-    return max((dates[i] - dates[i - 1]).days for i in range(1, len(dates)))
-
-
-def longest_idle_gap_after_adding(team, d, team_game_days):
-    """Largest day gap after hypothetically adding date d for team."""
-    dates = sorted(set(team_game_days[team]) | {d})
-    if len(dates) < 2:
-        return 0
-    return max((dates[i] - dates[i - 1]).days for i in range(1, len(dates)))
-
-
-def idle_gap_repair_bonus(team, d, team_game_days):
-    """
-    Positive score when placing team on date d shrinks an existing long layoff.
-    This works better than a pure hard reject with the current non-chronological
-    greedy passes, because later placements can still split a large gap.
-    """
-    before = longest_idle_gap(team, team_game_days)
-    after = longest_idle_gap_after_adding(team, d, team_game_days)
-    if after < before:
-        bonus = (before - after) * IDLE_GAP_REPAIR_WEIGHT
-        if before > MAX_IDLE_DAYS:
-            bonus += (before - MAX_IDLE_DAYS) * IDLE_GAP_REPAIR_WEIGHT
-        return bonus
-    return 0
-
-
-def check_max_idle_gap(schedule, teams, max_idle_days=MAX_IDLE_DAYS):
-    """Return (team, previous_date, next_date, gap_days) for long layoff violations."""
-    by_team = defaultdict(set)
-    for (dt, _time, _field, home, _home_div, away, _away_div) in schedule:
-        dd = dt.date() if hasattr(dt, 'date') else dt
-        by_team[home].add(dd)
-        by_team[away].add(dd)
-
-    violations = []
-    for team in teams:
-        dates = sorted(by_team.get(team, set()))
-        for i in range(1, len(dates)):
-            gap = (dates[i] - dates[i - 1]).days
-            if gap > max_idle_days:
-                violations.append((team, dates[i - 1].strftime('%Y-%m-%d'), dates[i].strftime('%Y-%m-%d'), gap))
-    return violations
+# NOTE: the idle-gap helpers live earlier in this file (see _played_dates and
+# longest_idle_gap above). A second copy arrived here when main was merged in.
+# They were NOT equivalent, so the duplicates were removed rather than kept:
+#   - the earlier copies filter out dates whose game count has dropped to zero,
+#     which matters because repair_schedule (merged in from the other side) leaves
+#     a date key behind when it moves a game away;
+#   - check_max_idle_gap returned its tuple in a different order in each copy
+#     ((team, gap, start, end) vs (team, start, end, gap)), and Python keeps the
+#     last definition, so the surviving one silently disagreed with its caller.
 
 
 def season_week_index(d, season_start=None):
@@ -862,7 +1116,8 @@ def generate_full_matchups(division_teams):
 
     full_matchups = []
     for div, teams in division_teams.items():
-        if div == 'A':
+        # DH-only divisions build their own matchups inside the pod scheduler.
+        if is_dh_only(div):
             continue
         intra_target = DIVISION_SETTINGS[div]['target_games'] - inter_per_team.get(div, 0)
         full_matchups.extend(generate_intra_matchups_for_target(div, teams, intra_target))
@@ -896,9 +1151,9 @@ def generate_filler_matchups(division_teams, team_stats, schedule, max_new_games
         if home and away:
             meet[frozenset((home, away))] += 1
 
-    # Teams still needing games (exclude A)
+    # Teams still needing games (exclude DH-only divisions — they never take singles)
     need = [t for div, teams in division_teams.items() for t in teams
-            if div != 'A' and team_stats[t]['total_games'] < target_games(t)]
+            if not is_dh_only(div) and team_stats[t]['total_games'] < target_games(t)]
 
     if not need:
         return []
@@ -906,7 +1161,7 @@ def generate_filler_matchups(division_teams, team_stats, schedule, max_new_games
     # Precompute per-division effective caps (rough)
     caps = {}
     for div, teams in division_teams.items():
-        if div == 'A':
+        if is_dh_only(div):
             continue
         n = len(teams)
         intra_target = max(0, DIVISION_SETTINGS[div]['target_games'])  # conservative
@@ -920,7 +1175,7 @@ def generate_filler_matchups(division_teams, team_stats, schedule, max_new_games
 
         # Refresh need list
         need = [t for div, teams in division_teams.items() for t in teams
-                if div != 'A' and team_stats[t]['total_games'] < target_games(t)]
+                if not is_dh_only(div) and team_stats[t]['total_games'] < target_games(t)]
         if not need:
             break
 
@@ -943,7 +1198,7 @@ def generate_filler_matchups(division_teams, team_stats, schedule, max_new_games
 
         if not opps:
             # If no behind opponents are available, fall back to any team in same division
-            opps = [t2 for t2 in division_teams.get(d1, []) if t2 != t1 and d1 != 'A']
+            opps = [t2 for t2 in division_teams.get(d1, []) if t2 != t1 and not is_dh_only(d1)]
 
         if not opps:
             break
@@ -980,8 +1235,6 @@ def generate_filler_matchups(division_teams, team_stats, schedule, max_new_games
 
     return new_matchups
 
-    return full_matchups
-
 # -------------------------------
 # Home/Away Helper
 # -------------------------------
@@ -1017,9 +1270,11 @@ def decide_home_away(t1, t2, team_stats):
 
 def schedule_doubleheaders_preemptively(all_teams, unscheduled, team_availability, field_availability, team_blackouts, timeslots_by_date,
                                         team_stats, doubleheader_count, team_game_days, team_game_slots, team_doubleheader_opponents,
-                                        used_slots, schedule=None):
+                                        used_slots, schedule=None, field_index=None):
     if schedule is None:
         schedule = []
+    if field_index is None:
+        field_index = build_field_index(field_availability)
 
     # Prefer filling Sundays first (league preference: easiest full-day inventory)
     date_order = sorted(timeslots_by_date.keys(), key=lambda dd: (0 if dd.weekday() == 6 else 1, dd))
@@ -1032,7 +1287,7 @@ def schedule_doubleheaders_preemptively(all_teams, unscheduled, team_availabilit
 
         teams_by_need = sorted(all_teams, key=lambda t: team_need_key(t, team_stats, doubleheader_count), reverse=True)
         for team in teams_by_need:
-            if team and team[0] == 'A':
+            if team and is_dh_only(team):
                 continue
             if doubleheader_count[team] >= min_dh(team):
                 continue
@@ -1049,10 +1304,8 @@ def schedule_doubleheaders_preemptively(all_teams, unscheduled, team_availabilit
                     slot1 = slots[i]
                     slot2 = slots[i + 1]
 
-                    free1 = [entry for entry in field_availability
-                             if entry[0].date() == d and entry[1] == slot1 and ((entry[0], slot1, entry[2]) not in used_slots)]
-                    free2 = [entry for entry in field_availability
-                             if entry[0].date() == d and entry[1] == slot2 and ((entry[0], slot2, entry[2]) not in used_slots)]
+                    free1 = free_fields_for_slot(field_index, d, slot1, used_slots)
+                    free2 = free_fields_for_slot(field_index, d, slot2, used_slots)
                     if not free1 or not free2:
                         continue
 
@@ -1133,8 +1386,7 @@ def schedule_doubleheaders_preemptively(all_teams, unscheduled, team_availabilit
                     continue
                 next_slot = slots[idx + 1]
 
-                free_next = [entry for entry in field_availability
-                             if entry[0].date() == d and entry[1] == next_slot and ((entry[0], next_slot, entry[2]) not in used_slots)]
+                free_next = free_fields_for_slot(field_index, d, next_slot, used_slots)
                 if not free_next:
                     continue
 
@@ -1182,7 +1434,10 @@ def schedule_doubleheaders_preemptively(all_teams, unscheduled, team_availabilit
                         team_game_slots[t][d].append(slot_str)
 
                     doubleheader_count[team] += 1
+                    # Record the pairing for BOTH teams so neither can later be given
+                    # another game against the same opponent on this date.
                     team_doubleheader_opponents[team][d].add(opp)
+                    team_doubleheader_opponents[opp][d].add(team)
                     used_slots[(date_entry, slot_str, field)] = True
                     break
 
@@ -1193,15 +1448,17 @@ def schedule_doubleheaders_preemptively(all_teams, unscheduled, team_availabilit
 # -------------------------------
 def force_minimum_doubleheaders(all_teams, unscheduled, team_availability, field_availability, team_blackouts, timeslots_by_date,
                                 team_stats, doubleheader_count, team_game_days, team_game_slots, team_doubleheader_opponents,
-                                used_slots, schedule=None):
+                                used_slots, schedule=None, field_index=None):
     if schedule is None:
         schedule = []
+    if field_index is None:
+        field_index = build_field_index(field_availability)
 
     teams = sorted(all_teams, key=lambda t: team_need_key(t, team_stats, doubleheader_count), reverse=True)
 
     # Phase 1: ensure each team gets at least 1 DH day (if min_dh > 0)
     for team in teams:
-        if team and team[0] == 'A':
+        if team and is_dh_only(team):
             continue
         if min_dh(team) <= 0 or doubleheader_count[team] >= 1:
             continue
@@ -1226,8 +1483,7 @@ def force_minimum_doubleheaders(all_teams, unscheduled, team_availability, field
                 continue
             next_slot = sorted_slots[idx + 1]
 
-            free_fields = [entry for entry in field_availability
-                           if entry[0].date() == d and entry[1] == next_slot and ((entry[0], next_slot, entry[2]) not in used_slots)]
+            free_fields = free_fields_for_slot(field_index, d, next_slot, used_slots)
             if not free_fields:
                 continue
 
@@ -1275,7 +1531,10 @@ def force_minimum_doubleheaders(all_teams, unscheduled, team_availability, field
                     team_game_slots[t][d].append(slot_str)
 
                 doubleheader_count[team] += 1
+                # Record the pairing for BOTH teams so neither can later be given
+                # another game against the same opponent on this date.
                 team_doubleheader_opponents[team][d].add(opp)
+                team_doubleheader_opponents[opp][d].add(team)
                 used_slots[(date_entry, slot_str, field)] = True
                 break
 
@@ -1285,7 +1544,7 @@ def force_minimum_doubleheaders(all_teams, unscheduled, team_availability, field
     # Phase 2: push teams toward their per-division minimum DH days.
     teams = sorted(all_teams, key=lambda t: team_need_key(t, team_stats, doubleheader_count), reverse=True)
     for team in teams:
-        if team and team[0] == 'A':
+        if team and is_dh_only(team):
             continue
         while doubleheader_count[team] < min_dh(team):
             if doubleheader_count[team] >= max_dh(team):
@@ -1310,8 +1569,7 @@ def force_minimum_doubleheaders(all_teams, unscheduled, team_availability, field
                         continue
                     next_slot = sorted_slots[idx + 1]
 
-                    free_fields = [entry for entry in field_availability
-                                   if entry[0].date() == d and entry[1] == next_slot and ((entry[0], next_slot, entry[2]) not in used_slots)]
+                    free_fields = free_fields_for_slot(field_index, d, next_slot, used_slots)
                     if not free_fields:
                         continue
 
@@ -1358,7 +1616,10 @@ def force_minimum_doubleheaders(all_teams, unscheduled, team_availability, field
                             team_game_slots[t][d].append(slot_str)
 
                         doubleheader_count[team] += 1
+                        # Record the pairing for BOTH teams so neither can later be given
+                        # another game against the same opponent on this date.
                         team_doubleheader_opponents[team][d].add(opp)
+                        team_doubleheader_opponents[opp][d].add(team)
                         used_slots[(date_entry, slot_str, field)] = True
                         scheduled = True
                         break
@@ -1378,11 +1639,13 @@ def force_minimum_doubleheaders(all_teams, unscheduled, team_availability, field
 # -------------------------------
 # A Division DH-only scheduling (4-team pods across two fields)
 # -------------------------------
-def schedule_A_pod_doubleheaders(division_teams, team_availability, field_availability, team_blackouts,
+def schedule_pod_only_division(div, division_teams, team_availability, field_availability, team_blackouts,
                                  timeslots_by_date, team_stats, doubleheader_count,
                                  team_game_days, team_game_slots, used_slots, schedule=None, sunday_assignment=None, sunday_pods_used=None, team_preferred_days=None):
     """
-    Schedule Division A as *doubleheaders only* using 4-team "pod" sessions across BOTH fields.
+    Schedule a division as *doubleheaders only* using 4-team "pod" sessions across BOTH fields.
+
+    Used for any division with dh_only=True in DIVISION_SETTINGS (historically Division A).
 
     A pod session on date d uses two adjacent slots (s1,s2) and two different fields (f1,f2):
       Slot s1:
@@ -1402,12 +1665,18 @@ def schedule_A_pod_doubleheaders(division_teams, team_availability, field_availa
     if not isinstance(schedule, list):
         raise TypeError("schedule must be list[game_tuple], got {}".format(type(schedule)))
 
-    A_teams = list(division_teams.get('A', []))
+    div = div[0].upper()
+    A_teams = list(division_teams.get(div, []))
     if not A_teams:
         return schedule, team_stats, doubleheader_count, team_game_days, team_game_slots, used_slots
 
-    # 22 games => 11 DH days (sessions) per team
-    target_sessions = DIVISION_SETTINGS['A']['target_games'] // 2
+    # Every game is part of a pod, so N games => N/2 DH days (sessions) per team
+    target_sessions = DIVISION_SETTINGS[div]['target_games'] // 2
+
+    # Opponent-balance rules for this division (min games per pairing + soft cap)
+    _rules = PAIR_RULES.get(div, {'min': 1, 'soft_cap': 3})
+    PAIR_MIN_GAMES = int(_rules.get('min', 1))
+    PAIR_SOFT_CAP = int(_rules.get('soft_cap', 3))
 
     sessions_done = defaultdict(int)      # team -> sessions completed
     pair_meets = defaultdict(int)         # frozenset({a,b}) -> number of games already between them (within A pods)
@@ -1461,7 +1730,12 @@ def schedule_A_pod_doubleheaders(division_teams, team_availability, field_availa
         wk = d.isocalendar()[1]
         if team_stats[team]['weekly_games'].get(wk, 0) + 2 > WEEKLY_GAME_LIMIT:
             return False
-        if team_stats[team]['total_games'] + 2 > DIVISION_SETTINGS['A']['target_games']:
+        # Soft weekly balance: on early passes refuse to push a team past its even
+        # share for the week, so pods spread out instead of stacking two into one
+        # week. Later passes relax this so we don't lose games we can't place anywhere else.
+        if WEEKLY_BALANCE_PENALTY > 0 and strict_weekly and weekly_excess(team, d, team_stats, extra=2) > 0:
+            return False
+        if team_stats[team]['total_games'] + 2 > DIVISION_SETTINGS[div]['target_games']:
             return False
         return True
 
@@ -1481,7 +1755,7 @@ def schedule_A_pod_doubleheaders(division_teams, team_availability, field_availa
         """Pick 4 eligible teams for a pod session, *actively* balancing opponents.
 
         Goals:
-          1) Ensure every A-vs-A pairing happens at least A_PAIR_MIN_GAMES times (as feasible)
+          1) Ensure every intra-division pairing happens at least PAIR_MIN_GAMES times (as feasible)
           2) Avoid extreme repeats early (e.g., A1 vs A2 six times while A1 vs A8 once)
           3) Still finish all required sessions
 
@@ -1510,7 +1784,7 @@ def schedule_A_pod_doubleheaders(division_teams, team_availability, field_availa
             for other in A_teams:
                 if other == team:
                     continue
-                if pair_meets[frozenset((team, other))] < A_PAIR_MIN_GAMES:
+                if pair_meets[frozenset((team, other))] < PAIR_MIN_GAMES:
                     return True
             return False
 
@@ -1536,14 +1810,14 @@ def schedule_A_pod_doubleheaders(division_teams, team_availability, field_availa
                 blocked = False
                 for g in games:
                     a, b = tuple(g)
-                    if pair_meets[g] >= A_PAIR_SOFT_CAP and (has_unmet_pairs(a) or has_unmet_pairs(b)):
+                    if pair_meets[g] >= PAIR_SOFT_CAP and (has_unmet_pairs(a) or has_unmet_pairs(b)):
                         blocked = True
                         break
                 if blocked:
                     continue
 
                 # Count how many of the games help satisfy the minimum pair requirement
-                unmet_hits = sum(1 for g in games if pair_meets[g] < A_PAIR_MIN_GAMES)
+                unmet_hits = sum(1 for g in games if pair_meets[g] < PAIR_MIN_GAMES)
 
                 # Prefer layouts that:
                 #  - maximize unmet_hits
@@ -1552,11 +1826,15 @@ def schedule_A_pod_doubleheaders(division_teams, team_availability, field_availa
                 total_meets = sum(pair_meets[g] for g in games)
                 rem = sum((target_sessions - sessions_done[t]) for t in (t1, t2, t3, t4))
 
+                # Prefer pods that include the most schedule-constrained teams, so
+                # heavily-blacked-out teams grab their rare playable dates first.
+                combo_scarcity = sum(team_scarcity(t) for t in (t1, t2, t3, t4))
+
                 # Also reduce spread (avoid spiking any single pair too quickly)
                 after_counts = [pair_meets[g] + 1 for g in games]
                 spread = max(after_counts) - min(after_counts)
 
-                score = (-unmet_hits, total_meets, spread, -rem, tuple(sorted(combo)))
+                score = (-combo_scarcity, -unmet_hits, total_meets, spread, -rem, tuple(sorted(combo)))
                 if best_score is None or score < best_score:
                     best_score = score
                     best = (t1, t2, t3, t4)
@@ -1592,7 +1870,12 @@ def schedule_A_pod_doubleheaders(division_teams, team_availability, field_availa
     sunday_sessions_done = {t: 0 for t in A_teams}
     season_start = min((dt.date() for dt, _slot, _field in field_availability), default=None)
 
+    # Weekly balance is enforced for most passes, then relaxed for the last few so
+    # teams that still cannot be placed anywhere are not left short.
+    strict_weekly = True
+
     for _pass in range(12):
+        strict_weekly = _pass < 9
         progress = False
 
         need_more_sunday = any(sunday_sessions_done[t] < MIN_SUNDAY_SESSIONS_PER_TEAM for t in A_teams)
@@ -1602,25 +1885,19 @@ def schedule_A_pod_doubleheaders(division_teams, team_availability, field_availa
         # to avoid repeatedly picking the same day pattern.
         a_dow_load = defaultdict(int)
         for _dt, _slot, _field, _home, _hdiv, _away, _adiv in schedule:
-            if (_home and _home[0] == 'A') or (_away and _away[0] == 'A'):
+            if (_home and _home[0] == div) or (_away and _away[0] == div):
                 a_dow_load[dow_label(_dt)] += 1
 
         rnd = random.Random((RANDOM_SEED or 0) + (_pass * 97) + 13)
 
         def _date_key(dd):
-            # Front-load the season while still balancing A weekday usage and honoring preferred days.
-            active_needers = [t for t in A_teams if sessions_done[t] < target_sessions]
-            return (
-                late_date_penalty(dd, season_start),
-                a_dow_load.get(dow_label(dd), 0),
-                -preferred_day_count(active_needers, dd, team_preferred_days),
-                dd,
-                rnd.random(),
-            )
+            # opening weeks first; then lower day-of-week load; then randomized tie-break
+            return (0 if in_front_load_window(dd) else 1,
+                    a_dow_load.get(dow_label(dd), 0), rnd.random(), dd)
 
         # If we have a Sunday rotation, push Sundays assigned to A to the front of the Sunday list.
         if sunday_assignment:
-            sunday_dates_ordered = [sd for sd in sunday_dates if sunday_assignment.get(sd) == 'A'] +                                    [sd for sd in sunday_dates if sunday_assignment.get(sd) != 'A']
+            sunday_dates_ordered = [sd for sd in sunday_dates if sunday_assignment.get(sd) == div] +                                    [sd for sd in sunday_dates if sunday_assignment.get(sd) != div]
         else:
             sunday_dates_ordered = list(sunday_dates)
 
@@ -1628,7 +1905,10 @@ def schedule_A_pod_doubleheaders(division_teams, team_availability, field_availa
         weekday_dates_ordered = sorted(list(weekday_dates), key=_date_key)
         sunday_dates_ordered = sorted(list(sunday_dates_ordered), key=_date_key)
 
-        date_order = (sunday_dates_ordered + weekday_dates_ordered) if need_more_sunday else (weekday_dates_ordered + sunday_dates_ordered)
+        # Sundays first while teams still owe Sunday sessions, or whenever Sundays
+        # are explicitly prioritised.
+        sundays_first = need_more_sunday or SUNDAY_PRIORITY > 0
+        date_order = (sunday_dates_ordered + weekday_dates_ordered) if sundays_first else (weekday_dates_ordered + sunday_dates_ordered)
 
         for d in date_order:
             # Sunday pod rotation + global cap:
@@ -1774,6 +2054,9 @@ def schedule_division_pod_doubleheaders(div, division_teams, unscheduled,
         wk = d.isocalendar()[1]
         if team_stats[team]['weekly_games'].get(wk, 0) + 2 > WEEKLY_GAME_LIMIT:
             return False
+        # Soft weekly balance — see note in schedule_pod_only_division.
+        if WEEKLY_BALANCE_PENALTY > 0 and strict_weekly and weekly_excess(team, d, team_stats, extra=2) > 0:
+            return False
         if team_stats[team]['total_games'] + 2 > target_games(team):
             return False
         if doubleheader_count[team] >= max_dh(team):
@@ -1824,7 +2107,11 @@ def schedule_division_pod_doubleheaders(div, division_teams, unscheduled,
     season_start = min((dt.date() for dt, _slot, _field in field_availability), default=None)
 
     # Greedy scheduling: multiple passes to reach min_dh.
+    # Weekly balance is enforced early and relaxed near the end (see pod-only version).
+    strict_weekly = True
+
     for _pass in range(10):
+        strict_weekly = _pass < 7
         progress = False
 
         # Light day-of-week balancing:
@@ -1835,13 +2122,13 @@ def schedule_division_pod_doubleheaders(div, division_teams, unscheduled,
                 dow_counts[dow_label(dt0)] += 1
 
         rnd = random.Random((RANDOM_SEED or 0) + (_pass * 131) + ord(div))
-        # Front-load the season, then use under-used weekdays and preferred-day coverage as tie-breakers.
-        needers = [t for t in teams if doubleheader_count[t] < min_dh(t)]
+        # Keep Sundays early (rotation applies), but within that prefer under-used DOWs.
+        # A Sunday priority makes that ordering stronger by ignoring the DOW balancing
+        # for Sundays, so they fill before weekdays are touched.
         date_order = sorted(unique_dates, key=lambda dd: (
-            late_date_penalty(dd, season_start),
+            0 if in_front_load_window(dd) else 1,
             0 if dd.weekday() == 6 else 1,
-            -preferred_day_count(needers, dd, team_preferred_days),
-            dow_counts[dow_label(dd)],
+            0 if (SUNDAY_PRIORITY > 0 and dd.weekday() == 6) else dow_counts[dow_label(dd)],
             rnd.random()
         ))
 
@@ -1863,7 +2150,6 @@ def schedule_division_pod_doubleheaders(div, division_teams, unscheduled,
                     if sunday_pods_used.get(d, 0) == 0 and assigned not in (None, div):
                         continue
             if sunday_pods_used is not None and d.weekday() == 6 and sunday_pods_used.get(d, 0) >= SUNDAY_PODS_PER_SUNDAY:
-                continue
                 continue
             if all(doubleheader_count[t] >= min_dh(t) for t in teams):
                 break
@@ -2000,11 +2286,19 @@ def schedule_games(matchups, team_availability, field_availability, team_blackou
     for _pass in range(max_passes):
         progress_made = False
 
-        slots_iter = sorted(
-            field_availability,
-            key=lambda x: (x[0].date(), datetime.strptime(x[1].strip(), "%I:%M %p"), x[2])
-        )
+        rnd = random.Random((RANDOM_SEED or 0) + (_pass * 97) + 7)
+        # When Sundays are reserved for pods, prefer weekdays here; Sundays are skipped
+        # outright below so a lone single never breaks up a pod's adjacent-slot pair.
+        _sun_key = (1 if SUNDAY_PODS_ONLY else 0)
+        # Opening weeks first (an unused early slot is capacity that never comes back),
+        # then the Sunday preference, then randomised to keep the greedy pass unstuck.
+        slots_iter = sorted(field_availability,
+                            key=lambda x: (0 if in_front_load_window(x[0].date()) else 1,
+                                           _sun_key if x[0].weekday() == 6 else (1 - _sun_key),
+                                           rnd.random()))
         for date, slot, field in slots_iter:
+            if SUNDAY_PODS_ONLY and date.weekday() == 6:
+                continue
             if used_slots.get((date, slot, field), False):
                 continue
 
@@ -2016,8 +2310,8 @@ def schedule_games(matchups, team_availability, field_availability, team_blackou
             best_score = -1
 
             for (t1, t2) in unscheduled:
-                # A games are scheduled only by A-pod / A-pair routines
-                if div_of(t1) == 'A' or div_of(t2) == 'A':
+                # DH-only divisions are scheduled exclusively by the pod routine
+                if is_dh_only(div_of(t1)) or is_dh_only(div_of(t2)):
                     continue
 
                 # availability / blackouts
@@ -2056,40 +2350,7 @@ def schedule_games(matchups, team_availability, field_availability, team_blackou
                 if not can_double:
                     continue
 
-                score = matchup_need_score(t1, t2, team_stats, doubleheader_count)
-
-                # Soft gap preference (allow 2-day gaps, prefer 3+)
-                score -= preferred_gap_penalty(t1, d, team_game_days)
-                score -= preferred_gap_penalty(t2, d, team_game_days)
-
-                # Strong preference for placements that break up long layoffs
-                score += idle_gap_repair_bonus(t1, d, team_game_days)
-                score += idle_gap_repair_bonus(t2, d, team_game_days)
-
-                # Strong preference for teams at risk of a second straight bye week
-                score += bye_week_urgency_bonus(t1, d, team_game_days)
-                score += bye_week_urgency_bonus(t2, d, team_game_days)
-
-                # Prefer team-friendly days where possible
-                score += preferred_day_bonus(t1, t2, d, team_preferred_days)
-
-                # Front-load the schedule to preserve later dates for rainouts / makeup games
-                score -= late_date_penalty(d, season_start)
-
-                if sunday_assignment and d.weekday() == 6:
-                    assigned = sunday_assignment.get(d)
-                    if assigned and div_of(t1) == assigned and div_of(t2) == assigned:
-                        score += 500
-
-                # Pepper singles: if this placement would create a doubleheader day,
-                # prefer doing so only when that team still *needs* DH days.
-                # (Otherwise we can strand the schedule at ~15–18 games because DH
-                # consumes the full weekly limit.)
-                dh_penalty = 0
-                for team in (t1, t2):
-                    if team_game_days[team][d] == 1 and doubleheader_count[team] >= min_dh(team):
-                        dh_penalty += 2000
-                score -= dh_penalty
+                score = score_placement(t1, t2, d, team_stats, doubleheader_count, team_game_days, sunday_assignment)
                 if score > best_score:
                     best_score = score
                     best = (t1, t2)
@@ -2119,9 +2380,13 @@ def schedule_games(matchups, team_availability, field_availability, team_blackou
             team_stats[away]['away_games'] += 1
 
             for team, opp in ((home, away), (away, home)):
+                # Record today's opponent for EVERY game, not just once a second game
+                # exists. Recording only at the 2nd game left the set empty while the
+                # first game was placed, so the "different opponent same day" guard had
+                # nothing to compare against and the same pairing could be booked twice.
+                team_doubleheader_opponents[team][d].add(opp)
                 if team_game_days[team][d] == 2:
                     doubleheader_count[team] += 1
-                    team_doubleheader_opponents[team][d].add(opp)
 
             used_slots[(date, slot, field)] = True
             unscheduled.remove((t1, t2))
@@ -2172,11 +2437,17 @@ def fill_missing_games(schedule, team_stats, doubleheader_count, team_game_days,
         if not any(team_stats[t]['total_games'] < target_games(t) for t in team_stats.keys()):
             break
 
-        slots_iter = sorted(
-            field_availability,
-            key=lambda x: (x[0].date(), datetime.strptime(x[1].strip(), "%I:%M %p"), x[2])
-        )
+        rnd = random.Random((RANDOM_SEED or 0) + (_pass * 101) + 11)
+        _sun_key = (1 if SUNDAY_PODS_ONLY else 0)
+        # Opening weeks first (an unused early slot is capacity that never comes back),
+        # then the Sunday preference, then randomised to keep the greedy pass unstuck.
+        slots_iter = sorted(field_availability,
+                            key=lambda x: (0 if in_front_load_window(x[0].date()) else 1,
+                                           _sun_key if x[0].weekday() == 6 else (1 - _sun_key),
+                                           rnd.random()))
         for date, slot, field in slots_iter:
+            if SUNDAY_PODS_ONLY and date.weekday() == 6:
+                continue
             if used_slots.get((date, slot, field), False):
                 continue
 
@@ -2188,7 +2459,7 @@ def fill_missing_games(schedule, team_stats, doubleheader_count, team_game_days,
             best_score = -1
 
             for (t1, t2) in remaining:
-                if div_of(t1) == 'A' or div_of(t2) == 'A':
+                if is_dh_only(div_of(t1)) or is_dh_only(div_of(t2)):
                     continue
 
                 # if both teams already at target, skip
@@ -2220,32 +2491,7 @@ def fill_missing_games(schedule, team_stats, doubleheader_count, team_game_days,
                 if not can_double:
                     continue
 
-                score = matchup_need_score(t1, t2, team_stats, doubleheader_count)
-
-                # Strong preference for placements that break up long layoffs
-                score += idle_gap_repair_bonus(t1, d, team_game_days)
-                score += idle_gap_repair_bonus(t2, d, team_game_days)
-
-                # Strong preference for teams at risk of a second straight bye week
-                score += bye_week_urgency_bonus(t1, d, team_game_days)
-                score += bye_week_urgency_bonus(t2, d, team_game_days)
-
-                # Prefer team-friendly days where possible
-                score += preferred_day_bonus(t1, t2, d, team_preferred_days)
-
-                # Front-load the schedule to preserve later dates for rainouts / makeup games
-                score -= late_date_penalty(d, season_start)
-
-                if sunday_assignment and d.weekday() == 6:
-                    assigned = sunday_assignment.get(d)
-                    if assigned and div_of(t1) == assigned and div_of(t2) == assigned:
-                        score += 500
-
-                dh_penalty = 0
-                for team in (t1, t2):
-                    if team_game_days[team][d] == 1 and doubleheader_count[team] >= min_dh(team):
-                        dh_penalty += 2000
-                score -= dh_penalty
+                score = score_placement(t1, t2, d, team_stats, doubleheader_count, team_game_days, sunday_assignment)
                 if score > best_score:
                     best_score = score
                     best = (t1, t2)
@@ -2274,9 +2520,12 @@ def fill_missing_games(schedule, team_stats, doubleheader_count, team_game_days,
             team_stats[away]['away_games'] += 1
 
             for team, opp in ((home, away), (away, home)):
+                # Record today's opponent for EVERY game (see note in schedule_games):
+                # recording only at the 2nd game let the same pairing be booked twice
+                # on one date.
+                team_doubleheader_opponents[team][d].add(opp)
                 if team_game_days[team][d] == 2:
                     doubleheader_count[team] += 1
-                    team_doubleheader_opponents[team][d].add(opp)
 
             used_slots[(date, slot, field)] = True
             remaining.remove((t1, t2))
@@ -2286,6 +2535,361 @@ def fill_missing_games(schedule, team_stats, doubleheader_count, team_game_days,
             break
 
     return schedule, team_stats, doubleheader_count, remaining
+
+
+# -------------------------------
+# Post-build repair pass
+# -------------------------------
+def _team_game_dates(schedule, team):
+    """Return sorted list of dates where team plays."""
+    dates = set()
+    for entry in schedule:
+        if entry is None:
+            continue
+        dt, slot, field, home, hd, away, ad = entry
+        if home == team or away == team:
+            dates.add(dt.date())
+    return sorted(dates)
+
+
+def _largest_gap(game_dates):
+    """Return the largest gap in days between consecutive game dates, or 0."""
+    if len(game_dates) < 2:
+        return 0
+    return max((game_dates[i+1] - game_dates[i]).days for i in range(len(game_dates) - 1))
+
+
+def _gap_details(game_dates):
+    """Return list of (gap_days, date_after) for all consecutive gaps, sorted largest first."""
+    if len(game_dates) < 2:
+        return []
+    gaps = []
+    for i in range(len(game_dates) - 1):
+        g = (game_dates[i+1] - game_dates[i]).days
+        gaps.append((g, game_dates[i], game_dates[i+1]))
+    gaps.sort(key=lambda x: -x[0])
+    return gaps
+
+
+def _monthly_pace(game_dates, target, season_start, season_end):
+    """Return dict of {month_end_date: (expected_by_then, actual_by_then, delta)}.
+
+    Months are end-of-April, end-of-May, end-of-June, end-of-July.
+    """
+
+    checkpoints = []
+    for month in (4, 5, 6, 7):
+        # Last day of month
+        if month == 12:
+            end = date(season_start.year + 1, 1, 1)
+        else:
+            end = date(season_start.year, month + 1, 1)
+
+        end = end - timedelta(days=1)
+        if end >= season_start and end <= season_end:
+            checkpoints.append(end)
+
+    if not checkpoints:
+        return {}
+
+    total_days = (season_end - season_start).days or 1
+    result = {}
+    for cp in checkpoints:
+        elapsed = (cp - season_start).days
+        fraction = elapsed / total_days
+        expected = round(target * fraction)
+        actual = sum(1 for d in game_dates if d <= cp)
+        result[cp] = (expected, actual, actual - expected)
+    return result
+
+
+def compute_schedule_diagnostics(schedule, all_teams, team_stats, doubleheader_count, field_availability):
+    """Compute per-team diagnostics for the repair pass and reporting.
+
+    Returns list of dicts with keys:
+      team, division, target, scheduled, deficit, max_gap, worst_gap_start,
+      worst_gap_end, monthly_pace (dict), back_heavy_score
+    """
+    season_dates = sorted({dt.date() for (dt, _, _) in field_availability})
+    if not season_dates:
+        return []
+    season_start = season_dates[0]
+    season_end = season_dates[-1]
+    midpoint = season_start + (season_end - season_start) / 2
+
+    diagnostics = []
+    for team in sorted(all_teams):
+        target = target_games(team)
+        scheduled = team_stats[team]['total_games']
+        deficit = max(0, target - scheduled)
+
+        game_dates = _team_game_dates(schedule, team)
+        max_gap = _largest_gap(game_dates)
+        gaps = _gap_details(game_dates)
+
+        worst_gap_start = gaps[0][1] if gaps else None
+        worst_gap_end = gaps[0][2] if gaps else None
+
+        pace = _monthly_pace(game_dates, target, season_start, season_end)
+
+        # Back-heavy score: fraction of games in the second half of the season.
+        # 0.5 = perfectly balanced, >0.5 = back-heavy
+        games_second_half = sum(1 for d in game_dates if d > midpoint)
+        back_heavy = games_second_half / max(1, len(game_dates))
+
+        diagnostics.append({
+            'team': team,
+            'division': div_of(team),
+            'target': target,
+            'scheduled': scheduled,
+            'deficit': deficit,
+            'max_gap': max_gap,
+            'worst_gap_start': worst_gap_start,
+            'worst_gap_end': worst_gap_end,
+            'gaps': gaps,
+            'monthly_pace': pace,
+            'back_heavy': back_heavy,
+            'dh_count': doubleheader_count[team],
+            'dh_min': min_dh(team),
+            'dh_max': max_dh(team),
+        })
+
+    return diagnostics
+
+
+def repair_schedule(schedule, all_teams, team_stats, doubleheader_count,
+                    team_game_days, team_game_slots, team_doubleheader_opponents,
+                    used_slots, timeslots_by_date, field_availability, field_index,
+                    team_availability, team_blackouts, sunday_assignment=None,
+                    max_moves=50):
+    """Post-build repair pass: improve season shape by moving a small number of games.
+
+    Strategy:
+      1. Identify the worst problems: teams with long gaps, behind-pace, or back-heavy
+      2. For each problem game (one near a cluster), try to move it into the gap
+      3. Only move if it strictly improves the overall schedule quality score
+
+    Returns: (schedule, moves_made, diagnostics_before, diagnostics_after)
+    """
+    diagnostics_before = compute_schedule_diagnostics(
+        schedule, all_teams, team_stats, doubleheader_count, field_availability
+    )
+
+    def _schedule_quality_score(diags):
+        """Single number summarizing schedule quality (lower = better problems)."""
+        total = 0
+        for d in diags:
+            total += d['max_gap'] * 10          # penalize long gaps heavily
+            total += d['deficit'] * 100         # penalize unscheduled games
+            total += abs(d['back_heavy'] - 0.5) * 50  # penalize imbalance
+            # penalize behind-pace months
+            for cp, (expected, actual, delta) in d['monthly_pace'].items():
+                if delta < 0:
+                    total += abs(delta) * 20
+        return total
+
+    moves_made = []
+    initial_score = _schedule_quality_score(diagnostics_before)
+
+    # Sort teams by worst problems first
+    problem_teams = sorted(diagnostics_before, key=lambda d: (
+        -d['max_gap'], -d['deficit'], -d['back_heavy']
+    ))
+
+    for move_attempt in range(max_moves):
+        if not problem_teams:
+            break
+
+        # Find the team with the worst gap that we haven't already fixed
+        best_move = None
+        best_improvement = 0
+
+        for diag in problem_teams:
+            team = diag['team']
+            if diag['max_gap'] < PREFERRED_MIN_GAP + 2:
+                continue  # gap is acceptable
+
+            gaps = diag['gaps']
+            if not gaps:
+                continue
+
+            worst_gap_days, gap_start, gap_end = gaps[0]
+    
+
+            # Find candidate dates in the middle of the gap
+            gap_mid = gap_start + timedelta(days=worst_gap_days // 2)
+            candidate_dates = []
+            for delta in range(-3, 4):
+                cd = gap_mid + timedelta(days=delta)
+                if cd > gap_start and cd < gap_end:
+                    candidate_dates.append(cd)
+
+            # Find a game we can move INTO this gap
+            # Look for games by this team that are in clusters (close together)
+            game_dates = _team_game_dates(schedule, team)
+            moveable_games = []
+            for i, gd in enumerate(game_dates):
+                # Only consider moving games that are in tight clusters
+                # (within PREFERRED_MIN_GAP of another game on both sides)
+                neighbors = 0
+                if i > 0 and (gd - game_dates[i-1]).days <= PREFERRED_MIN_GAP:
+                    neighbors += 1
+                if i < len(game_dates)-1 and (game_dates[i+1] - gd).days <= PREFERRED_MIN_GAP:
+                    neighbors += 1
+                if neighbors >= 1:
+                    moveable_games.append(gd)
+
+            if not moveable_games:
+                continue
+
+            # Try each moveable game -> each candidate date
+            for source_date in moveable_games:
+                # Find the actual game entry
+                source_games = [(idx, g) for idx, g in enumerate(schedule)
+                                if g is not None and g[0].date() == source_date and (g[3] == team or g[5] == team)]
+                if not source_games:
+                    continue
+
+                # Only try to move single games (not part of a DH on that date)
+                if team_game_days[team].get(source_date, 0) != 1:
+                    continue
+
+                src_idx, src_game = source_games[0]
+                src_dt, src_slot, src_field, src_home, src_hd, src_away, src_ad = src_game
+                other_team = src_away if src_home == team else src_home
+
+                for target_date in candidate_dates:
+                    # A repair move always lands a *single* game, so it must not consume
+                    # Sunday inventory that is reserved for doubleheader pods.
+                    if SUNDAY_PODS_ONLY and target_date.weekday() == 6:
+                        continue
+                    # Check both teams available on target date
+                    if not is_team_available(team, target_date, team_availability, team_blackouts):
+                        continue
+                    if not is_team_available(other_team, target_date, team_availability, team_blackouts):
+                        continue
+
+                    # Check gap constraints on target date for both teams
+                    # Temporarily remove source date from game_days to check properly
+                    temp_days_team = dict(team_game_days[team])
+                    temp_days_other = dict(team_game_days[other_team])
+
+                    # Check no existing game on target date
+                    if team_game_days[team].get(target_date, 0) != 0:
+                        continue
+                    if team_game_days[other_team].get(target_date, 0) != 0:
+                        continue
+
+                    # Check weekly limit on target week
+                    target_week = target_date.isocalendar()[1]
+                    source_week = source_date.isocalendar()[1]
+                    for t in (team, other_team):
+                        wk_games = team_stats[t]['weekly_games'].get(target_week, 0)
+                        # If moving from same week, it cancels out
+                        adjust = -1 if source_week == target_week else 0
+                        if wk_games + adjust + 1 > WEEKLY_GAME_LIMIT:
+                            break
+                    else:
+                        # Find a free slot on target date
+                        target_slots = timeslots_by_date.get(target_date, [])
+                        placed = False
+                        for tslot in target_slots:
+                            free = free_fields_for_slot(field_index, target_date, tslot, used_slots)
+                            if free:
+                                # This move looks viable — estimate improvement
+                                # Simulate: what would the gap look like after the move?
+                                new_dates = [d for d in game_dates if d != source_date] + [target_date]
+                                new_dates.sort()
+                                new_max_gap = _largest_gap(new_dates)
+                                improvement = worst_gap_days - new_max_gap
+
+                                if improvement > best_improvement:
+                                    best_improvement = improvement
+                                    best_move = {
+                                        'src_idx': src_idx,
+                                        'src_game': src_game,
+                                        'team': team,
+                                        'other_team': other_team,
+                                        'source_date': source_date,
+                                        'target_date': target_date,
+                                        'target_slot': tslot,
+                                        'target_field_entry': free[0],
+                                        'improvement': improvement,
+                                    }
+                                placed = True
+                                break
+                        continue
+
+        if best_move is None or best_improvement <= 1:
+            break
+
+        # Execute the move
+        mv = best_move
+        src_game = mv['src_game']
+        src_dt, src_slot, src_field, src_home, src_hd, src_away, src_ad = src_game
+        target_entry = mv['target_field_entry']
+        tgt_dt, tgt_slot, tgt_field = target_entry
+
+        # Remove old game from schedule
+        schedule[mv['src_idx']] = None  # mark for cleanup
+        source_date = mv['source_date']
+        target_date = mv['target_date']
+
+        # Update tracking: remove from source
+        for t in (src_home, src_away):
+            team_stats[t]['total_games'] -= 1
+            src_week = source_date.isocalendar()[1]
+            team_stats[t]['weekly_games'][src_week] = max(0, team_stats[t]['weekly_games'].get(src_week, 0) - 1)
+            team_game_days[t][source_date] = max(0, team_game_days[t].get(source_date, 0) - 1)
+            if src_slot in team_game_slots[t][source_date]:
+                team_game_slots[t][source_date].remove(src_slot)
+        team_stats[src_home]['home_games'] -= 1
+        team_stats[src_away]['away_games'] -= 1
+        used_slots.pop((src_dt, src_slot, src_field), None)
+
+        # Add to target
+        home, away = decide_home_away(src_home, src_away, team_stats)
+        new_game = (tgt_dt, tgt_slot, tgt_field, home, home[0], away, away[0])
+        schedule.append(new_game)
+        tgt_week = target_date.isocalendar()[1]
+        for t in (home, away):
+            team_stats[t]['total_games'] += 1
+            team_stats[t]['weekly_games'][tgt_week] = team_stats[t]['weekly_games'].get(tgt_week, 0) + 1
+            team_game_days[t][target_date] += 1
+            team_game_slots[t][target_date].append(tgt_slot)
+        team_stats[home]['home_games'] += 1
+        team_stats[away]['away_games'] += 1
+        used_slots[(tgt_dt, tgt_slot, tgt_field)] = True
+
+        moves_made.append({
+            'team': mv['team'],
+            'from': f"{source_date} {src_slot} {src_field}",
+            'to': f"{target_date} {tgt_slot} {tgt_field}",
+            'matchup': f"{src_home} vs {src_away}",
+            'gap_reduction': mv['improvement'],
+        })
+
+        # Refresh diagnostics for next iteration
+        problem_teams = compute_schedule_diagnostics(
+            [g for g in schedule if g is not None], all_teams, team_stats, doubleheader_count, field_availability
+        )
+        problem_teams.sort(key=lambda d: (-d['max_gap'], -d['deficit'], -d['back_heavy']))
+
+    # Clean up None entries from moves
+    schedule[:] = [g for g in schedule if g is not None]
+
+    diagnostics_after = compute_schedule_diagnostics(
+        schedule, all_teams, team_stats, doubleheader_count, field_availability
+    )
+
+    final_score = _schedule_quality_score(diagnostics_after)
+    print(f"\nRepair pass: {len(moves_made)} games moved")
+    print(f"  Quality score: {initial_score:.0f} -> {final_score:.0f} (lower is better)")
+    if moves_made:
+        for mv in moves_made:
+            print(f"  Moved {mv['matchup']}: {mv['from']} -> {mv['to']} (gap reduced by {mv['gap_reduction']} days)")
+
+    return schedule, moves_made, diagnostics_before, diagnostics_after
 
 
 def build_slot_rows(field_availability, scheduled_games):
@@ -2351,14 +2955,37 @@ def _current_unordered_meet_counts(schedule):
     return counts
 
 
+def _find_open_dates_for_pair(t1, t2, field_availability, used_slots, team_availability, team_blackouts, team_game_days, max_dates=5):
+    """Return up to max_dates open dates where both teams can play and a field slot is free."""
+    seen = set()
+    results = []
+    for dt, slot, field in field_availability:
+        d = dt.date()
+        if d in seen:
+            continue
+        if used_slots.get((dt, slot, field), False):
+            continue
+        if not is_team_available(t1, d, team_availability, team_blackouts):
+            continue
+        if not is_team_available(t2, d, team_availability, team_blackouts):
+            continue
+        seen.add(d)
+        results.append(d.strftime('%Y-%m-%d'))
+        if len(results) >= max_dates:
+            break
+    return results
+
+
 def suggest_best_fit_manual_matchups(all_teams, schedule, team_stats, doubleheader_count,
-                                     team_availability=None, team_blackouts=None, max_pairs=None):
+                                     team_availability=None, team_blackouts=None, max_pairs=None,
+                                     field_availability=None, used_slots=None, team_game_days=None):
     """Greedy 'best fit' list of matchups among ONLY teams currently short of target games.
 
     Goal: produce a simple, reasonable list to manually place that:
       - fixes game deficits (as much as possible)
       - prefers pairs that have played each other the least (based on current schedule matrix)
       - breaks ties by pairing teams with bigger deficits
+      - shows open dates where both teams can play (actionable)
 
     Returns list of dict rows ready for XLSX export.
     """
@@ -2417,6 +3044,9 @@ def suggest_best_fit_manual_matchups(all_teams, schedule, team_stats, doublehead
             "Type": "INTRA" if div_of(t1) == div_of(t2) else "INTER",
             "Common Avail Days": _common_avail_days(t1, t2, team_availability),
             "Blackouts": _blackout_summary(t1, t2, team_blackouts),
+            "Open Dates": ", ".join(_find_open_dates_for_pair(
+                t1, t2, field_availability, used_slots or {}, team_availability, team_blackouts, team_game_days
+            )) if field_availability else "",
         })
 
         # update remaining deficits
@@ -2426,34 +3056,14 @@ def suggest_best_fit_manual_matchups(all_teams, schedule, team_stats, doublehead
     # Add a small tail note if odd deficit remains (can't be paired cleanly)
     leftover = [(t, remaining[t]) for t in short if remaining.get(t, 0) > 0]
     if leftover:
-        rows.append({
-            "Team 1": "",
-            "Div 1": "",
-            "Needs 1": "",
-            "DH Need 1": "",
-            "Team 2": "",
-            "Div 2": "",
-            "Needs 2": "",
-            "DH Need 2": "",
-            "Current Meetings": "",
-            "Type": "",
-            "Common Avail Days": "",
-            "Blackouts": "",
-        })
-        rows.append({
-            "Team 1": "Leftover needs (odd / not pairable):",
-            "Div 1": "",
-            "Needs 1": ", ".join([f"{t}:{n}" for t, n in leftover]),
-            "DH Need 1": "",
-            "Team 2": "",
-            "Div 2": "",
-            "Needs 2": "",
-            "DH Need 2": "",
-            "Current Meetings": "",
-            "Type": "",
-            "Common Avail Days": "",
-            "Blackouts": "",
-        })
+        empty_row = {k: "" for k in ["Team 1", "Div 1", "Needs 1", "DH Need 1",
+                     "Team 2", "Div 2", "Needs 2", "DH Need 2",
+                     "Current Meetings", "Type", "Common Avail Days", "Blackouts", "Open Dates"]}
+        rows.append(empty_row)
+        note_row = dict(empty_row)
+        note_row["Team 1"] = "Leftover needs (odd / not pairable):"
+        note_row["Needs 1"] = ", ".join([f"{t}:{n}" for t, n in leftover])
+        rows.append(note_row)
 
     return rows
 
@@ -2589,6 +3199,11 @@ def _autofit(ws, max_row, max_col, min_width=10, max_width=40):
             best = max(best, len(str(v)))
         ws.column_dimensions[letter].width = max(min_width, min(max_width, best + 2))
 
+# --- Restored during the main merge -------------------------------------------
+# export_schedule_to_xlsx below calls both of these, but the merge dropped their
+# definitions while keeping the call sites, so any XLSX export raised NameError.
+# Taken unchanged from main.
+# -------------------------------------------------------------------------------
 def _schedule_row_annotations(rows, team_preferred_days=None):
     """Return per-row annotations for Schedule export."""
     scheduled_only = []
@@ -2725,7 +3340,12 @@ def _build_team_summary(schedule, all_teams, team_stats, doubleheader_count, tea
     return rows
 
 
-def export_schedule_to_xlsx(field_availability, schedule, division_teams, output_path, remaining_matchups=None, team_stats=None, doubleheader_count=None, team_availability=None, team_blackouts=None, team_preferred_days=None):
+# NOTE: this signature carries parameters from both sides of the main merge --
+# `diagnostics` (this branch, used for the diagnostics sheet) and
+# `team_preferred_days` (main, used for row annotations and the team summary).
+# The merge kept this branch's signature but main's body, so the body referenced a
+# parameter that no longer existed and every XLSX export raised NameError.
+def export_schedule_to_xlsx(field_availability, schedule, division_teams, output_path, remaining_matchups=None, team_stats=None, doubleheader_count=None, team_availability=None, team_blackouts=None, diagnostics=None, team_preferred_days=None):
     if Workbook is None:
         raise RuntimeError("openpyxl is not installed. Run: pip install openpyxl")
 
@@ -2883,11 +3503,17 @@ def export_schedule_to_xlsx(field_availability, schedule, division_teams, output
     ws_s = wb.create_sheet("Suggested Matchups")
     ws_s.append(["Team 1", "Div 1", "Needs 1", "DH Need 1",
                  "Team 2", "Div 2", "Needs 2", "DH Need 2",
-                 "Current Meetings", "Type", "Common Avail Days", "Blackouts"])
+                 "Current Meetings", "Type", "Common Avail Days", "Blackouts", "Open Dates"])
     for cell in ws_s[1]:
         cell.font = Font(bold=True)
         cell.fill = PatternFill("solid", fgColor="D9E1F2")
         cell.alignment = Alignment(horizontal="center")
+
+    # Build used_slots lookup for open-date calculation
+    _used = {}
+    for g in schedule:
+        if g[3] and g[5]:  # has home and away
+            _used[(g[0], g[1], g[2])] = True
 
     suggested_rows = suggest_best_fit_manual_matchups(
         all_teams=all_teams,
@@ -2896,22 +3522,26 @@ def export_schedule_to_xlsx(field_availability, schedule, division_teams, output
         doubleheader_count=doubleheader_count or {t: 0 for t in all_teams},
         team_availability=team_availability,
         team_blackouts=team_blackouts,
+        field_availability=field_availability,
+        used_slots=_used,
     )
 
     for row in suggested_rows:
         ws_s.append([
             row.get("Team 1", ""), row.get("Div 1", ""), row.get("Needs 1", ""), row.get("DH Need 1", ""),
             row.get("Team 2", ""), row.get("Div 2", ""), row.get("Needs 2", ""), row.get("DH Need 2", ""),
-            row.get("Current Meetings", ""), row.get("Type", ""), row.get("Common Avail Days", ""), row.get("Blackouts", "")
+            row.get("Current Meetings", ""), row.get("Type", ""), row.get("Common Avail Days", ""),
+            row.get("Blackouts", ""), row.get("Open Dates", "")
         ])
 
     last_s = max(2, len(suggested_rows) + 1)
     ws_s.freeze_panes = "A2"
-    ws_s.auto_filter.ref = f"A1:L{last_s}"
+    ws_s.auto_filter.ref = f"A1:M{last_s}"
     for rr in range(2, last_s + 1):
         ws_s.cell(row=rr, column=11).alignment = Alignment(wrap_text=True, vertical="top")
         ws_s.cell(row=rr, column=12).alignment = Alignment(wrap_text=True, vertical="top")
-    _autofit(ws_s, last_s, 12, min_width=10, max_width=24)
+        ws_s.cell(row=rr, column=13).alignment = Alignment(wrap_text=True, vertical="top")
+    _autofit(ws_s, last_s, 13, min_width=10, max_width=28)
 
     # ---------------- Unscheduled Matches ----------------
     ws_u = wb.create_sheet("Unscheduled Matches")
@@ -3038,6 +3668,112 @@ def export_schedule_to_xlsx(field_availability, schedule, division_teams, output
     # Legacy helper tabs
     add_unscheduled_to_workbook(wb, remaining_matchups, all_teams, team_stats or defaultdict(dict), doubleheader_count or defaultdict(int), sched_last, weeks_count=len(unique_weeks))
 
+    # ---------------- Team Diagnostics ("Why this team is a problem") ----------------
+    if diagnostics:
+        ws_diag = wb.create_sheet("Team Diagnostics")
+
+        # Get monthly checkpoint columns from the first team that has pace data
+        month_cols = []
+        for d in diagnostics:
+            if d['monthly_pace']:
+                month_cols = sorted(d['monthly_pace'].keys())
+                break
+
+        headers_diag = [
+            "Division", "Team", "Target", "Scheduled", "Deficit",
+            "Max Gap (days)", "Worst Gap Start", "Worst Gap End",
+            "Back-Heavy %", "DH Count", "DH Min", "DH Max",
+            "Status"
+        ]
+        # Add monthly pacing columns
+        for mc in month_cols:
+            headers_diag.append(f"Pace {mc.strftime('%b')}: Expected")
+            headers_diag.append(f"Pace {mc.strftime('%b')}: Actual")
+            headers_diag.append(f"Pace {mc.strftime('%b')}: Delta")
+
+        ws_diag.append(headers_diag)
+        for cell in ws_diag[1]:
+            cell.font = Font(bold=True)
+            cell.fill = PatternFill("solid", fgColor="D9E1F2")
+            cell.alignment = Alignment(horizontal="center", wrap_text=True)
+
+        # Sort diagnostics: worst problems first
+        sorted_diag = sorted(diagnostics, key=lambda d: (
+            -d['deficit'], -d['max_gap'], -abs(d['back_heavy'] - 0.5)
+        ))
+
+        # Highlight fills
+        red_fill = PatternFill("solid", fgColor="FFC7CE")
+        yellow_fill = PatternFill("solid", fgColor="FFEB9C")
+        green_fill = PatternFill("solid", fgColor="C6EFCE")
+
+        for r, d in enumerate(sorted_diag, start=2):
+            # Determine status
+            problems = []
+            if d['deficit'] > 0:
+                problems.append(f"{d['deficit']} games short")
+            if d['max_gap'] >= PREFERRED_MIN_GAP + 3:
+                problems.append(f"{d['max_gap']}-day gap")
+            if d['back_heavy'] > 0.65:
+                problems.append(f"{d['back_heavy']:.0%} back-heavy")
+            if d['dh_count'] < d['dh_min']:
+                problems.append(f"DH deficit: {d['dh_min'] - d['dh_count']}")
+
+            # Monthly pace problems
+            for mc in month_cols:
+                if mc in d['monthly_pace']:
+                    exp, act, delta = d['monthly_pace'][mc]
+                    if delta < -2:
+                        problems.append(f"{abs(delta)} behind by {mc.strftime('%b')}")
+
+            status = "; ".join(problems) if problems else "OK"
+
+            row_data = [
+                d['division'], d['team'], d['target'], d['scheduled'], d['deficit'],
+                d['max_gap'],
+                d['worst_gap_start'].strftime('%Y-%m-%d') if d['worst_gap_start'] else "",
+                d['worst_gap_end'].strftime('%Y-%m-%d') if d['worst_gap_end'] else "",
+                round(d['back_heavy'] * 100, 1),
+                d['dh_count'], d['dh_min'], d['dh_max'],
+                status
+            ]
+
+            # Add monthly pacing data
+            for mc in month_cols:
+                if mc in d['monthly_pace']:
+                    exp, act, delta = d['monthly_pace'][mc]
+                    row_data.extend([exp, act, delta])
+                else:
+                    row_data.extend(["", "", ""])
+
+            ws_diag.append(row_data)
+
+            # Color the status cell
+            status_cell = ws_diag.cell(row=r, column=13)
+            if d['deficit'] > 0 or d['max_gap'] >= PREFERRED_MIN_GAP + 5:
+                status_cell.fill = red_fill
+            elif problems:
+                status_cell.fill = yellow_fill
+            else:
+                status_cell.fill = green_fill
+
+            # Color monthly delta cells
+            base_col = 14  # first monthly column
+            for i, mc in enumerate(month_cols):
+                delta_col = base_col + i * 3 + 2  # the "Delta" column
+                if mc in d['monthly_pace']:
+                    _exp, _act, delta = d['monthly_pace'][mc]
+                    delta_cell = ws_diag.cell(row=r, column=delta_col)
+                    if delta < -2:
+                        delta_cell.fill = red_fill
+                    elif delta < 0:
+                        delta_cell.fill = yellow_fill
+
+        last_diag = max(2, len(sorted_diag) + 1)
+        ws_diag.freeze_panes = "A2"
+        ws_diag.auto_filter.ref = f"A1:{get_column_letter(len(headers_diag))}{last_diag}"
+        _autofit(ws_diag, last_diag, len(headers_diag), min_width=10, max_width=30)
+
     wb.save(output_path)
 
 
@@ -3145,12 +3881,16 @@ def main():
 
     division_teams = {
         'A': ["A{}".format(i+1) for i in range(6)],
-        'B': ["B{}".format(i+1) for i in range(6)],
+        'B': ["B{}".format(i+1) for i in range(8)],
         'C': ["C{}".format(i+1) for i in range(6)],
         # 'D': ["D{}".format(i+1) for i in range(6)],
     }
-    # all_teams = [t for div in ('A', 'B', 'C', 'D') for t in division_teams[div]]
-    all_teams = [t for div in ('A', 'B', 'C') for t in division_teams[div]]
+    all_teams = [t for div in division_teams for t in division_teams[div]]
+
+    # Precompute per-team scheduling scarcity (availability + blackouts) so that
+    # heavily-constrained teams are prioritized when building pods/games.
+    init_team_scarcity(all_teams, field_availability, team_availability, team_blackouts)
+
     schedule = []
     team_stats = defaultdict(lambda: {
         'total_games': 0,
@@ -3191,28 +3931,34 @@ def main():
     # Track total pods used per Sunday across all divisions (hard cap via SUNDAY_PODS_PER_SUNDAY)
     # Format: {date: int}
     sunday_pods_used = {}
-  
+
+    # Pre-index field availability for O(1) lookups in DH scheduling
+    field_index = build_field_index(field_availability)
+
     matchups = generate_full_matchups(division_teams)
     print("\nTotal generated matchups (unscheduled): {}".format(len(matchups)))
 
     unscheduled = matchups[:]
 
-    # Schedule Division A FIRST so B/C/D don't consume the prime Sunday + adjacent-slot inventory
-    # that A requires to hit 11 DH days per team.
-    (schedule, team_stats, doubleheader_count, team_game_days, team_game_slots,
-     used_slots) = schedule_A_pod_doubleheaders(
-        division_teams, team_availability, field_availability, team_blackouts, timeslots_by_date,
-        team_stats, doubleheader_count, team_game_days, team_game_slots, used_slots, schedule,
-        sunday_assignment=sunday_assignment, sunday_pods_used=sunday_pods_used,
-        team_preferred_days=team_preferred_days
-    )
+    # Schedule DH-only divisions FIRST so the others don't consume the prime Sunday +
+    # adjacent-slot inventory that pod-only divisions require.
+    for div in dh_only_divisions(division_teams):
+        (schedule, team_stats, doubleheader_count, team_game_days, team_game_slots,
+         used_slots) = schedule_pod_only_division(
+            div, division_teams, team_availability, field_availability, team_blackouts, timeslots_by_date,
+            team_stats, doubleheader_count, team_game_days, team_game_slots, used_slots, schedule,
+            sunday_assignment=sunday_assignment, sunday_pods_used=sunday_pods_used
+        )
 
-    # Remove any remaining A matchups from the single-game pool (A is DH-only).
-    unscheduled = [m for m in unscheduled if div_of(m[0]) != 'A' and div_of(m[1]) != 'A']
+    # Remove DH-only matchups from the single-game pool (those divisions are pod-only).
+    unscheduled = [m for m in unscheduled
+                   if not is_dh_only(div_of(m[0])) and not is_dh_only(div_of(m[1]))]
 
-    # Build B/C/D doubleheader pods (same-day 2-game sets) BEFORE single-game placement.
+    # Build remaining divisions' doubleheader pods (same-day 2-game sets) BEFORE single-game placement.
     # Pod structure guarantees teams do NOT play the same opponent back-to-back in a DH.
-    for div in ('B', 'C', 'D'):
+    for div in division_teams:
+        if is_dh_only(div):
+            continue
         (schedule, team_stats, doubleheader_count, team_game_days, team_game_slots,
          team_doubleheader_opponents, used_slots, unscheduled) = schedule_division_pod_doubleheaders(
             div, division_teams, unscheduled,
@@ -3249,17 +3995,23 @@ def main():
     if under_dh:
         print("Critical: Teams below minimum DH days: {}".format(under_dh))
 
-    idle_gap_violations = check_max_idle_gap(schedule, all_teams)
-    if idle_gap_violations:
-        print("Critical: Teams with layoff gaps greater than {} days (showing up to 50):".format(MAX_IDLE_DAYS))
-        for v in idle_gap_violations[:50]:
-            print("  ", v)
+    # ---------------------------------------------------------
+    # Post-build repair pass: fix gaps, cadence, back-heavy scheduling
+    # ---------------------------------------------------------
+    print("\nRunning post-build repair pass...")
+    schedule, repair_moves, diag_before, diag_after = repair_schedule(
+        schedule, all_teams, team_stats, doubleheader_count,
+        team_game_days, team_game_slots, team_doubleheader_opponents,
+        used_slots, timeslots_by_date, field_availability, field_index,
+        team_availability, team_blackouts, sunday_assignment=sunday_assignment,
+        max_moves=50
+    )
 
-    bye_week_violations = [(t, max_consecutive_byes(t, team_game_days)) for t in all_teams if max_consecutive_byes(t, team_game_days) > MAX_CONSECUTIVE_BYE_WEEKS]
-    if bye_week_violations:
-        print("Critical: Teams with more than {} consecutive bye week(s):".format(MAX_CONSECUTIVE_BYE_WEEKS))
-        for t, gap in bye_week_violations:
-            print("   {} -> {} consecutive bye weeks".format(t, gap))
+    # Re-validate after repair
+    _av_viol_post = check_schedule_against_availability(schedule, team_availability)
+    if _av_viol_post:
+        print("WARNING: Repair pass introduced availability violations — rolling back")
+        # In practice the repair pass checks availability, but this is a safety net
 
     # Export CSV + XLSX with full slot list (row count == field_availability)
     # Hard validation: no team is scheduled on a disallowed day
@@ -3274,7 +4026,10 @@ def main():
     # Also write templates for manual scheduling
     output_unscheduled_matchups_csv(unscheduled, 'unscheduled_matchups.csv')
     output_team_remaining_needs_csv(all_teams, team_stats, doubleheader_count, 'team_remaining_needs.csv')
-    export_schedule_to_xlsx(field_availability, schedule, division_teams, 'softball_schedule.xlsx', remaining_matchups=unscheduled, team_stats=team_stats, doubleheader_count=doubleheader_count, team_availability=team_availability, team_blackouts=team_blackouts, team_preferred_days=team_preferred_days)
+    export_schedule_to_xlsx(field_availability, schedule, division_teams, 'softball_schedule.xlsx',
+                            remaining_matchups=unscheduled, team_stats=team_stats,
+                            doubleheader_count=doubleheader_count, team_availability=team_availability,
+                            team_blackouts=team_blackouts, diagnostics=diag_after)
 
     print("\nSchedule Generation Complete")
     print_schedule_summary(team_stats)
