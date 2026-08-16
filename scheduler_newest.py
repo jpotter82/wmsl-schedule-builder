@@ -107,8 +107,13 @@ WEEKLY_GAME_LIMIT = 2          # HARD max games per team per week (1 DH day = 2 
 # placement penalty, the pod-scheduling gate, AND how much best-of-N cares about
 # idle/overloaded weeks. Setting it to 0 disables weekly pacing entirely, so the
 # scheduler maximises games placed exactly as it did before pacing existed.
-WEEKLY_BALANCE_PENALTY = 5000  # score penalty per game above a team's soft weekly target
-WEEKLY_BALANCE_REFERENCE = 5000  # the strength the selection weights are calibrated to
+# The dial runs 0 (off) to WEEKLY_BALANCE_REFERENCE (full strength). Values above the
+# reference are CLAMPED to it by the wrapper — they are not naturally equivalent, so
+# without that clamp a larger number really does push pacing harder (measurably fewer
+# games placed) in a way no UI option can express. The UI offers named levels instead
+# of a free-text number for the same reason.
+WEEKLY_BALANCE_PENALTY = 2500  # score penalty per game above a team's soft weekly target
+WEEKLY_BALANCE_REFERENCE = 2500  # strength at which pacing is applied at full weight
 HOME_AWAY_BALANCE = 7          # desired home games per team (for 14-game seasons)
 
 # Division A opponent-balance controls (A is DH-only)

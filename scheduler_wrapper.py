@@ -25,7 +25,7 @@ DEFAULT_CONFIG = {
         'random_seed': None,
         'attempts': 1,
         'weekly_soft_target': None,
-        'weekly_balance_penalty': 5000,
+        'weekly_balance_penalty': 2500,
         'front_load_weeks': 0,
     },
     'pair_rules': {
@@ -89,8 +89,12 @@ def _patch_globals(config):
     # Soft weekly target: what the scheduler aims for, vs the hard limit above.
     # None/0 means "derive an even spread from the season length".
     sn.WEEKLY_SOFT_TARGET = gen.get('weekly_soft_target') or None
+    # Clamped to the reference so the dial has a real ceiling: the UI offers 0-2500,
+    # and anything above (e.g. from the earlier 0-5000 scale) behaves as full strength
+    # rather than silently pushing pacing harder than any UI option can express.
     _pen = gen.get('weekly_balance_penalty')
-    sn.WEEKLY_BALANCE_PENALTY = 5000 if _pen is None else max(0, int(_pen))
+    _ref = getattr(sn, 'WEEKLY_BALANCE_REFERENCE', 2500)
+    sn.WEEKLY_BALANCE_PENALTY = _ref if _pen is None else min(_ref, max(0, int(_pen)))
     sn.HOME_AWAY_BALANCE = gen.get('home_away_balance', 7)
     sn.RANDOM_SEED = gen.get('random_seed', None)
     sn.SUNDAY_POD_ROTATION = config.get('sunday_pod_rotation', ['B', 'C', 'A'])
@@ -294,8 +298,9 @@ def _score_attempt(all_teams, team_stats, doubleheader_count, unscheduled, viola
     # setting the strength to 0 makes best-of-N ignore pacing too and simply pick
     # the schedule with the most games — i.e. a true revert to pre-pacing behaviour.
     strength = getattr(sn, 'WEEKLY_BALANCE_PENALTY', 0) or 0
-    reference = getattr(sn, 'WEEKLY_BALANCE_REFERENCE', 5000) or 5000
-    pace_w = float(strength) / float(reference)
+    reference = getattr(sn, 'WEEKLY_BALANCE_REFERENCE', 2500) or 2500
+    # Clamped at 1.0 so configs saved under the old 0-5000 scale don't double-weight pacing.
+    pace_w = min(1.0, float(strength) / float(reference))
 
     unused_front = _unused_front_slots(schedule or [], field_availability or [])
 

@@ -58,8 +58,8 @@
         attempts: parseInt(document.getElementById('attempts').value) || 1,
         weekly_soft_target: parseInt(document.getElementById('weeklySoftTarget').value) || null,
         weekly_balance_penalty: (function () {
-          var v = document.getElementById('weeklyBalancePenalty').value.trim();
-          return v === '' ? 5000 : parseInt(v);
+          var v = document.getElementById('weeklyBalancePenalty').value;
+          return v === '' ? 2500 : parseInt(v);
         })(),
       },
       pair_rules: pairRules,
@@ -69,6 +69,30 @@
       sunday_priority: parseInt(document.getElementById('sundayPriority').value) || 0,
       sunday_pods_only: document.getElementById('sundayPodsOnly').checked,
     };
+  }
+
+  // Select an option by value. Configs saved before these became dropdowns (or under
+  // the old 0-5000 scale) may hold a value that isn't on the list — rather than
+  // silently showing a blank control, surface it as an explicit "Custom" entry.
+  function setChoice(id, value, describe) {
+    var sel = document.getElementById(id);
+    if (!sel) return;
+    var v = String(value == null ? '' : value);
+
+    Array.prototype.slice.call(sel.querySelectorAll('option[data-custom]'))
+      .forEach(function (o) { o.remove(); });
+
+    var match = Array.prototype.slice.call(sel.options)
+      .some(function (o) { return o.value === v; });
+
+    if (!match) {
+      var opt = document.createElement('option');
+      opt.value = v;
+      opt.setAttribute('data-custom', '1');
+      opt.textContent = describe ? describe(value) : ('Custom (' + v + ')');
+      sel.insertBefore(opt, sel.firstChild);
+    }
+    sel.value = v;
   }
 
   function populateForm(cfg) {
@@ -82,11 +106,12 @@
     document.getElementById('randomSeed').value = gen.random_seed != null ? gen.random_seed : '';
     document.getElementById('attempts').value = gen.attempts || 1;
     document.getElementById('weeklySoftTarget').value = gen.weekly_soft_target != null ? gen.weekly_soft_target : '';
-    document.getElementById('weeklyBalancePenalty').value =
-      gen.weekly_balance_penalty != null ? gen.weekly_balance_penalty : 5000;
+    setChoice('weeklyBalancePenalty',
+      gen.weekly_balance_penalty != null ? gen.weekly_balance_penalty : 2500,
+      function (v) { return 'Custom (' + v + ')' + (v > 2500 ? ' — same as Strong' : ''); });
     document.getElementById('sundayPodRotation').value = (cfg.sunday_pod_rotation || ['B', 'C', 'A']).join(',');
     document.getElementById('sundayPodsPerSunday').value = cfg.sunday_pods_per_sunday || 3;
-    document.getElementById('sundayPriority').value = cfg.sunday_priority || 0;
+    setChoice('sundayPriority', cfg.sunday_priority || 0);
     document.getElementById('sundayPodsOnly').checked = !!cfg.sunday_pods_only;
 
     const container = document.getElementById('divisionsContainer');

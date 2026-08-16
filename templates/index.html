@@ -134,14 +134,18 @@
                 </small>
               </div>
               <div class="col-md-4">
-                <label class="form-label">Even-Spread Strength</label>
-                <input type="number" class="form-control" id="weeklyBalancePenalty" value="5000" min="0" step="500">
+                <label class="form-label">Even Weeks vs More Games</label>
+                <select class="form-select" id="weeklyBalancePenalty">
+                  <option value="0">Off &mdash; most games, lumpy weeks</option>
+                  <option value="500">Light &mdash; trim the worst pile-ups</option>
+                  <option value="1500">Moderate &mdash; noticeably steadier</option>
+                  <option value="2500" selected>Strong &mdash; steadiest weeks, fewest games</option>
+                </select>
                 <small class="text-muted">
-                  Trades total games against a steady week-to-week rhythm.
-                  <strong>0</strong> switches pacing off completely &mdash; most games placed, but teams
-                  get 4-game weeks next to empty ones. Raising it spreads games out at the cost of a few
-                  games. The effect levels off around <strong>2500</strong>; beyond that nothing changes.
-                  Useful range <strong>0&ndash;2500</strong>.
+                  These two goals pull against each other: packing games in fills more of the calendar,
+                  spreading them out leaves some unplaced. <strong>Off</strong> maximises games but gives
+                  teams 4-game weeks beside empty ones; <strong>Strong</strong> gives the steadiest rhythm
+                  and places a handful fewer games.
                 </small>
               </div>
             </div>
@@ -168,12 +172,16 @@
                 </small>
               </div>
               <div class="col-md-4">
-                <label class="form-label">Sunday Priority</label>
-                <input type="number" class="form-control" id="sundayPriority" value="0" min="0" step="500">
+                <label class="form-label">Sunday Preference</label>
+                <select class="form-select" id="sundayPriority">
+                  <option value="0" selected>Normal &mdash; no special preference</option>
+                  <option value="2000">Prefer Sundays</option>
+                  <option value="5000">Strongly prefer Sundays</option>
+                </select>
                 <small class="text-muted">
-                  How strongly to favour Sundays over weekdays. <strong>0</strong> = no preference
-                  (Sundays used only to meet each team's minimum Sunday sessions).
-                  <strong>2000+</strong> = fill Sundays first, before weekday slots are touched.
+                  Sundays are already filled before weekdays by default, so this only bites when
+                  Sunday slots would otherwise go unused. If your Sundays are already fully booked,
+                  changing this will make no difference.
                 </small>
                 <div class="form-check mt-2" title="Reserve every Sunday slot for 4-team doubleheader pods. Single games are never placed on a Sunday, so a lone game can't occupy one half of a back-to-back pair and block a pod.">
                   <input type="checkbox" class="form-check-input" id="sundayPodsOnly">

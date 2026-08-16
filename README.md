@@ -199,10 +199,24 @@ without them, raising the limit produces 4-game weeks next to empty ones.
 | Setting | Meaning |
 |---|---|
 | **Target Games / Week** | What the scheduler aims for. Blank = derived from total games ÷ usable weeks. Weeks too small to host the league are excluded from that maths. |
-| **Even-Spread Strength** | How hard to push for even pacing. `0` disables pacing entirely (most games, lumpy weeks). Effect levels off around `2500`. |
+| **Even Weeks vs More Games** | How hard to push for even pacing. See the levels below. |
 
-**Even-Spread Strength is a single dial** driving placement scoring, the pod gate and
-best-of-N selection together. Setting it to `0` is a genuine revert to unpaced behaviour.
+Packing games in fills more of the calendar; spreading them out leaves some unplaced.
+The setting picks where you sit between those. Measured on a tight 6-week season:
+
+| Level | Stored value | Games short | 4-game weeks |
+|---|---|---|---|
+| **Off** — most games, lumpy weeks | `0` | 4 | 32 |
+| **Light** — trim the worst pile-ups | `500` | 10 | 14 |
+| **Moderate** — noticeably steadier | `1500` | 12 | 6 |
+| **Strong** — steadiest weeks, fewest games | `2500` | 14 | 5 |
+
+Your own numbers will differ; the shape of the trade-off won't.
+
+It is a **single dial** driving placement scoring, the pod gate and best-of-N selection
+together — **Off** is a genuine revert to unpaced behaviour. `2500` is full strength;
+values above it are clamped and behave identically. Configs holding an off-scale value
+(for example from the earlier 0–5000 scale) still load, shown as a *Custom* entry.
 
 ### Sunday Pods
 
@@ -210,7 +224,7 @@ best-of-N selection together. Setting it to `0` is a genuine revert to unpaced b
 |---|---|
 | **Pods per Sunday** | Hard cap on pods across all divisions on one Sunday. Each pod needs 2 adjacent times × 2 diamonds. |
 | **Division Rotation** | Comma-separated order. Each Sunday is assigned to the next division, which gets first claim on that Sunday's first pod. |
-| **Sunday Priority** | How strongly to favour Sundays. `0` = Sundays used only to meet minimum Sunday sessions. |
+| **Sunday Preference** | Normal / Prefer / Strongly prefer. Sundays are already filled before weekdays by default, so this only bites when Sunday slots would otherwise go unused. |
 | **Sundays are doubleheaders only** | Never place single games on a Sunday, so a lone game can't occupy half a back-to-back pair and block a pod. |
 
 > Sundays are already scanned before weekdays by default. If your Sundays are already
