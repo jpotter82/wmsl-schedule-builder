@@ -247,6 +247,15 @@ SEASON_WEEK_INDEX = {}     # ISO week number -> 0-based position in the season
 FRONT_LOAD_WEEKS = 0
 FRONT_LOAD_BONUS = 4000    # score bonus for placing a game inside the front-load window
 
+# Longest acceptable layoff between a team's game dates.
+#
+# This is a *soft target*, not a hard cap: placements that shrink a long layoff get a
+# score bonus, scaled by how far past the target the layoff already is. A hard reject
+# works poorly here because the greedy passes are not chronological — a later placement
+# can still split a big gap, so refusing outright just loses games.
+MAX_IDLE_DAYS = 14
+IDLE_GAP_REPAIR_WEIGHT = 1500
+
 # Soft cap on games per team per week.
 #
 # WEEKLY_GAME_LIMIT is the HARD ceiling (a team may never exceed it). This soft
@@ -308,6 +317,71 @@ def weekly_soft_target(team):
     # Spread the season over the weeks that can actually host a full slate.
     fair = int(math.ceil(float(target_games(team)) / float(weeks)))
     return max(2, min(fair, WEEKLY_GAME_LIMIT))
+
+def _played_dates(team, team_game_days):
+    """Dates the team actually plays on.
+
+    NOTE: unlike a plain sorted(team_game_days[team]), this filters out dates whose
+    count has fallen to zero. The repair pass decrements a date's count when it moves
+    a game away but leaves the key in place, so an unfiltered read would treat a date
+    the team no longer plays as if it still had a game.
+    """
+    return sorted(d for d, n in team_game_days[team].items() if n > 0)
+
+def longest_idle_gap(team, team_game_days):
+    """Largest gap in days between consecutive game dates already scheduled for a team."""
+    dates = _played_dates(team, team_game_days)
+    if len(dates) < 2:
+        return 0
+    return max((dates[i] - dates[i - 1]).days for i in range(1, len(dates)))
+
+def longest_idle_gap_after_adding(team, d, team_game_days):
+    """Largest gap after hypothetically also playing on date d."""
+    dates = sorted(set(_played_dates(team, team_game_days)) | {d})
+    if len(dates) < 2:
+        return 0
+    return max((dates[i] - dates[i - 1]).days for i in range(1, len(dates)))
+
+def idle_gap_repair_bonus(team, d, team_game_days):
+    """Score bonus when playing on date d shortens the team's worst layoff.
+
+    Weighted by how much the gap shrinks, with an extra push once the existing gap is
+    already past MAX_IDLE_DAYS.
+    """
+    if not IDLE_GAP_REPAIR_WEIGHT:
+        return 0
+    before = longest_idle_gap(team, team_game_days)
+    after = longest_idle_gap_after_adding(team, d, team_game_days)
+    if after >= before:
+        return 0
+    bonus = (before - after) * IDLE_GAP_REPAIR_WEIGHT
+    if before > MAX_IDLE_DAYS:
+        bonus += (before - MAX_IDLE_DAYS) * IDLE_GAP_REPAIR_WEIGHT
+    return bonus
+
+def check_max_idle_gap(schedule, teams, max_idle_days=None):
+    """Report teams whose longest layoff exceeds the target.
+
+    Returns list of (team, gap_days, gap_start, gap_end), worst first.
+    """
+    limit = MAX_IDLE_DAYS if max_idle_days is None else max_idle_days
+    by_team = defaultdict(set)
+    for entry in schedule:
+        if entry is None:
+            continue
+        dt, _slot, _field, home, _hd, away, _ad = entry
+        by_team[home].add(dt.date())
+        by_team[away].add(dt.date())
+
+    out = []
+    for team in teams:
+        dates = sorted(by_team.get(team, ()))
+        for i in range(1, len(dates)):
+            gap = (dates[i] - dates[i - 1]).days
+            if gap > limit:
+                out.append((team, gap, dates[i - 1], dates[i]))
+    out.sort(key=lambda r: -r[1])
+    return out
 
 def in_front_load_window(d):
     """True if date d falls inside the opening weeks we want filled first."""
@@ -438,6 +512,11 @@ def score_placement(t1, t2, d, team_stats, doubleheader_count, team_game_days, s
     # Soft gap preference (allow 2-day gaps, prefer 3+)
     score -= preferred_gap_penalty(t1, d, team_game_days)
     score -= preferred_gap_penalty(t2, d, team_game_days)
+
+    # Strong preference for placements that break up a long layoff. The gap penalties
+    # above stop games bunching TOO CLOSE; this stops them drifting too far apart.
+    score += idle_gap_repair_bonus(t1, d, team_game_days)
+    score += idle_gap_repair_bonus(t2, d, team_game_days)
 
     # Weekly balance: strongly prefer weeks where the team is still under its even
     # share. Without this the scheduler happily stacks 4 games into one week and

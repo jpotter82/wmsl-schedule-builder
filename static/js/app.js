@@ -54,6 +54,7 @@
         // was replaced by bounded multi-pass greedy filling); kept for config compatibility.
         max_retries: (currentConfig && currentConfig.general && currentConfig.general.max_retries) || 20000,
         front_load_weeks: parseInt(document.getElementById('frontLoadWeeks').value) || 0,
+        max_idle_days: parseInt(document.getElementById('maxIdleDays').value) || 14,
         random_seed: seedVal ? parseInt(seedVal) : null,
         attempts: parseInt(document.getElementById('attempts').value) || 1,
         weekly_soft_target: parseInt(document.getElementById('weeklySoftTarget').value) || null,
@@ -103,6 +104,7 @@
     document.getElementById('hardMinGap').value = gen.hard_min_gap || 2;
     document.getElementById('preferredMinGap').value = gen.preferred_min_gap || 3;
     document.getElementById('frontLoadWeeks').value = gen.front_load_weeks || 0;
+    document.getElementById('maxIdleDays').value = gen.max_idle_days || 14;
     document.getElementById('randomSeed').value = gen.random_seed != null ? gen.random_seed : '';
     document.getElementById('attempts').value = gen.attempts || 1;
     document.getElementById('weeklySoftTarget').value = gen.weekly_soft_target != null ? gen.weekly_soft_target : '';
@@ -533,6 +535,15 @@
       '<div class="col-md-3"><div class="card stat-card p-3"><div class="text-muted">Games Short of Target</div><h3 class="' + shortCls.trim() + '">' + (stats.games_short != null ? stats.games_short : '-') + '</h3></div></div>' +
       '<div class="col-md-3"><div class="card stat-card p-3"><div class="text-muted">Idle Weeks</div><h3>' + (stats.idle_weeks != null ? stats.idle_weeks : '-') + '</h3></div></div>' +
       '<div class="col-md-3"><div class="card stat-card p-3"><div class="text-muted">Overloaded Weeks</div><h3>' + (stats.heavy_weeks != null ? stats.heavy_weeks : '-') + '</h3></div></div>';
+
+    if (stats.worst_idle_gap != null) {
+      var gapCls = stats.idle_violations > 0 ? 'text-danger' : 'text-success';
+      html +=
+        '<div class="col-md-3"><div class="card stat-card p-3"><div class="text-muted">Longest Layoff</div>' +
+        '<h3 class="' + gapCls + '">' + stats.worst_idle_gap + 'd</h3>' +
+        '<small class="text-muted">target ' + (stats.max_idle_days || 14) + 'd &middot; ' +
+        stats.idle_violations + ' over</small></div></div>';
+    }
 
     if (stats.attempts_run > 1) {
       html += '<div class="col-12"><div class="alert alert-info py-2 mb-0 small">' +

@@ -27,6 +27,8 @@ DEFAULT_CONFIG = {
         'weekly_soft_target': None,
         'weekly_balance_penalty': 2500,
         'front_load_weeks': 0,
+        'max_idle_days': 14,
+        'idle_gap_weight': 1500,
     },
     'pair_rules': {
         'A': {'min': 2, 'soft_cap': 4},
@@ -102,6 +104,9 @@ def _patch_globals(config):
     sn.SUNDAY_PRIORITY = max(0, int(config.get('sunday_priority', 0) or 0))
     sn.SUNDAY_PODS_ONLY = bool(config.get('sunday_pods_only', False))
     sn.FRONT_LOAD_WEEKS = max(0, int(gen.get('front_load_weeks', 0) or 0))
+    sn.MAX_IDLE_DAYS = max(1, int(gen.get('max_idle_days', 14) or 14))
+    sn.IDLE_GAP_REPAIR_WEIGHT = max(0, int(gen.get('idle_gap_weight', 1500)
+                                           if gen.get('idle_gap_weight') is not None else 1500))
 
 
 def _build_division_teams(config):
@@ -304,8 +309,15 @@ def _score_attempt(all_teams, team_stats, doubleheader_count, unscheduled, viola
 
     unused_front = _unused_front_slots(schedule or [], field_availability or [])
 
+    # Teams left with a layoff longer than the target. Counted here so best-of-N
+    # prefers schedules without long dead stretches, not just ones with more games.
+    idle_violations = sn.check_max_idle_gap(schedule or [], all_teams)
+    worst_idle = max((g for _t, g, _s, _e in idle_violations), default=0)
+
     score = (
         games_short * 10000
+        + len(idle_violations) * 600
+        + worst_idle * 50
         + unused_front * 2000
         + int(idle_weeks * 400 * pace_w)
         + int(heavy_weeks * 400 * pace_w)
@@ -325,6 +337,8 @@ def _score_attempt(all_teams, team_stats, doubleheader_count, unscheduled, viola
         'heavy_weeks': heavy_weeks,
         'weekly_spread': spread,
         'unused_front_slots': unused_front,
+        'idle_violations': len(idle_violations),
+        'worst_idle_gap': worst_idle,
     }
 
 
@@ -561,6 +575,14 @@ def run_scheduler(config, csv_paths, output_dir, config_name=None, progress=None
 
         print(f"\nBest attempt: seed {best['seed']} (score {best['score']})")
 
+        _idle = sn.check_max_idle_gap(best['schedule'], all_teams)
+        if _idle:
+            print(f"\nLayoffs longer than {sn.MAX_IDLE_DAYS} days ({len(_idle)}):")
+            for team, gap, s, e in _idle[:10]:
+                print(f"  {team}: {gap} days ({s} -> {e})")
+        else:
+            print(f"\nNo layoff exceeds {sn.MAX_IDLE_DAYS} days.")
+
         # Unpack the winning attempt
         schedule = best['schedule']
         team_stats = best['team_stats']
@@ -656,6 +678,9 @@ def run_scheduler(config, csv_paths, output_dir, config_name=None, progress=None
             'heavy_weeks': best['breakdown']['heavy_weeks'],
             'weekly_spread': best['breakdown']['weekly_spread'],
             'unused_front_slots': best['breakdown'].get('unused_front_slots', 0),
+            'idle_violations': best['breakdown'].get('idle_violations', 0),
+            'worst_idle_gap': best['breakdown'].get('worst_idle_gap', 0),
+            'max_idle_days': sn.MAX_IDLE_DAYS,
             'best_seed': best['seed'],
             'best_score': best['score'],
             'attempts_run': len(attempt_log),

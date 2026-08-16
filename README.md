@@ -187,6 +187,7 @@ matchups. The app warns you when a combination can't produce games.
 | **Home/Away Balance** | Target home games per team (usually Target ÷ 2). |
 | **Hard Min Gap** | Minimum days between a team's game dates. |
 | **Preferred Min Gap** | Soft preference; closer games are penalised, not blocked. |
+| **Longest Layoff (days)** | Target *maximum* days between a team's games. Default 14 (at most one empty week). |
 | **Fill First N Weeks** | Fill the opening N weeks before spreading out. `0` = off. |
 | **Attempts** | Run N times with different seeds, keep the best. |
 | **Random Seed** | Blank = random. Enter a reported seed to reproduce a schedule exactly. |
@@ -212,6 +213,20 @@ The setting picks where you sit between those. Measured on a tight 6-week season
 | **Strong** — steadiest weeks, fewest games | `2500` | 14 | 5 |
 
 Your own numbers will differ; the shape of the trade-off won't.
+
+**Pair it with Longest Layoff.** The two settings solve different halves of the same
+problem — pacing stops games bunching into one week, the layoff target stops them
+drifting too far apart — and they reinforce each other rather than competing:
+
+| | Games short | Worst layoff | Teams over target |
+|---|---|---|---|
+| Neither | 4 | 20 days | 5 |
+| Layoff target only | 8 | 17 days | 4 |
+| Pacing only | 14 | 16 days | 1 |
+| **Both** | **12** | **14 days** | **0** |
+
+Note the last row places *more* games than pacing alone: breaking up a long layoff
+usually means filling a slot that would otherwise have gone unused.
 
 It is a **single dial** driving placement scoring, the pod gate and best-of-N selection
 together — **Off** is a genuine revert to unpaced behaviour. `2500` is full strength;

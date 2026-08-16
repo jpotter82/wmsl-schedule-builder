@@ -134,6 +134,17 @@
                 </small>
               </div>
               <div class="col-md-4">
+                <label class="form-label">Longest Layoff (days)</label>
+                <input type="number" class="form-control" id="maxIdleDays" value="14" min="2">
+                <small class="text-muted">
+                  Target maximum days between a team's games. Placements that break up a
+                  longer layoff are strongly favoured, and anything still over the target is
+                  reported after the run. A soft target, not a hard cap &mdash; refusing
+                  outright would just lose games, since the filler isn't chronological.
+                  <strong>14</strong> = at most one empty week.
+                </small>
+              </div>
+              <div class="col-md-4">
                 <label class="form-label">Even Weeks vs More Games</label>
                 <select class="form-select" id="weeklyBalancePenalty">
                   <option value="0">Off &mdash; most games, lumpy weeks</option>
