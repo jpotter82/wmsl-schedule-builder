@@ -1,0 +1,27 @@
+# Apache config for running this app over CGI on shared hosting.
+#
+# Copy to .htaccess in the same directory as dispatch.cgi:
+#     cp .htaccess.example .htaccess
+#
+# Keep it out of version control as .htaccess so host-specific tweaks do not get
+# committed by accident.
+
+Options +ExecCGI
+AddHandler cgi-script .cgi
+
+# Protect data and source from being served directly over the web. Without this,
+# uploads/, configs/ and the .py files are all fetchable as static files.
+<FilesMatch "\.(py|pyc|json|md|txt)$">
+    Require all denied
+</FilesMatch>
+RedirectMatch 404 ^/(uploads|configs|output|\.git|__pycache__)/
+
+RewriteEngine On
+
+# Serve static assets straight from disk (CSS/JS) rather than through Python.
+RewriteCond %{REQUEST_URI} ^/static/ [OR]
+RewriteCond %{REQUEST_FILENAME} -f
+RewriteRule ^ - [L]
+
+# Everything else goes to the Flask app.
+RewriteRule ^(.*)$ dispatch.cgi/$1 [QSA,L]

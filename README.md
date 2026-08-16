@@ -332,22 +332,64 @@ timeout — and it removes the failure mode completely. The UI handles both mode
 
 `passenger_wsgi.py` sets it automatically.
 
-### HostGator / cPanel shared hosting
+### Shared hosting with Setup Python App (Passenger)
 
-Requires the **Setup Python App** feature (cPanel → Software). It is only present on
-plans running CloudLinux with Passenger — typically Business tier and up. If it is
-absent, the plan serves PHP and static files only and cannot run this app; ask support
-*"does my plan support Python web applications via Passenger?"* to be sure.
+If cPanel → Software has **Setup Python App**, use it — it is faster than CGI because
+the process stays warm.
 
-1. cPanel → **Setup Python App** → Create; Python **3.9+**; set application root and URL
+1. Setup Python App → Create; Python **3.9+**; set application root and URL
 2. Upload the repository to the application root
 3. In the app's virtualenv: `pip install -r requirements.txt`
 4. `passenger_wsgi.py` is already included — Passenger picks it up automatically
 5. Make sure `configs/`, `uploads/` and `output/` exist and are writable
 6. Restart the app from cPanel
 
-Shared hosting has one real advantage over free cloud tiers here: a **persistent
+### Shared hosting without Setup Python App (CGI)
+
+Many entry-level cPanel plans have no Python app manager. If SSH/Terminal and CGI are
+available, the app runs over CGI instead — a fresh process per request, which is fine
+here because runs are short and state is on disk.
+
+```bash
+cd ~/public_html/wmsl                 # or wherever the app should live
+git clone https://github.com/jpotter82/wmsl-schedule-builder.git .
+python3 -m venv venv && source venv/bin/activate
+pip install -r requirements.txt
+cp .htaccess.example .htaccess
+chmod 755 dispatch.cgi
+mkdir -p configs uploads output && chmod 755 configs uploads output
+```
+
+Then point the shebang at the virtualenv interpreter, because CGI does not inherit
+your shell's PATH:
+
+```bash
+sed -i "1s|.*|#!$(pwd)/venv/bin/python|" dispatch.cgi
+head -1 dispatch.cgi                  # confirm it is an absolute path
+```
+
+Check it runs before involving the browser:
+
+```bash
+./dispatch.cgi </dev/null | head -5   # expect HTTP headers, not a traceback
+```
+
+Once it works, comment out the `cgitb.enable()` line in `dispatch.cgi` so internal
+errors are not shown to visitors.
+
+Shared hosting has one real advantage over free cloud tiers: a **persistent
 filesystem**, so saved configs survive restarts.
+
+### Run state is shared through a file
+
+`/api/run`, `/api/status` and `/api/results` are three separate requests, and the
+process answering the later two is often not the one that ran the scheduler — always
+under CGI, intermittently under Passenger or multi-worker gunicorn. Run state is
+therefore mirrored to `.run_state.json` (written atomically) and read back from there,
+so results survive whichever process happens to serve the next request.
+
+This is also why `WMSL_SYNC_RUNS=1` matters: a background thread would be killed when
+a CGI process exits, taking the run with it.
 
 ### Local network / small production
 

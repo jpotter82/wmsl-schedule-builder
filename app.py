@@ -34,6 +34,37 @@ _run_state = {
     'progress': None,
 }
 
+# Run state is mirrored to disk because it cannot be assumed to survive in memory.
+#
+# /api/run, /api/status and /api/results are three separate requests. Under CGI every
+# request is a brand new process; under Passenger or multi-worker gunicorn they may
+# land on different long-lived processes. Either way the process answering /api/status
+# is frequently NOT the one that ran the scheduler, so an in-memory dict alone reports
+# "idle" forever and the UI waits for a result that already exists.
+STATE_FILE = BASE_DIR / '.run_state.json'
+
+
+def _save_state():
+    """Persist run state. Written to a temp file and renamed so a concurrent reader
+    never sees a half-written file."""
+    try:
+        tmp = STATE_FILE.with_suffix('.json.tmp')
+        with open(tmp, 'w', encoding='utf-8') as fh:
+            json.dump(_run_state, fh)
+        os.replace(tmp, STATE_FILE)
+    except (OSError, TypeError, ValueError):
+        # Persistence is best-effort; in-process state still works for single-process use.
+        pass
+
+
+def _read_state():
+    """Return the shared run state, preferring what is on disk."""
+    try:
+        with open(STATE_FILE, encoding='utf-8') as fh:
+            return json.load(fh)
+    except (OSError, ValueError):
+        return _run_state
+
 
 def _safe_config_name(name):
     return re.sub(r'[^a-zA-Z0-9_-]', '', name)
@@ -150,9 +181,11 @@ def start_run():
     _run_state['log'] = ''
     _run_state['result'] = None
     _run_state['progress'] = None
+    _save_state()
 
     def _progress(done, total, best_score):
         _run_state['progress'] = {'done': done, 'total': total, 'best_score': best_score}
+        _save_state()
 
     def _run():
         try:
@@ -166,6 +199,7 @@ def start_run():
             _run_state['log'] += f'\nFatal error: {e}'
             _run_state['result'] = {'success': False, 'error': str(e), 'log': _run_state['log']}
         finally:
+            _save_state()
             _run_lock.release()
 
     if SYNC_RUNS:
@@ -185,10 +219,11 @@ def start_run():
 
 @app.route('/api/status')
 def run_status():
+    state = _read_state()
     return jsonify({
-        'status': _run_state['status'],
-        'log': _run_state.get('log', ''),
-        'progress': _run_state.get('progress'),
+        'status': state.get('status', 'idle'),
+        'log': state.get('log', ''),
+        'progress': state.get('progress'),
     })
 
 
@@ -200,9 +235,10 @@ def validate():
 
 @app.route('/api/results')
 def run_results():
-    if _run_state['status'] != 'done':
-        return jsonify({'error': 'No completed run', 'status': _run_state['status']}), 400
-    r = _run_state.get('result', {})
+    state = _read_state()
+    if state.get('status') != 'done':
+        return jsonify({'error': 'No completed run', 'status': state.get('status', 'idle')}), 400
+    r = state.get('result') or {}
     return jsonify({
         'success': r.get('success', False),
         'stats': r.get('stats', {}),
