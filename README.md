@@ -318,15 +318,36 @@ trading one problem for another.
 
 ## Deployment
 
-### ⚠️ Run exactly one worker process
+### Set `WMSL_SYNC_RUNS=1` when deploying
 
-Run state is held **in memory** in a module-level dict, guarded by a `threading.Lock`,
-with the scheduler on a background thread. Under multiple worker processes,
-`/api/status` and `/api/results` would hit a worker that never ran the job and appear
-to hang or return nothing.
+Run state is held **in memory** in this process. By default the scheduler runs on a
+background thread and the browser polls for progress, which is fine locally but breaks
+on any host that runs several worker processes or recycles idle ones (cPanel/Passenger,
+multi-worker gunicorn): the status poll can land on a process that never ran the job,
+and the UI hangs.
 
-**Always deploy with a single worker.** The workload is one league admin generating a
-schedule occasionally, so this is not a practical limitation.
+Setting `WMSL_SYNC_RUNS=1` runs the scheduler inside the request instead. There is no
+downside — a full 15-attempt run takes **about 1.6 seconds**, well inside any request
+timeout — and it removes the failure mode completely. The UI handles both modes.
+
+`passenger_wsgi.py` sets it automatically.
+
+### HostGator / cPanel shared hosting
+
+Requires the **Setup Python App** feature (cPanel → Software). It is only present on
+plans running CloudLinux with Passenger — typically Business tier and up. If it is
+absent, the plan serves PHP and static files only and cannot run this app; ask support
+*"does my plan support Python web applications via Passenger?"* to be sure.
+
+1. cPanel → **Setup Python App** → Create; Python **3.9+**; set application root and URL
+2. Upload the repository to the application root
+3. In the app's virtualenv: `pip install -r requirements.txt`
+4. `passenger_wsgi.py` is already included — Passenger picks it up automatically
+5. Make sure `configs/`, `uploads/` and `output/` exist and are writable
+6. Restart the app from cPanel
+
+Shared hosting has one real advantage over free cloud tiers here: a **persistent
+filesystem**, so saved configs survive restarts.
 
 ### Local network / small production
 
@@ -335,24 +356,24 @@ Do **not** ship `app.run(debug=True)` — the debugger allows remote code execut
 Windows:
 
 ```bash
-pip install waitress && waitress-serve --listen=0.0.0.0:5000 --threads=4 app:app
+set WMSL_SYNC_RUNS=1 && pip install waitress && waitress-serve --listen=0.0.0.0:5000 app:app
 ```
 
 Linux / macOS:
 
 ```bash
-pip install gunicorn && gunicorn --workers 1 --threads 4 --timeout 300 --bind 0.0.0.0:5000 app:app
+WMSL_SYNC_RUNS=1 gunicorn --workers 2 --timeout 120 --bind 0.0.0.0:5000 app:app
 ```
 
-`--workers 1` is required. `--timeout 300` matters because a multi-attempt run can
-take minutes.
+With `WMSL_SYNC_RUNS=1` multiple workers are safe, because no state has to survive
+between requests.
 
 ### Cloud (Render, Railway, Fly.io, Azure App Service …)
 
 Start command:
 
 ```bash
-gunicorn --workers 1 --threads 4 --timeout 300 --bind 0.0.0.0:$PORT app:app
+WMSL_SYNC_RUNS=1 gunicorn --workers 2 --timeout 120 --bind 0.0.0.0:$PORT app:app
 ```
 
 Before deploying, be aware of these:
@@ -377,7 +398,8 @@ RUN pip install --no-cache-dir -r requirements.txt gunicorn
 COPY . .
 RUN mkdir -p configs uploads output
 EXPOSE 5000
-CMD ["gunicorn", "--workers", "1", "--threads", "4", "--timeout", "300", "--bind", "0.0.0.0:5000", "app:app"]
+ENV WMSL_SYNC_RUNS=1
+CMD ["gunicorn", "--workers", "2", "--timeout", "120", "--bind", "0.0.0.0:5000", "app:app"]
 ```
 
 Persist configs across restarts:

@@ -18,6 +18,14 @@ OUTPUT_DIR = BASE_DIR / 'output'
 for d in (CONFIGS_DIR, UPLOADS_DIR, OUTPUT_DIR):
     d.mkdir(exist_ok=True)
 
+# Run the scheduler inside the request instead of on a background thread.
+#
+# Required on any host that may run more than one worker process or recycle idle
+# ones (cPanel/Passenger shared hosting, multi-worker gunicorn), because run state
+# lives in memory in this process. Safe to enable anywhere: a 15-attempt run
+# completes in about 1.6 seconds, well inside normal request timeouts.
+SYNC_RUNS = os.environ.get('WMSL_SYNC_RUNS', '').strip().lower() in ('1', 'true', 'yes', 'on')
+
 _run_lock = threading.Lock()
 _run_state = {
     'status': 'idle',
@@ -110,9 +118,17 @@ def start_run():
     if not _run_lock.acquire(blocking=False):
         return jsonify({'error': 'A scheduler run is already in progress'}), 409
 
+    # Clear previous output. A file that cannot be removed is skipped rather than
+    # failing the run: on Windows a just-downloaded file may still be held open by
+    # the server, and every output file is rewritten by name anyway, so a leftover
+    # is harmless. Without this, downloading a schedule and then running again
+    # returns a 500.
     for f in OUTPUT_DIR.iterdir():
         if f.is_file():
-            f.unlink()
+            try:
+                f.unlink()
+            except OSError:
+                pass
 
     payload = request.get_json() or {}
     # Accept either a bare config or {config, config_name}
@@ -152,9 +168,19 @@ def start_run():
         finally:
             _run_lock.release()
 
+    if SYNC_RUNS:
+        # Do the work inside the request. A full 15-attempt run takes under two
+        # seconds, so there is nothing to gain from backgrounding it, and on hosts
+        # that recycle or fork worker processes (cPanel/Passenger, multi-worker
+        # gunicorn) a background thread is actively harmful: the status poll can
+        # land on a process that never ran the job and appear to hang forever.
+        _run()
+        return jsonify({'started': True, 'sync': True,
+                        'status': _run_state['status']})
+
     t = threading.Thread(target=_run, daemon=True)
     t.start()
-    return jsonify({'started': True})
+    return jsonify({'started': True, 'sync': False})
 
 
 @app.route('/api/status')
