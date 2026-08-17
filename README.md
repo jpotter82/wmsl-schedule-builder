@@ -474,6 +474,43 @@ docker run -p 5000:5000 -v wmsl-configs:/app/configs wmsl-scheduler
 
 ---
 
+## Branding
+
+The palette, typography and logo come from the Skeddy brand sheet. Colours live as
+CSS variables in `static/css/skeddy.css`, and nothing hard-codes a hex outside that
+file, so a palette change lands everywhere at once.
+
+| Token | Value | Brand name |
+|---|---|---|
+| `--brand` | `#2E7D32` | Primary Green |
+| `--brand-300` / `--accent` | `#7BC043` | Accent Green |
+| `--ink` | `#0F1720` | Deep Navy (text) |
+| `--ink-600` | `#64748B` | Slate |
+| `--surface` | `#F3F4F6` | Light Gray |
+| `--surface-2` | `#FFFFFF` | White |
+
+Typography is **Poppins** (400/500/600/700) from Google Fonts, with a system stack
+fallback.
+
+### Logo assets
+
+The logo is used as supplied rather than redrawn, so no fidelity is lost. Drop the
+artwork in at these paths:
+
+| File | Used by |
+|---|---|
+| `static/img/skeddy-lockup.png` | Landing nav, auth pages, app nav, footer |
+| `static/img/skeddy-icon.png` | Compact placements (`variant='icon'`) |
+| `static/img/favicon.png` | Browser tab (32×32) |
+
+SVG works too — change the filename in `templates/wordmark.html`, which is the single
+definition every page includes.
+
+If an asset is missing, the image hides itself and a styled text wordmark takes over,
+so a fresh checkout shows the brand rather than a broken-image icon.
+
+---
+
 ## Project Structure
 
 ```

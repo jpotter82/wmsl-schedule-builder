@@ -1,0 +1,30 @@
+{#- Skeddy logo lockup.
+
+    Uses the supplied brand artwork rather than a redrawn copy, so nothing is lost
+    in translation. One definition shared by the landing page, auth screens and the
+    app, so the logo cannot drift between them.
+
+    Assets (see README > Branding):
+      static/img/skeddy-lockup.png  logo + wordmark + tagline
+      static/img/skeddy-icon.png    diamond mark only
+
+    If an asset is missing the image hides itself and a styled text wordmark takes
+    over, so a fresh checkout shows the brand rather than a broken-image icon.
+
+    Params:
+      variant  'lockup' (default) or 'icon'
+      height   rendered height in px
+      href     link target, defaults to home
+-#}
+{%- set variant = variant|default('lockup') -%}
+{%- set height  = height|default(38) -%}
+{%- set asset   = 'img/skeddy-icon.png' if variant == 'icon' else 'img/skeddy-lockup.png' -%}
+<a class="skeddy-mark" href="{{ href|default(url_for('home')) }}" aria-label="Skeddy — home">
+  <img src="{{ url_for('static', filename=asset) }}"
+       alt="Skeddy — smarter schedules for rec sports"
+       height="{{ height }}" style="height:{{ height }}px;width:auto" decoding="async"
+       onerror="this.style.display='none';this.nextElementSibling.style.display='inline-flex';">
+  <span class="skeddy-fallback" style="display:none" aria-hidden="true">
+    <span class="a">ske</span><span class="b">ddy</span>
+  </span>
+</a>

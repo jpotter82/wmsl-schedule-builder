@@ -45,7 +45,7 @@ body { background: var(--surface-2); }
   background: var(--surface);
   border-bottom: 1px solid var(--line);
 }
-.sched-head .dot { width: 9px; height: 9px; border-radius: 50%; background: #d6dbe1; }
+.sched-head .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--line); }
 .sched-title { margin-left: .6rem; font-size: .78rem; color: var(--ink-400); font-weight: 600; }
 .sched-body { padding: .85rem; }
 
@@ -72,9 +72,9 @@ body { background: var(--surface-2); }
 }
 .sc-game b { font-weight: 700; }
 .sc-game span { display: block; font-size: .66rem; opacity: .8; margin-top: .1rem; }
-.d-a { background: #eaf2f8; color: #16405c; border-color: #d4e4ef; }
-.d-b { background: #e8f6ee; color: #14532d; border-color: #d2ecdd; }
-.d-c { background: #fdf3e2; color: #7a4b09; border-color: #f5e4c6; }
+.d-a { background: var(--brand-tint); color: var(--brand); border-color: #cfe6cf; }
+.d-b { background: var(--accent-tint); color: var(--brand-700); border-color: #dcefc8; }
+.d-c { background: var(--surface); color: var(--ink-600); border-color: var(--line); }
 .sc-game.dh { position: relative; }
 .sc-game.dh::after {
   content: ""; position: absolute; left: 0; top: 6px; bottom: 6px;
@@ -88,7 +88,7 @@ body { background: var(--surface-2); }
   font-size: .7rem; font-weight: 650; padding: .2rem .55rem;
   border-radius: 999px; background: #fff; border: 1px solid var(--line); color: var(--ink-600);
 }
-.chip.ok { background: var(--accent-tint); border-color: #bfe6cf; color: #14532d; }
+.chip.ok { background: var(--accent-tint); border-color: #cfe6b8; color: var(--brand-700); }
 
 /* --------------------------------------------------------------- sections */
 .section { padding: clamp(3rem, 6.5vw, 5rem) 0; }
@@ -148,7 +148,7 @@ html { scroll-behavior: smooth; }
 /* -------------------------------------------------------------------- CTA */
 .cta {
   padding: clamp(3rem, 6vw, 4.5rem) 0;
-  background: linear-gradient(160deg, var(--brand) 0%, #12405c 100%);
+  background: linear-gradient(160deg, var(--brand) 0%, var(--brand-700) 100%);
 }
 .cta .section-title { max-width: 46rem; margin-inline: auto; }
 .cta-sub { color: rgba(255,255,255,.82); font-size: 1.05rem; }
