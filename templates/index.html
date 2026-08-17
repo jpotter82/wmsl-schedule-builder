@@ -2,20 +2,20 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Schedule Builder — Skeddy</title>
+  <title>Schedule Builder — skedworx</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <link rel="icon" href="{{ url_for('static', filename='img/favicon.png') }}">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
-  <link href="{{ url_for('static', filename='css/skeddy.css') }}" rel="stylesheet">
+  <link href="{{ url_for('static', filename='css/skedworx.css') }}" rel="stylesheet">
   <style>
-    /* Scheduler UI. Colours come from the brand tokens in skeddy.css -- no
+    /* Scheduler UI. Colours come from the brand tokens in skedworx.css -- no
        hard-coded hexes here, so a palette change lands everywhere at once. */
     body { background: var(--surface); }
-    .accordion-button:not(.collapsed) { background: var(--brand); color: #fff; }
-    .accordion-button:focus { box-shadow: 0 0 0 .2rem rgba(123,192,67,.25); }
+    .accordion-button:not(.collapsed) { background: var(--brand-ink); color: #fff; }
+    .accordion-button:focus { box-shadow: 0 0 0 .2rem rgba(120,192,67,.25); }
     .log-output { background: var(--ink); color: #e6ebf0; font-family: ui-monospace, Consolas, monospace;
                   font-size: 0.82rem; max-height: 400px; overflow-y: auto; padding: 12px;
                   border-radius: var(--radius-sm); white-space: pre-wrap; word-break: break-word; }
@@ -23,17 +23,17 @@
     .file-drop { border: 2px dashed var(--line); border-radius: var(--radius-sm); padding: 20px;
                  text-align: center; cursor: pointer; transition: border-color .2s, background .2s; }
     .file-drop:hover, .file-drop.dragover { border-color: var(--brand); background: var(--brand-tint); }
-    .file-drop .filename { font-weight: 600; color: var(--brand); }
+    .file-drop .filename { font-weight: 600; color: var(--brand-ink); }
     .spinner-border-sm { width: 1rem; height: 1rem; }
     #scheduleTable th { position: sticky; top: 0; background: #fff; z-index: 1; }
     .table-container { max-height: 500px; overflow-y: auto; }
     .badge-div { font-size: 0.75rem; }
-    .division-header { background: var(--brand); color: #fff; padding: 6px 10px;
+    .division-header { background: var(--brand-ink); color: #fff; padding: 6px 10px;
                        border-radius: var(--radius-sm); margin-bottom: 8px; font-weight: 600; }
     .form-label.help { cursor: help; border-bottom: 1px dotted var(--ink-600); }
     .form-check[title] { cursor: help; }
 
-    /* Data grids. Status colours come from the semantic tokens in skeddy.css. */
+    /* Data grids. Status colours come from the semantic tokens in skedworx.css. */
     .matrix-table { font-size: 0.78rem; text-align: center; }
     .matrix-table th, .matrix-table td { padding: 3px 6px; min-width: 34px; }
     .matrix-table th.row-head, .matrix-table td.row-head { position: sticky; left: 0;

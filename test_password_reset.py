@@ -28,11 +28,11 @@ def check(name, condition):
 
 
 def main():
-    tmp = tempfile.mkdtemp(prefix='skeddy-test-')
-    os.environ['SKEDDY_DATA_DIR'] = tmp
-    os.environ['SKEDDY_INSECURE_COOKIES'] = '1'
-    for leftover in ('SKEDDY_SMTP_HOST', 'SKEDDY_SMTP_FROM', 'SKEDDY_BASE_URL',
-                     'SKEDDY_INVITE_CODE'):
+    tmp = tempfile.mkdtemp(prefix='skedworx-test-')
+    os.environ['SKEDWORX_DATA_DIR'] = tmp
+    os.environ['SKEDWORX_INSECURE_COOKIES'] = '1'
+    for leftover in ('SKEDWORX_SMTP_HOST', 'SKEDWORX_SMTP_FROM', 'SKEDWORX_BASE_URL',
+                     'SKEDWORX_INVITE_CODE'):
         os.environ.pop(leftover, None)
 
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -116,12 +116,12 @@ def main():
 
     # The link is mailed to the account owner, so its host must not come from the
     # requester's Host header.
-    os.environ['SKEDDY_BASE_URL'] = 'https://schedule.wmsl.ca'
+    os.environ['SKEDWORX_BASE_URL'] = 'https://schedule.wmsl.ca'
     with appmod.app.test_request_context('/forgot', headers={'Host': 'evil.example'}):
         url = appmod._reset_url('abc')
-    check("SKEDDY_BASE_URL overrides a spoofed Host header",
+    check("SKEDWORX_BASE_URL overrides a spoofed Host header",
           url.startswith('https://schedule.wmsl.ca/'))
-    del os.environ['SKEDDY_BASE_URL']
+    del os.environ['SKEDWORX_BASE_URL']
 
     shutil.rmtree(tmp, ignore_errors=True)
 

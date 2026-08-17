@@ -26,20 +26,28 @@ BASE_DIR = Path(__file__).resolve().parent
 
 
 def env(name, default=''):
-    """Read a SKEDDY_<name> setting.
+    """Read a SKEDWORX_<name> setting.
 
-    Falls back to the old WMSL_<name> so an instance deployed before the rename
-    keeps working across a git pull. That matters most for DATA_DIR: silently
-    ignoring it would point the app at a new, empty data directory and make every
-    existing account look as though it had vanished. The fallback can be dropped
-    once no deployment sets the old names.
+    Falls back through the previous names — SKEDDY_<name>, then WMSL_<name> — so an
+    instance deployed under an older name keeps working across a git pull. That
+    matters most for DATA_DIR: silently ignoring it would point the app at a new,
+    empty data directory and make every existing account look as though it had
+    vanished. It matters again for the SMTP settings, where ignoring them would
+    quietly stop password resets from being delivered.
+
+    A rename is not worth an outage, so the old names keep working until every
+    deployment has moved over.
     """
-    return os.environ.get(f'SKEDDY_{name}', os.environ.get(f'WMSL_{name}', default))
+    for prefix in ('SKEDWORX_', 'SKEDDY_', 'WMSL_'):
+        value = os.environ.get(f'{prefix}{name}')
+        if value is not None:
+            return value
+    return default
 
 
 # Where accounts, per-user files and the signing key live.
 #
-# Override with SKEDDY_DATA_DIR. Worth doing on shared hosting where the application
+# Override with SKEDWORX_DATA_DIR. Worth doing on shared hosting where the application
 # sits in the web root: pointing this somewhere above the docroot means user data
 # and the database cannot be fetched over HTTP even if .htaccess is misconfigured
 # or ignored.
@@ -56,18 +64,18 @@ def _warn_if_data_dir_is_web_reachable():
 
     An .htaccess in the repo blocks this, but .htaccess is not guaranteed to be
     honoured — AllowOverride can forbid it, and a rewrite mistake silently disables
-    it. Set SKEDDY_DATA_DIR to somewhere above the document root instead.
+    it. Set SKEDWORX_DATA_DIR to somewhere above the document root instead.
     """
     try:
         DATA_DIR.relative_to(BASE_DIR)
     except ValueError:
         return  # already outside the app directory
     sys.stderr.write(
-        "skeddy: WARNING data directory is inside the application directory\n"
-        f"skeddy:   {DATA_DIR}\n"
-        "skeddy:   If the app directory is your web root, accounts, password hashes\n"
-        "skeddy:   and the session signing key may be downloadable over HTTP.\n"
-        "skeddy:   Set SKEDDY_DATA_DIR to a path above the document root.\n")
+        "skedworx: WARNING data directory is inside the application directory\n"
+        f"skedworx:   {DATA_DIR}\n"
+        "skedworx:   If the app directory is your web root, accounts, password hashes\n"
+        "skedworx:   and the session signing key may be downloadable over HTTP.\n"
+        "skedworx:   Set SKEDWORX_DATA_DIR to a path above the document root.\n")
 
 
 _warn_if_data_dir_is_web_reachable()
@@ -85,7 +93,7 @@ MAX_SIGNUPS_PER_IP_PER_DAY = 5
 RESET_TOKEN_TTL_SECONDS = 3600
 MAX_RESET_REQUESTS_PER_IP_PER_HOUR = 5
 
-# Optional shared secret. When SKEDDY_INVITE_CODE is set in the environment,
+# Optional shared secret. When SKEDWORX_INVITE_CODE is set in the environment,
 # registration additionally requires it — a kill switch if open signup is abused,
 # without needing a redeploy.
 INVITE_CODE = env('INVITE_CODE').strip()

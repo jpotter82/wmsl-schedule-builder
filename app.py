@@ -216,11 +216,11 @@ def login():
 def _reset_url(token):
     """Absolute URL for a reset link.
 
-    Prefers SKEDDY_BASE_URL. Building this from the request would take the host from
+    Prefers SKEDWORX_BASE_URL. Building this from the request would take the host from
     the Host header, which the caller controls: someone could request a reset for
     your address and have the mail arrive pointing at their own domain, harvesting
     the token when you clicked. Falling back to the request host is still the default
-    because it is what works out of the box, but setting SKEDDY_BASE_URL in
+    because it is what works out of the box, but setting SKEDWORX_BASE_URL in
     production closes that off.
     """
     base = auth.env('BASE_URL').strip().rstrip('/')

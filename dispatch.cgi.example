@@ -4,7 +4,7 @@
 Every request starts a fresh Python process, so nothing survives in memory between
 them. That is fine here:
 
-  * SKEDDY_SYNC_RUNS forces the scheduler to run inside the request rather than on a
+  * SKEDWORX_SYNC_RUNS forces the scheduler to run inside the request rather than on a
     background thread, which would be killed the moment the process exits.
   * Run state is mirrored to .run_state.json by app.py, so /api/status and
     /api/results can read the result of a run performed by an earlier process.
@@ -28,25 +28,25 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 
-os.environ.setdefault('SKEDDY_SYNC_RUNS', '1')
+os.environ.setdefault('SKEDWORX_SYNC_RUNS', '1')
 
 # Recommended on shared hosting: keep accounts, password hashes and the session
 # key outside the web root, so they cannot be fetched over HTTP even if .htaccess
 # is misconfigured. Create the directory (chmod 700) and uncomment.
-# os.environ.setdefault('SKEDDY_DATA_DIR', '/home/USERNAME/skeddy-data')
+# os.environ.setdefault('SKEDWORX_DATA_DIR', '/home/USERNAME/skedworx-data')
 
 # Password reset email. Without SMTP the reset link is only written to the error
 # log, so nobody can actually recover an account. A cPanel mailbox works.
 #
-# Set SKEDDY_BASE_URL too: without it the link in the mail is built from the Host
+# Set SKEDWORX_BASE_URL too: without it the link in the mail is built from the Host
 # header, which the requester controls, so a forged request could mail you a link
 # pointing at someone else's site.
-# os.environ.setdefault('SKEDDY_BASE_URL', 'https://schedule.wmsl.ca')
-# os.environ.setdefault('SKEDDY_SMTP_HOST', 'mail.wmsl.ca')
-# os.environ.setdefault('SKEDDY_SMTP_PORT', '587')
-# os.environ.setdefault('SKEDDY_SMTP_USER', 'skeddy@wmsl.ca')
-# os.environ.setdefault('SKEDDY_SMTP_PASSWORD', '...')
-# os.environ.setdefault('SKEDDY_SMTP_FROM', 'Skeddy <skeddy@wmsl.ca>')
+# os.environ.setdefault('SKEDWORX_BASE_URL', 'https://schedule.wmsl.ca')
+# os.environ.setdefault('SKEDWORX_SMTP_HOST', 'mail.wmsl.ca')
+# os.environ.setdefault('SKEDWORX_SMTP_PORT', '587')
+# os.environ.setdefault('SKEDWORX_SMTP_USER', 'skedworx@wmsl.ca')
+# os.environ.setdefault('SKEDWORX_SMTP_PASSWORD', '...')
+# os.environ.setdefault('SKEDWORX_SMTP_FROM', 'skedworx <skedworx@wmsl.ca>')
 
 # Surface tracebacks in the browser instead of a bare 500 while setting things up.
 # Comment out once it is working -- it exposes file paths and source to visitors.
