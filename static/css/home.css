@@ -1,0 +1,169 @@
+/* Skeddy landing page. Builds on the tokens in skeddy.css. */
+
+body { background: var(--surface-2); }
+
+/* ------------------------------------------------------------------- nav */
+.site-nav {
+  position: sticky; top: 0; z-index: 1030;
+  background: rgba(255,255,255,.88);
+  backdrop-filter: saturate(180%) blur(10px);
+  border-bottom: 1px solid var(--line);
+}
+.site-nav .nav-link {
+  color: var(--ink-600); font-weight: 550; font-size: .95rem;
+  padding: .4rem .85rem; border-radius: 8px;
+}
+.site-nav .nav-link:hover { color: var(--brand); background: var(--brand-tint); }
+.navbar-toggler:focus { box-shadow: none; }
+
+/* ------------------------------------------------------------------ hero */
+.hero {
+  padding: clamp(3rem, 7vw, 5.5rem) 0 clamp(3rem, 6vw, 4.5rem);
+  background:
+    radial-gradient(1100px 400px at 12% -8%, var(--brand-tint), transparent 60%),
+    radial-gradient(800px 340px at 92% 4%, var(--accent-tint), transparent 62%);
+}
+.hero-title {
+  font-size: clamp(2.3rem, 5.2vw, 3.6rem);
+  font-weight: 750;
+  letter-spacing: -.03em;
+  line-height: 1.06;
+  margin: 0;
+}
+
+/* ------------------------------------------- hero visual: a schedule grid */
+.sched {
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-lg);
+  overflow: hidden;
+}
+.sched-head {
+  display: flex; align-items: center; gap: .4rem;
+  padding: .7rem .9rem;
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
+}
+.sched-head .dot { width: 9px; height: 9px; border-radius: 50%; background: #d6dbe1; }
+.sched-title { margin-left: .6rem; font-size: .78rem; color: var(--ink-400); font-weight: 600; }
+.sched-body { padding: .85rem; }
+
+.sched-grid {
+  display: grid;
+  grid-template-columns: 4.6rem 1fr 1fr;
+  gap: .4rem;
+  align-items: stretch;
+}
+.sc-col-head {
+  font-size: .7rem; font-weight: 700; text-transform: uppercase;
+  letter-spacing: .07em; color: var(--ink-400);
+  padding: .1rem .2rem .3rem;
+}
+.sc-time {
+  font-size: .74rem; font-weight: 650; color: var(--ink-400);
+  display: flex; align-items: center;
+}
+.sc-game {
+  border-radius: var(--radius-sm);
+  padding: .45rem .55rem;
+  font-size: .8rem; line-height: 1.25;
+  border: 1px solid transparent;
+}
+.sc-game b { font-weight: 700; }
+.sc-game span { display: block; font-size: .66rem; opacity: .8; margin-top: .1rem; }
+.d-a { background: #eaf2f8; color: #16405c; border-color: #d4e4ef; }
+.d-b { background: #e8f6ee; color: #14532d; border-color: #d2ecdd; }
+.d-c { background: #fdf3e2; color: #7a4b09; border-color: #f5e4c6; }
+.sc-game.dh { position: relative; }
+.sc-game.dh::after {
+  content: ""; position: absolute; left: 0; top: 6px; bottom: 6px;
+  width: 3px; border-radius: 3px; background: currentColor; opacity: .45;
+}
+.sched-foot {
+  display: flex; flex-wrap: wrap; gap: .4rem;
+  padding: .7rem .9rem; border-top: 1px solid var(--line); background: var(--surface);
+}
+.chip {
+  font-size: .7rem; font-weight: 650; padding: .2rem .55rem;
+  border-radius: 999px; background: #fff; border: 1px solid var(--line); color: var(--ink-600);
+}
+.chip.ok { background: var(--accent-tint); border-color: #bfe6cf; color: #14532d; }
+
+/* --------------------------------------------------------------- sections */
+.section { padding: clamp(3rem, 6.5vw, 5rem) 0; }
+
+/* The nav is sticky, so an anchor jump would otherwise land the heading
+   underneath it. Offset the scroll target by roughly the nav's height. */
+section[id] { scroll-margin-top: 4.75rem; }
+html { scroll-behavior: smooth; }
+@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+.band { background: var(--surface); border-block: 1px solid var(--line); }
+.section-title { font-size: clamp(1.7rem, 3.4vw, 2.35rem); }
+
+/* ------------------------------------------------------------------ steps */
+.step { position: relative; padding-left: 3.4rem; }
+.step-n {
+  position: absolute; left: 0; top: 0;
+  width: 2.5rem; height: 2.5rem; border-radius: 12px;
+  background: var(--brand); color: #fff;
+  display: grid; place-items: center;
+  font-weight: 700; font-size: 1.05rem;
+}
+.step h3 { font-size: 1.08rem; font-weight: 650; margin: .35rem 0 .4rem; }
+.step p  { color: var(--ink-600); font-size: .95rem; line-height: 1.6; margin: 0; }
+
+/* ------------------------------------------------------------------ knobs */
+.knobs {
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: .35rem .9rem;
+}
+.knob {
+  display: flex; justify-content: space-between; align-items: center; gap: 1rem;
+  padding: .72rem 0;
+  border-bottom: 1px solid var(--line);
+}
+.knob:last-child { border-bottom: 0; }
+.k-label { font-size: .92rem; color: var(--ink-600); }
+.k-value { font-weight: 650; font-size: .92rem; color: var(--ink); white-space: nowrap; }
+.k-value.num { font-variant-numeric: tabular-nums; }
+.k-value.pill {
+  background: var(--brand-tint); color: var(--brand);
+  padding: .15rem .6rem; border-radius: 999px; font-size: .82rem;
+}
+
+/* ----------------------------------------------------------------- sports */
+.sports { display: flex; flex-wrap: wrap; gap: .5rem; justify-content: center; }
+.sport {
+  border: 1px solid var(--line); background: var(--surface-2);
+  border-radius: 999px; padding: .45rem 1rem;
+  font-weight: 600; font-size: .92rem; color: var(--ink-600);
+  transition: transform .15s ease, border-color .15s ease, color .15s ease;
+}
+.sport:hover { transform: translateY(-2px); border-color: var(--accent); color: var(--accent-600); }
+
+/* -------------------------------------------------------------------- CTA */
+.cta {
+  padding: clamp(3rem, 6vw, 4.5rem) 0;
+  background: linear-gradient(160deg, var(--brand) 0%, #12405c 100%);
+}
+.cta .section-title { max-width: 46rem; margin-inline: auto; }
+.cta-sub { color: rgba(255,255,255,.82); font-size: 1.05rem; }
+
+/* ----------------------------------------------------------------- footer */
+.site-foot { padding: 2rem 0; border-top: 1px solid var(--line); background: var(--surface); }
+
+/* ------------------------------------------------------------ small screens */
+@media (max-width: 991.98px) {
+  .site-nav .navbar-collapse { padding: .75rem 0 .25rem; }
+  .site-nav .nav-link { padding-inline: 0; }
+}
+@media (max-width: 575.98px) {
+  .sched-grid { grid-template-columns: 3.6rem 1fr 1fr; gap: .3rem; }
+  .sc-game { font-size: .72rem; padding: .38rem .45rem; }
+  .sc-col-head, .sc-time { font-size: .65rem; }
+  .step { padding-left: 3rem; }
+}

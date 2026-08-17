@@ -12,7 +12,7 @@
       if (res.status === 401) {
         var url = (typeof input === 'string') ? input : (input && input.url) || '';
         if (url.indexOf('/api/') !== -1) {
-          window.location = '/login?next=' + encodeURIComponent(window.location.pathname);
+          window.location = '/login?next=' + encodeURIComponent(window.location.pathname || '/app');
         }
       }
       return res;
