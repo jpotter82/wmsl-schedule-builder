@@ -1,6 +1,6 @@
 # skedworx
 
-**Smarter schedules for rec sports.**
+**Schedules that work for your league.**
 
 skedworx builds a full season schedule from three CSV files, respecting team
 availability, blackout dates and field inventory, and favouring 4-team
@@ -83,8 +83,9 @@ seeds and keeps the best result, showing progress as it goes.
 
 - Summary tiles: games short, idle weeks, overloaded weeks, violations
 - **Team Summary** — games, home/away split, doubleheader days, playable dates
-- **Games Per Week** — each team's rhythm; green on pace, yellow over target, red idle,
-  grey column = a week with too few diamonds to seat the league
+- **Games Per Week** — each team's rhythm; green on pace, amber over target, blue idle,
+  grey column = a week with too few diamonds to seat the league. Each cell also carries
+  a marker and screen-reader text, so the state does not depend on colour alone
 - **Matchup Matrix** — how many times each pair of teams meets
 - **Schedule Preview** — first 100 games
 - Downloads: XLSX, CSV, unscheduled matchups, remaining needs
@@ -563,14 +564,28 @@ The palette, typography and logo come from the skedworx brand sheet. Colours liv
 CSS variables in `static/css/skedworx.css`, and nothing hard-codes a hex outside that
 file, so a palette change lands everywhere at once.
 
-| Token | Value | Brand name |
-|---|---|---|
-| `--brand` | `#2E7D32` | Primary Green |
-| `--brand-300` / `--accent` | `#7BC043` | Accent Green |
-| `--ink` | `#0F1720` | Deep Navy (text) |
-| `--ink-600` | `#64748B` | Slate |
-| `--surface` | `#F3F4F6` | Light Gray |
-| `--surface-2` | `#FFFFFF` | White |
+| Token | Value | Brand name | Use |
+|---|---|---|---|
+| `--brand` | `#42D32A` | Primary Green | fills, borders, large shapes — **never text** |
+| `--brand-ink` | `#288019` | derived | text, buttons, links |
+| `--brand-700` | `#216B15` | derived | hover |
+| `--brand-300` / `--accent` | `#78C043` | Accent Green | |
+| `--ink` | `#0F1720` | Deep Navy | body text |
+| `--ink-600` | `#64748B` | Slate | muted text |
+| `--surface` | `#F3F4F6` | Light Gray | |
+| `--surface-2` | `#FFFFFF` | White | |
+
+**Why there are two greens.** The sheet's Primary Green `#42D32A` is a bright lime. It
+measures **1.98:1** as text on white, and the same against white text on top of it —
+far below the 4.5:1 WCAG AA floor. It is the identity colour and belongs on fills and
+borders, where contrast rules do not apply. Anything carrying text uses `--brand-ink`,
+the same hue and saturation darkened until it clears AA on white (5.01:1) and on the
+grey surface (4.55:1). Putting `--brand` behind a button label is the one mistake this
+palette makes easy, so check any new rule that pairs green with `#fff`.
+
+Slate is `#64748B`, not the `#6474BB` printed on the sheet — that value is a
+periwinkle blue rather than a grey, and reads as a transcription slip. Using it as
+written turns muted body copy purple across every page.
 
 Typography is **Poppins** (400/500/600/700) from Google Fonts, with a system stack
 fallback.
@@ -642,15 +657,20 @@ so a fresh checkout shows the brand rather than a broken-image icon.
 ├── dispatch.cgi            # CGI entry point (shared hosting)
 ├── passenger_wsgi.py       # Passenger entry point (cPanel Python app)
 ├── requirements.txt
+├── mailer.py               # Password reset email (smtplib)
+├── test_password_reset.py  # Reset-flow tests: python test_password_reset.py
 ├── templates/
 │   ├── home.html           # Public landing page
 │   ├── index.html          # The scheduler UI
-│   ├── login.html, register.html, auth_base.html
+│   ├── wordmark.html       # The logo lockup — defined once, included everywhere
+│   ├── login.html, register.html, forgot.html, reset.html, auth_base.html
 │   └── icons/              # Inline SVG partials
 ├── static/
-│   ├── css/skedworx.css      # Design tokens shared by every page
+│   ├── css/skedworx.css    # Design tokens shared by every page
 │   ├── css/home.css        # Landing page styles
+│   ├── img/                # Web-sized assets only (583 KB total)
 │   └── js/app.js           # Scheduler frontend
+├── brand/                  # Source artwork and brand sheet — NOT web-served
 └── data/                   # Accounts, signing key, per-user files (gitignored)
     └── users/<id>/{configs,uploads,output}/
 ```
@@ -664,6 +684,8 @@ All `/api/*` routes require a signed-in session and act only on that user's data
 | GET | `/` | Public landing page |
 | GET | `/app` | The scheduler (sign-in required) |
 | GET/POST | `/login`, `/register` | Accounts |
+| GET/POST | `/forgot` | Request a password reset link |
+| GET/POST | `/reset/<token>` | Choose a new password |
 | GET | `/logout` | End the session |
 | GET | `/api/config/defaults` | Default configuration |
 | GET / POST / DELETE | `/api/configs/<name>` | Load / save / delete a preset |
