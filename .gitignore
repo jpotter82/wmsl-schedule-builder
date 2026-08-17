@@ -12,8 +12,11 @@ output/
 .run_state.json
 .run_state.json.tmp
 
-# Host-specific Apache config (commit .htaccess.example instead)
+# Host-specific deployment files. The .example versions are committed; these
+# carry per-host edits (interpreter path, data dir) and must stay untracked so
+# a git pull cannot overwrite them.
 .htaccess
+dispatch.cgi
 
 # Editor / tooling
 .claude/

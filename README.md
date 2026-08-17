@@ -372,6 +372,7 @@ git clone https://github.com/jpotter82/wmsl-schedule-builder.git .
 python3 -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
 cp .htaccess.example .htaccess
+cp dispatch.cgi.example dispatch.cgi
 chmod 755 dispatch.cgi
 mkdir -p configs uploads output && chmod 755 configs uploads output
 ```
@@ -392,6 +393,11 @@ Check it runs before involving the browser:
 
 Once it works, comment out the `cgitb.enable()` line in `dispatch.cgi` so internal
 errors are not shown to visitors.
+
+`dispatch.cgi` and `.htaccess` are **gitignored on purpose**. Both need host-specific
+edits — the interpreter path, the data directory — and keeping them untracked means
+`git pull` can never overwrite your deployment. Update them from the `.example`
+files when those change.
 
 Shared hosting has one real advantage over free cloud tiers: a **persistent
 filesystem**, so saved configs survive restarts.

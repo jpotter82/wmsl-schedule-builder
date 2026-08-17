@@ -13,9 +13,14 @@ Startup cost is roughly 0.4s to import the scheduler, on top of a ~1.6s worst-ca
 run, so even the slowest request stays well inside normal CGI limits.
 
 Setup:
+  cp dispatch.cgi.example dispatch.cgi
   chmod 755 dispatch.cgi
-  # if 'python3' is not on PATH for CGI, replace the shebang above with an
-  # absolute interpreter path, e.g. #!/home/USERNAME/virtualenv/wmsl/3.9/bin/python
+  # CGI does not inherit your shell's PATH, so 'python3' often fails. Point the
+  # shebang above at an absolute interpreter, e.g.
+  #   sed -i '1s|.*|#!/usr/bin/python3.9|' dispatch.cgi
+  #
+  # dispatch.cgi itself is gitignored precisely because it needs these host-specific
+  # edits; keeping it untracked means git pull can never clobber them.
 """
 import os
 import sys
@@ -31,9 +36,15 @@ os.environ.setdefault('SKEDDY_SYNC_RUNS', '1')
 # os.environ.setdefault('SKEDDY_DATA_DIR', '/home/USERNAME/skeddy-data')
 
 # Surface tracebacks in the browser instead of a bare 500 while setting things up.
-# Comment out once it is working.
-import cgitb  # noqa: E402
-cgitb.enable()
+# Comment out once it is working -- it exposes file paths and source to visitors.
+#
+# cgitb was deprecated in Python 3.11 and REMOVED in 3.13, so this is optional:
+# without it you get a plain 500 and have to read the server error log instead.
+try:
+    import cgitb  # noqa: E402
+    cgitb.enable()
+except ImportError:
+    pass
 
 from wsgiref.handlers import CGIHandler  # noqa: E402
 from app import app  # noqa: E402
