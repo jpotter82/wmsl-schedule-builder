@@ -23,12 +23,22 @@ body { background: var(--surface-2); }
     radial-gradient(1100px 400px at 12% -8%, var(--brand-tint), transparent 60%),
     radial-gradient(800px 340px at 92% 4%, var(--accent-tint), transparent 62%);
 }
-.hero-title {
+.hero-title { margin: 0; }
+
+/* The slogan lockup sets the headline size; cap it so it stays proportionate on
+   wide screens and never overflows narrow ones. */
+.hero-art {
+  display: block;
+  width: 100%;
+  max-width: 30rem;
+  height: auto;
+}
+/* Text used only when the artwork is missing. */
+.hero-fallback {
   font-size: clamp(2.3rem, 5.2vw, 3.6rem);
-  font-weight: 750;
+  font-weight: 700;
   letter-spacing: -.03em;
   line-height: 1.06;
-  margin: 0;
 }
 
 /* ------------------------------------------- hero visual: a schedule grid */

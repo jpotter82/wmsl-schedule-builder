@@ -497,11 +497,15 @@ fallback.
 The logo is used as supplied rather than redrawn, so no fidelity is lost. Drop the
 artwork in at these paths:
 
-| File | Used by |
-|---|---|
-| `static/img/skeddy-lockup.png` | Landing nav, auth pages, app nav, footer |
-| `static/img/skeddy-icon.png` | Compact placements (`variant='icon'`) |
-| `static/img/favicon.png` | Browser tab (32×32) |
+| File | Used by | Artwork |
+|---|---|---|
+| `static/img/skeddy-hero.png` | Landing page headline | Full lockup **with** the slogan |
+| `static/img/skeddy-lockup.png` | Landing nav, auth pages, app nav, footer | Logo + wordmark, **no** tagline |
+| `static/img/skeddy-icon.png` | Compact placements (`variant='icon'`) | Diamond mark only |
+| `static/img/favicon.png` | Browser tab | 32×32 |
+
+The nav renders its logo about 40px tall, so a slogan baked into that file would be
+illegible — hence the separate hero and nav assets.
 
 SVG works too — change the filename in `templates/wordmark.html`, which is the single
 definition every page includes.

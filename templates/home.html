@@ -54,7 +54,18 @@
   <div class="container">
     <div class="row align-items-center g-4 g-lg-5">
       <div class="col-lg-6">
-        <h1 class="hero-title">Smarter schedules<br>for rec sports.</h1>
+        <!-- The brand slogan lockup carries the headline. Kept inside the h1 so the
+             page still has exactly one top-level heading, with the slogan as alt
+             text for screen readers and search engines. Falls back to styled text
+             if the artwork is absent. -->
+        <h1 class="hero-title">
+          <img class="hero-art"
+               src="{{ url_for('static', filename='img/skeddy-hero.png') }}"
+               alt="Skeddy — smarter schedules for rec sports"
+               decoding="async" fetchpriority="high"
+               onerror="this.style.display='none';this.nextElementSibling.style.display='block';">
+          <span class="hero-fallback" style="display:none">Smarter schedules<br>for rec sports.</span>
+        </h1>
         <p class="lead-muted mt-3 mb-4" style="max-width:35rem">
           Build complex league schedules without wrestling with spreadsheets. Skeddy lets you
           define your teams, fields, game times, divisions and scheduling rules — then generates
