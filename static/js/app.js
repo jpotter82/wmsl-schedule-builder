@@ -453,7 +453,15 @@
           finishRun();
           return;
         }
-        pollTimer = setInterval(pollStatus, 2000);
+        // Start the interval BEFORE the first poll: pollStatus clears pollTimer when
+        // the run has finished, so polling first would clear a timer that does not
+        // exist yet and leave the interval running afterwards.
+        if (!res.sync) {
+          pollTimer = setInterval(pollStatus, 2000);
+        }
+        // In synchronous mode the run is already complete when this response
+        // arrives, so check immediately instead of waiting out the interval.
+        pollStatus();
       })
       .catch(function (err) {
         logEl.textContent += 'Failed to start: ' + err + '\n';

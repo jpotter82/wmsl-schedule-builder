@@ -8,6 +8,13 @@ venv/
 uploads/
 output/
 
+# Shared run state, written per-run so it survives across worker processes
+.run_state.json
+.run_state.json.tmp
+
+# Host-specific Apache config (commit .htaccess.example instead)
+.htaccess
+
 # Editor / tooling
 .claude/
 .vscode/

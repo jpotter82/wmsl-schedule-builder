@@ -264,8 +264,19 @@ IDLE_GAP_REPAIR_WEIGHT = 1500
 # The merge kept the functions below that use these constants but dropped the
 # definitions themselves, leaving the module unable to import at all. Values are
 # main's originals.
-PREFERRED_DAY_BONUS_BOTH = 400    # both teams are on a preferred day
-PREFERRED_DAY_BONUS_ONE = 150     # only one team is on a preferred day
+# Preferred-day bonuses (main's values).
+#
+# UNUSED on this branch. Preferred days were deliberately not wired into scheduling:
+# team availability is the hard constraint that decides when a team can play, and a
+# second soft "would rather" signal added no value here. Measured on real data, the
+# bonus was swamped by the other placement terms at any value, and the only mechanism
+# that did move games (ordering pods by preference) let one team monopolise its
+# preferred weekday while starving other teams that wanted the same day.
+#
+# Kept only because export_schedule_to_xlsx's annotation helpers accept an optional
+# team_preferred_days argument; with none supplied those columns render blank.
+PREFERRED_DAY_BONUS_BOTH = 400   # both teams are on a preferred day
+PREFERRED_DAY_BONUS_ONE = 150    # only one team is on a preferred day
 LATE_DATE_PENALTY_PER_DAY = 12    # discourages consuming late-season inventory too early
 SEASON_START_DATE = None          # set at run start from field availability
 MAX_CONSECUTIVE_BYE_WEEKS = 1     # allow one bye week, but not two straight empty weeks
@@ -1768,11 +1779,13 @@ def schedule_pod_only_division(div, division_teams, team_availability, field_ava
         if len(need) < 4:
             return None
 
-        # Prefer teams with biggest remaining sessions; keep pool small for speed
+        # Prefer teams with biggest remaining sessions; keep pool small for speed.
+        # (Uses DIVISION_SETTINGS[div], not a hardcoded 'A' — this routine serves any
+        # division flagged dh_only, not just Division A.)
         need.sort(
             key=lambda t: (
                 target_sessions - sessions_done[t],
-                DIVISION_SETTINGS['A']['target_games'] - team_stats[t]['total_games'],
+                DIVISION_SETTINGS[div]['target_games'] - team_stats[t]['total_games'],
                 t,
             ),
             reverse=True,
