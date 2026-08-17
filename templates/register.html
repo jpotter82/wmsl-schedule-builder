@@ -1,0 +1,36 @@
+{% extends "auth_base.html" %}
+{% block title %}Create account — WMSL Schedule Builder{% endblock %}
+{% block subtitle %}Create your account{% endblock %}
+
+{% block content %}
+<form method="post" action="{{ url_for('register') }}">
+  <div class="mb-3">
+    <label class="form-label" for="email">Email</label>
+    <input class="form-control" type="email" id="email" name="email"
+           value="{{ email or '' }}" required autofocus autocomplete="username">
+  </div>
+
+  <div class="mb-3">
+    <label class="form-label" for="password">Password</label>
+    <input class="form-control" type="password" id="password" name="password"
+           required minlength="{{ min_password }}" autocomplete="new-password">
+    <small class="text-muted">
+      At least {{ min_password }} characters. There is currently no password-reset
+      email, so store it somewhere safe.
+    </small>
+  </div>
+
+  {% if invite_required %}
+  <div class="mb-3">
+    <label class="form-label" for="invite">Invite code</label>
+    <input class="form-control" type="text" id="invite" name="invite" required>
+  </div>
+  {% endif %}
+
+  <button class="btn btn-primary w-100" type="submit">Create account</button>
+</form>
+{% endblock %}
+
+{% block footer %}
+Already registered? <a href="{{ url_for('login') }}">Sign in</a>
+{% endblock %}

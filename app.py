@@ -1,22 +1,54 @@
 import json
 import os
 import re
+import shutil
 import threading
 from pathlib import Path
 
-from flask import Flask, jsonify, request, render_template, send_from_directory
+from flask import (Flask, jsonify, redirect, render_template, request,
+                   send_from_directory, url_for)
+from flask_login import (LoginManager, current_user, login_required, login_user,
+                         logout_user)
 
+import auth
 from scheduler_wrapper import DEFAULT_CONFIG, run_scheduler, validate_config
 
 app = Flask(__name__)
 
 BASE_DIR = Path(__file__).resolve().parent
-CONFIGS_DIR = BASE_DIR / 'configs'
-UPLOADS_DIR = BASE_DIR / 'uploads'
-OUTPUT_DIR = BASE_DIR / 'output'
 
-for d in (CONFIGS_DIR, UPLOADS_DIR, OUTPUT_DIR):
-    d.mkdir(exist_ok=True)
+# Legacy single-user directories. Still read once, to migrate their contents into
+# the first account created; see _migrate_legacy_data.
+LEGACY_CONFIGS_DIR = BASE_DIR / 'configs'
+LEGACY_UPLOADS_DIR = BASE_DIR / 'uploads'
+
+app.config['SECRET_KEY'] = auth.get_secret_key()
+app.config['SESSION_COOKIE_HTTPONLY'] = True
+app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
+# Only send the session cookie over HTTPS unless explicitly running plain HTTP
+# locally. Left on by default so a production deployment is not silently insecure.
+app.config['SESSION_COOKIE_SECURE'] = os.environ.get(
+    'WMSL_INSECURE_COOKIES', '').strip().lower() not in ('1', 'true', 'yes', 'on')
+
+auth.init_db()
+
+login_manager = LoginManager(app)
+login_manager.login_view = 'login'
+login_manager.session_protection = 'strong'
+
+
+@login_manager.user_loader
+def load_user(user_id):
+    return auth.get_user_by_id(user_id)
+
+
+@login_manager.unauthorized_handler
+def unauthorized():
+    # API callers get JSON so the frontend can react; browsers get the login page.
+    if request.path.startswith('/api/'):
+        return jsonify({'error': 'Not signed in', 'login_required': True}), 401
+    return redirect(url_for('login', next=request.path))
+
 
 # Run the scheduler inside the request instead of on a background thread.
 #
@@ -26,73 +58,196 @@ for d in (CONFIGS_DIR, UPLOADS_DIR, OUTPUT_DIR):
 # completes in about 1.6 seconds, well inside normal request timeouts.
 SYNC_RUNS = os.environ.get('WMSL_SYNC_RUNS', '').strip().lower() in ('1', 'true', 'yes', 'on')
 
-_run_lock = threading.Lock()
-_run_state = {
-    'status': 'idle',
-    'log': '',
-    'result': None,
-    'progress': None,
-}
-
-# Run state is mirrored to disk because it cannot be assumed to survive in memory.
+# One run at a time PER USER, not per server. A single global lock would mean one
+# league admin's run returns HTTP 409 to everyone else for its duration.
 #
-# /api/run, /api/status and /api/results are three separate requests. Under CGI every
-# request is a brand new process; under Passenger or multi-worker gunicorn they may
-# land on different long-lived processes. Either way the process answering /api/status
-# is frequently NOT the one that ran the scheduler, so an in-memory dict alone reports
-# "idle" forever and the UI waits for a result that already exists.
-STATE_FILE = BASE_DIR / '.run_state.json'
+# Only meaningful when several requests share a process (threaded dev server,
+# gunicorn with threads). Under CGI each request is its own process, so this cannot
+# see other requests at all -- which is harmless, because a run there completes
+# inside the request that started it.
+_run_locks = {}
+_run_locks_guard = threading.Lock()
 
 
-def _save_state():
-    """Persist run state. Written to a temp file and renamed so a concurrent reader
-    never sees a half-written file."""
+def _lock_for_current_user():
+    key = current_user.user_id
+    with _run_locks_guard:
+        lock = _run_locks.get(key)
+        if lock is None:
+            lock = _run_locks[key] = threading.Lock()
+    return lock
+
+
+def _blank_state():
+    return {'status': 'idle', 'log': '', 'result': None, 'progress': None}
+
+
+# ------------------------------------------------------------------ per-user paths
+#
+# Every path below is derived from the SIGNED-IN USER, never from anything in the
+# request. That makes cross-account access impossible by construction rather than
+# by remembering to check an owner field on each route.
+def _user_dir(name):
+    return current_user.dir(name)
+
+
+def _save_state(state, path):
+    """Persist a user's run state to `path`.
+
+    Takes the path explicitly rather than reading current_user, because this is
+    also called from the background thread used in non-synchronous mode. Flask's
+    current_user is a request-context proxy and is None inside that thread, so
+    resolving it here would raise and leave the run stuck reporting "running".
+
+    Run state cannot be assumed to survive in memory either: /api/run, /api/status
+    and /api/results are separate requests, and under CGI each is a new process,
+    while under Passenger or multi-worker gunicorn they may hit different ones.
+    Written to a temp file and renamed so a reader never sees a partial write.
+    """
     try:
-        tmp = STATE_FILE.with_suffix('.json.tmp')
+        tmp = path.with_suffix('.json.tmp')
         with open(tmp, 'w', encoding='utf-8') as fh:
-            json.dump(_run_state, fh)
-        os.replace(tmp, STATE_FILE)
+            json.dump(state, fh)
+        os.replace(tmp, path)
     except (OSError, TypeError, ValueError):
-        # Persistence is best-effort; in-process state still works for single-process use.
         pass
 
 
 def _read_state():
-    """Return the shared run state, preferring what is on disk."""
     try:
-        with open(STATE_FILE, encoding='utf-8') as fh:
+        with open(current_user.state_file, encoding='utf-8') as fh:
             return json.load(fh)
     except (OSError, ValueError):
-        return _run_state
+        return _blank_state()
 
 
-def _safe_config_name(name):
-    return re.sub(r'[^a-zA-Z0-9_-]', '', name)
+def _safe_name(name):
+    return re.sub(r'[^a-zA-Z0-9_-]', '', name or '')
 
 
+def _migrate_legacy_data(user):
+    """Move the pre-accounts configs/ and uploads/ into the first account.
+
+    Runs once, when the first user registers, so the existing setup keeps working
+    instead of appearing to have lost its saved seasons.
+    """
+    moved = []
+    for legacy, name in ((LEGACY_CONFIGS_DIR, 'configs'), (LEGACY_UPLOADS_DIR, 'uploads')):
+        if not legacy.is_dir():
+            continue
+        target = user.dir(name)
+        for src in legacy.iterdir():
+            if not src.is_file():
+                continue
+            dest = target / src.name
+            if dest.exists():
+                continue
+            try:
+                shutil.copy2(src, dest)
+                moved.append(f'{name}/{src.name}')
+            except OSError:
+                pass
+    return moved
+
+
+# ------------------------------------------------------------------ auth routes
+@app.route('/register', methods=['GET', 'POST'])
+def register():
+    if current_user.is_authenticated:
+        return redirect(url_for('index'))
+
+    if request.method == 'GET':
+        return render_template('register.html',
+                               invite_required=bool(auth.INVITE_CODE),
+                               min_password=auth.MIN_PASSWORD_LENGTH)
+
+    email = request.form.get('email', '')
+    password = request.form.get('password', '')
+    invite = request.form.get('invite', '')
+    ip = (request.headers.get('X-Forwarded-For', request.remote_addr or '')
+          .split(',')[0].strip())
+
+    error = auth.validate_registration(email, password, invite)
+    if not error and not auth.signup_allowed(ip):
+        error = "Too many accounts created from this address today. Try again tomorrow."
+
+    if error:
+        return render_template('register.html', error=error, email=email,
+                               invite_required=bool(auth.INVITE_CODE),
+                               min_password=auth.MIN_PASSWORD_LENGTH), 400
+
+    first_account = auth.user_count() == 0
+    user = auth.create_user(email, password)
+    auth.record_signup(ip)
+
+    if first_account:
+        _migrate_legacy_data(user)
+
+    login_user(user)
+    return redirect(url_for('index'))
+
+
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    if current_user.is_authenticated:
+        return redirect(url_for('index'))
+
+    if request.method == 'GET':
+        return render_template('login.html', next=request.args.get('next', ''))
+
+    user = auth.verify_password(request.form.get('email', ''),
+                                request.form.get('password', ''))
+    if not user:
+        # One message for both cases, so this cannot be used to discover which
+        # email addresses have accounts.
+        return render_template('login.html', error="Email or password is incorrect.",
+                               email=request.form.get('email', '')), 401
+
+    login_user(user, remember=bool(request.form.get('remember')))
+    nxt = request.form.get('next') or ''
+    # Only follow same-site paths, never an absolute URL supplied by the caller.
+    return redirect(nxt if nxt.startswith('/') and not nxt.startswith('//')
+                    else url_for('index'))
+
+
+@app.route('/logout')
+@login_required
+def logout():
+    logout_user()
+    return redirect(url_for('login'))
+
+
+@app.route('/api/me')
+@login_required
+def whoami():
+    return jsonify({'email': current_user.email,
+                    'display_name': current_user.display_name,
+                    'is_admin': current_user.is_admin})
+
+
+# ------------------------------------------------------------------ app routes
 @app.route('/')
+@login_required
 def index():
-    return render_template('index.html')
+    return render_template('index.html', user_email=current_user.email)
 
 
 @app.route('/api/config/defaults')
+@login_required
 def config_defaults():
     return jsonify(DEFAULT_CONFIG)
 
 
 @app.route('/api/configs')
+@login_required
 def list_configs():
-    names = []
-    if CONFIGS_DIR.exists():
-        for f in sorted(CONFIGS_DIR.glob('*.json')):
-            names.append(f.stem)
-    return jsonify(names)
+    return jsonify(sorted(f.stem for f in _user_dir('configs').glob('*.json')))
 
 
 @app.route('/api/configs/<name>', methods=['GET'])
+@login_required
 def load_config(name):
-    name = _safe_config_name(name)
-    path = CONFIGS_DIR / f'{name}.json'
+    path = _user_dir('configs') / f'{_safe_name(name)}.json'
     if not path.exists():
         return jsonify({'error': 'Config not found'}), 404
     with open(path) as f:
@@ -100,43 +255,44 @@ def load_config(name):
 
 
 @app.route('/api/configs/<name>', methods=['POST'])
+@login_required
 def save_config(name):
-    name = _safe_config_name(name)
-    if not name:
+    safe = _safe_name(name)
+    if not safe:
         return jsonify({'error': 'Invalid config name'}), 400
-    path = CONFIGS_DIR / f'{name}.json'
     data = request.get_json()
     if not data:
         return jsonify({'error': 'No JSON body'}), 400
-    with open(path, 'w') as f:
+    with open(_user_dir('configs') / f'{safe}.json', 'w') as f:
         json.dump(data, f, indent=2)
-    return jsonify({'saved': name})
+    return jsonify({'saved': safe})
 
 
 @app.route('/api/configs/<name>', methods=['DELETE'])
+@login_required
 def delete_config(name):
-    name = _safe_config_name(name)
-    path = CONFIGS_DIR / f'{name}.json'
+    path = _user_dir('configs') / f'{_safe_name(name)}.json'
     if not path.exists():
         return jsonify({'error': 'Config not found'}), 404
     path.unlink()
-    return jsonify({'deleted': name})
+    return jsonify({'deleted': _safe_name(name)})
 
 
 @app.route('/api/upload', methods=['POST'])
+@login_required
 def upload_csvs():
     required = ['team_availability', 'field_availability', 'team_blackouts']
+    uploads = _user_dir('uploads')
 
     for key in required:
         f = request.files.get(key)
         if not f or not f.filename:
             return jsonify({'error': f'Missing file: {key}'}), 400
-        f.save(str(UPLOADS_DIR / f'{key}.csv'))
+        f.save(str(uploads / f'{key}.csv'))
 
     summary = {}
     for key in required:
-        path = UPLOADS_DIR / f'{key}.csv'
-        with open(path, encoding='utf-8-sig') as fh:
+        with open(uploads / f'{key}.csv', encoding='utf-8-sig') as fh:
             lines = fh.readlines()
         summary[key] = {'rows': max(0, len(lines) - 1),
                         'filename': request.files[key].filename}
@@ -145,16 +301,19 @@ def upload_csvs():
 
 
 @app.route('/api/run', methods=['POST'])
+@login_required
 def start_run():
-    if not _run_lock.acquire(blocking=False):
+    run_lock = _lock_for_current_user()
+    if not run_lock.acquire(blocking=False):
         return jsonify({'error': 'A scheduler run is already in progress'}), 409
+
+    output_dir = _user_dir('output')
+    uploads = _user_dir('uploads')
 
     # Clear previous output. A file that cannot be removed is skipped rather than
     # failing the run: on Windows a just-downloaded file may still be held open by
-    # the server, and every output file is rewritten by name anyway, so a leftover
-    # is harmless. Without this, downloading a schedule and then running again
-    # returns a 500.
-    for f in OUTPUT_DIR.iterdir():
+    # the server, and every output file is rewritten by name anyway.
+    for f in output_dir.iterdir():
         if f.is_file():
             try:
                 f.unlink()
@@ -162,78 +321,69 @@ def start_run():
                 pass
 
     payload = request.get_json() or {}
-    # Accept either a bare config or {config, config_name}
     config = payload.get('config', payload) or DEFAULT_CONFIG
     config_name = payload.get('config_name')
 
-    csv_paths = {
-        'team_availability': str(UPLOADS_DIR / 'team_availability.csv'),
-        'field_availability': str(UPLOADS_DIR / 'field_availability.csv'),
-        'team_blackouts': str(UPLOADS_DIR / 'team_blackouts.csv'),
-    }
-
+    csv_paths = {k: str(uploads / f'{k}.csv')
+                 for k in ('team_availability', 'field_availability', 'team_blackouts')}
     for key, path in csv_paths.items():
         if not os.path.exists(path):
-            _run_lock.release()
+            run_lock.release()
             return jsonify({'error': f'CSV not uploaded yet: {key}'}), 400
 
-    _run_state['status'] = 'running'
-    _run_state['log'] = ''
-    _run_state['result'] = None
-    _run_state['progress'] = None
-    _save_state()
+    # Resolve everything that depends on the signed-in user HERE, while the request
+    # context still exists. The background thread below has no request context, so
+    # current_user is unavailable inside it.
+    state_path = current_user.state_file
+
+    state = _blank_state()
+    state['status'] = 'running'
+    _save_state(state, state_path)
 
     def _progress(done, total, best_score):
-        _run_state['progress'] = {'done': done, 'total': total, 'best_score': best_score}
-        _save_state()
+        state['progress'] = {'done': done, 'total': total, 'best_score': best_score}
+        _save_state(state, state_path)
 
     def _run():
         try:
-            result = run_scheduler(config, csv_paths, str(OUTPUT_DIR),
+            result = run_scheduler(config, csv_paths, str(output_dir),
                                    config_name=config_name, progress=_progress)
-            _run_state['result'] = result
-            _run_state['log'] = result.get('log', '')
-            _run_state['status'] = 'done' if result.get('success') else 'error'
+            state['result'] = result
+            state['log'] = result.get('log', '')
+            state['status'] = 'done' if result.get('success') else 'error'
         except Exception as e:
-            _run_state['status'] = 'error'
-            _run_state['log'] += f'\nFatal error: {e}'
-            _run_state['result'] = {'success': False, 'error': str(e), 'log': _run_state['log']}
+            state['status'] = 'error'
+            state['log'] += f'\nFatal error: {e}'
+            state['result'] = {'success': False, 'error': str(e), 'log': state['log']}
         finally:
-            _save_state()
-            _run_lock.release()
+            _save_state(state, state_path)
+            run_lock.release()
 
     if SYNC_RUNS:
-        # Do the work inside the request. A full 15-attempt run takes under two
-        # seconds, so there is nothing to gain from backgrounding it, and on hosts
-        # that recycle or fork worker processes (cPanel/Passenger, multi-worker
-        # gunicorn) a background thread is actively harmful: the status poll can
-        # land on a process that never ran the job and appear to hang forever.
         _run()
-        return jsonify({'started': True, 'sync': True,
-                        'status': _run_state['status']})
+        return jsonify({'started': True, 'sync': True, 'status': state['status']})
 
-    t = threading.Thread(target=_run, daemon=True)
-    t.start()
+    threading.Thread(target=_run, daemon=True).start()
     return jsonify({'started': True, 'sync': False})
 
 
 @app.route('/api/status')
+@login_required
 def run_status():
     state = _read_state()
-    return jsonify({
-        'status': state.get('status', 'idle'),
-        'log': state.get('log', ''),
-        'progress': state.get('progress'),
-    })
+    return jsonify({'status': state.get('status', 'idle'),
+                    'log': state.get('log', ''),
+                    'progress': state.get('progress')})
 
 
 @app.route('/api/validate', methods=['POST'])
+@login_required
 def validate():
-    config = request.get_json() or {}
-    return jsonify({'warnings': validate_config(config)})
+    return jsonify({'warnings': validate_config(request.get_json() or {})})
 
 
 @app.route('/api/results')
+@login_required
 def run_results():
     state = _read_state()
     if state.get('status') != 'done':
@@ -252,12 +402,16 @@ def run_results():
 
 
 @app.route('/api/download/<filename>')
+@login_required
 def download_file(filename):
+    # The directory comes from the session, so a crafted filename can only ever
+    # reach the caller's own output. Stripping separators additionally prevents
+    # traversal out of it.
     safe = re.sub(r'[^a-zA-Z0-9_.-]', '', filename)
-    path = OUTPUT_DIR / safe
-    if not path.exists():
+    output_dir = _user_dir('output')
+    if not safe or not (output_dir / safe).exists():
         return jsonify({'error': 'File not found'}), 404
-    return send_from_directory(str(OUTPUT_DIR), safe, as_attachment=True)
+    return send_from_directory(str(output_dir), safe, as_attachment=True)
 
 
 if __name__ == '__main__':

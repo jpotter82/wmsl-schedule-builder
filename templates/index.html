@@ -38,6 +38,10 @@
   <nav class="navbar navbar-dark" style="background:#1a5276">
     <div class="container-fluid">
       <span class="navbar-brand mb-0 h1">WMSL Schedule Builder</span>
+      <div class="d-flex align-items-center">
+        <span class="text-white-50 me-3 small">{{ user_email }}</span>
+        <a class="btn btn-sm btn-outline-light" href="{{ url_for('logout') }}">Sign out</a>
+      </div>
     </div>
   </nav>
 
