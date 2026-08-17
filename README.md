@@ -377,30 +377,74 @@ chmod 755 dispatch.cgi
 mkdir -p configs uploads output && chmod 755 configs uploads output
 ```
 
-Then point the shebang at the virtualenv interpreter, because CGI does not inherit
-your shell's PATH:
+Then point the shebang at an **absolute** interpreter path, because CGI does not
+inherit your shell's PATH:
 
 ```bash
+set +H
 sed -i "1s|.*|#!$(pwd)/venv/bin/python|" dispatch.cgi
 head -1 dispatch.cgi                  # confirm it is an absolute path
 ```
 
-Check it runs before involving the browser:
+`set +H` matters: without it, interactive bash treats the `!` in `#!` as a history
+expansion and the command dies with `event not found`. If you are not using a
+virtualenv, write the system interpreter literally in **single** quotes instead,
+which sidesteps the same trap:
 
 ```bash
-./dispatch.cgi </dev/null | head -5   # expect HTTP headers, not a traceback
+sed -i '1s|.*|#!/usr/bin/python3.9|' dispatch.cgi
 ```
+
+Check it runs before involving the browser. CGI scripts read their input from the
+environment, so a bare `./dispatch.cgi` only produces a `KeyError: 'REQUEST_METHOD'`
+— that is the harness missing, not a broken app:
+
+```bash
+env REQUEST_METHOD=GET SCRIPT_NAME=/ PATH_INFO=/ QUERY_STRING= \
+    SERVER_NAME=localhost SERVER_PORT=80 SERVER_PROTOCOL=HTTP/1.1 \
+    GATEWAY_INTERFACE=CGI/1.1 ./dispatch.cgi </dev/null | head -5
+```
+
+Expect `Status: 200 OK` and headers. A traceback here is a real fault; nothing at all
+usually means the shebang is wrong or the file is not executable.
 
 Once it works, comment out the `cgitb.enable()` line in `dispatch.cgi` so internal
 errors are not shown to visitors.
 
-`dispatch.cgi` and `.htaccess` are **gitignored on purpose**. Both need host-specific
-edits — the interpreter path, the data directory — and keeping them untracked means
-`git pull` can never overwrite your deployment. Update them from the `.example`
-files when those change.
-
 Shared hosting has one real advantage over free cloud tiers: a **persistent
 filesystem**, so saved configs survive restarts.
+
+### Updating a CGI deployment
+
+`dispatch.cgi` and `.htaccess` are **gitignored on purpose**. Both need host-specific
+edits — the interpreter path, the data directory — so keeping them untracked means
+`git pull` cannot overwrite your deployment.
+
+There is one sharp edge. `dispatch.cgi` used to be tracked. The commit that untracked
+it records a deletion, so the first `git pull` past that commit **removes the file
+from the working tree** on any host cloned before it. The site then returns 500 with
+nothing useful in the log, because the entry point is simply gone. Recreate it:
+
+```bash
+cd ~/skeddy && cp dispatch.cgi.example dispatch.cgi \
+  && sed -i '1s|.*|#!/usr/bin/python3.9|' dispatch.cgi \
+  && chmod 755 dispatch.cgi && head -1 dispatch.cgi
+```
+
+Because that failure mode is silent, verify after **every** pull:
+
+```bash
+cd ~/skeddy && git pull origin main && ls -l dispatch.cgi && head -1 dispatch.cgi
+```
+
+`dispatch.cgi` must exist, be mode `755`, and start with an absolute interpreter path.
+If a pull ever aborts with *"local changes would be overwritten by merge: dispatch.cgi"*,
+that is the older tracked copy still in the index — `git rm --cached dispatch.cgi`
+resolves it without touching the file on disk.
+
+A pull that changes only `static/` or `templates/` needs no CGI work at all, but do
+hard-refresh the browser: CSS and JS are served with normal caching, and a stale cache
+looks exactly like a failed deploy.
 
 ### Run state is shared through a file
 
