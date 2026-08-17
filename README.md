@@ -318,7 +318,7 @@ trading one problem for another.
 
 ## Deployment
 
-### Set `WMSL_SYNC_RUNS=1` when deploying
+### Set `SKEDDY_SYNC_RUNS=1` when deploying
 
 Run state is held **in memory** in this process. By default the scheduler runs on a
 background thread and the browser polls for progress, which is fine locally but breaks
@@ -326,7 +326,7 @@ on any host that runs several worker processes or recycles idle ones (cPanel/Pas
 multi-worker gunicorn): the status poll can land on a process that never ran the job,
 and the UI hangs.
 
-Setting `WMSL_SYNC_RUNS=1` runs the scheduler inside the request instead. There is no
+Setting `SKEDDY_SYNC_RUNS=1` runs the scheduler inside the request instead. There is no
 downside — a full 15-attempt run takes **about 1.6 seconds**, well inside any request
 timeout — and it removes the failure mode completely. The UI handles both modes.
 
@@ -388,7 +388,7 @@ under CGI, intermittently under Passenger or multi-worker gunicorn. Run state is
 therefore mirrored to `.run_state.json` (written atomically) and read back from there,
 so results survive whichever process happens to serve the next request.
 
-This is also why `WMSL_SYNC_RUNS=1` matters: a background thread would be killed when
+This is also why `SKEDDY_SYNC_RUNS=1` matters: a background thread would be killed when
 a CGI process exits, taking the run with it.
 
 ### Local network / small production
@@ -398,16 +398,16 @@ Do **not** ship `app.run(debug=True)` — the debugger allows remote code execut
 Windows:
 
 ```bash
-set WMSL_SYNC_RUNS=1 && pip install waitress && waitress-serve --listen=0.0.0.0:5000 app:app
+set SKEDDY_SYNC_RUNS=1 && pip install waitress && waitress-serve --listen=0.0.0.0:5000 app:app
 ```
 
 Linux / macOS:
 
 ```bash
-WMSL_SYNC_RUNS=1 gunicorn --workers 2 --timeout 120 --bind 0.0.0.0:5000 app:app
+SKEDDY_SYNC_RUNS=1 gunicorn --workers 2 --timeout 120 --bind 0.0.0.0:5000 app:app
 ```
 
-With `WMSL_SYNC_RUNS=1` multiple workers are safe, because no state has to survive
+With `SKEDDY_SYNC_RUNS=1` multiple workers are safe, because no state has to survive
 between requests.
 
 ### Cloud (Render, Railway, Fly.io, Azure App Service …)
@@ -415,7 +415,7 @@ between requests.
 Start command:
 
 ```bash
-WMSL_SYNC_RUNS=1 gunicorn --workers 2 --timeout 120 --bind 0.0.0.0:$PORT app:app
+SKEDDY_SYNC_RUNS=1 gunicorn --workers 2 --timeout 120 --bind 0.0.0.0:$PORT app:app
 ```
 
 Before deploying, be aware of these:
@@ -440,7 +440,7 @@ RUN pip install --no-cache-dir -r requirements.txt gunicorn
 COPY . .
 RUN mkdir -p configs uploads output
 EXPOSE 5000
-ENV WMSL_SYNC_RUNS=1
+ENV SKEDDY_SYNC_RUNS=1
 CMD ["gunicorn", "--workers", "2", "--timeout", "120", "--bind", "0.0.0.0:5000", "app:app"]
 ```
 

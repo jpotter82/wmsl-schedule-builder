@@ -27,8 +27,8 @@ app.config['SESSION_COOKIE_HTTPONLY'] = True
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 # Only send the session cookie over HTTPS unless explicitly running plain HTTP
 # locally. Left on by default so a production deployment is not silently insecure.
-app.config['SESSION_COOKIE_SECURE'] = os.environ.get(
-    'WMSL_INSECURE_COOKIES', '').strip().lower() not in ('1', 'true', 'yes', 'on')
+app.config['SESSION_COOKIE_SECURE'] = auth.env(
+    'INSECURE_COOKIES').strip().lower() not in ('1', 'true', 'yes', 'on')
 
 auth.init_db()
 
@@ -56,7 +56,7 @@ def unauthorized():
 # ones (cPanel/Passenger shared hosting, multi-worker gunicorn), because run state
 # lives in memory in this process. Safe to enable anywhere: a 15-attempt run
 # completes in about 1.6 seconds, well inside normal request timeouts.
-SYNC_RUNS = os.environ.get('WMSL_SYNC_RUNS', '').strip().lower() in ('1', 'true', 'yes', 'on')
+SYNC_RUNS = auth.env('SYNC_RUNS').strip().lower() in ('1', 'true', 'yes', 'on')
 
 # One run at a time PER USER, not per server. A single global lock would mean one
 # league admin's run returns HTTP 409 to everyone else for its duration.

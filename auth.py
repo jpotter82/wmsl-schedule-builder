@@ -21,13 +21,26 @@ from werkzeug.security import check_password_hash, generate_password_hash
 
 BASE_DIR = Path(__file__).resolve().parent
 
+
+def env(name, default=''):
+    """Read a SKEDDY_<name> setting.
+
+    Falls back to the old WMSL_<name> so an instance deployed before the rename
+    keeps working across a git pull. That matters most for DATA_DIR: silently
+    ignoring it would point the app at a new, empty data directory and make every
+    existing account look as though it had vanished. The fallback can be dropped
+    once no deployment sets the old names.
+    """
+    return os.environ.get(f'SKEDDY_{name}', os.environ.get(f'WMSL_{name}', default))
+
+
 # Where accounts, per-user files and the signing key live.
 #
-# Override with WMSL_DATA_DIR. Worth doing on shared hosting where the application
+# Override with SKEDDY_DATA_DIR. Worth doing on shared hosting where the application
 # sits in the web root: pointing this somewhere above the docroot means user data
 # and the database cannot be fetched over HTTP even if .htaccess is misconfigured
 # or ignored.
-DATA_DIR = Path(os.environ.get('WMSL_DATA_DIR') or (BASE_DIR / 'data')).resolve()
+DATA_DIR = Path(env('DATA_DIR') or (BASE_DIR / 'data')).resolve()
 USERS_DIR = DATA_DIR / 'users'
 DB_PATH = DATA_DIR / 'app.db'
 SECRET_KEY_PATH = DATA_DIR / 'secret_key'
@@ -37,10 +50,10 @@ SECRET_KEY_PATH = DATA_DIR / 'secret_key'
 MIN_PASSWORD_LENGTH = 10
 MAX_SIGNUPS_PER_IP_PER_DAY = 5
 
-# Optional shared secret. When WMSL_INVITE_CODE is set in the environment,
+# Optional shared secret. When SKEDDY_INVITE_CODE is set in the environment,
 # registration additionally requires it — a kill switch if open signup is abused,
 # without needing a redeploy.
-INVITE_CODE = os.environ.get('WMSL_INVITE_CODE', '').strip()
+INVITE_CODE = env('INVITE_CODE').strip()
 
 EMAIL_RE = re.compile(r'^[^@\s]+@[^@\s]+\.[^@\s]+$')
 

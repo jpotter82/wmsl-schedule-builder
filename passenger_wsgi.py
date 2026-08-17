@@ -16,6 +16,6 @@ import sys
 # Passenger does not always start with the app root on sys.path.
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-os.environ.setdefault('WMSL_SYNC_RUNS', '1')
+os.environ.setdefault('SKEDDY_SYNC_RUNS', '1')
 
 from app import app as application  # noqa: E402
