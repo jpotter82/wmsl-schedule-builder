@@ -2,25 +2,40 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>{% block title %}WMSL Schedule Builder{% endblock %}</title>
+  <title>{% block title %}Skeddy{% endblock %}</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Skeddy — smarter schedules for rec sports.">
+  <link rel="icon" href="{{ url_for('static', filename='img/favicon.svg') }}" type="image/svg+xml">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="{{ url_for('static', filename='css/skeddy.css') }}" rel="stylesheet">
   <style>
-    body { background: #f5f6fa; }
-    .auth-wrap { max-width: 420px; margin: 8vh auto; }
-    .auth-card { border: none; box-shadow: 0 2px 14px rgba(0,0,0,.08); }
-    .auth-head { background: #1a5276; color: #fff; border-radius: .375rem .375rem 0 0; padding: 18px 24px; }
-    .auth-head h1 { font-size: 1.25rem; margin: 0; font-weight: 600; }
-    .auth-head p { margin: 4px 0 0; opacity: .85; font-size: .875rem; }
+    body { background: var(--surface); }
+    .auth-wrap { max-width: 430px; margin: 7vh auto 4vh; padding: 0 1rem; }
+    .auth-card { border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow-lg); }
+    .auth-top { text-align: center; margin-bottom: 1.25rem; }
+    .auth-top .skeddy-mark .name { font-size: 1.45rem; }
+    .auth-sub { color: var(--ink-600); font-size: .95rem; margin-top: .35rem; }
+    .form-label { font-weight: 600; font-size: .92rem; }
+    .form-control:focus { border-color: var(--brand-300); box-shadow: 0 0 0 .2rem rgba(26,82,118,.12); }
   </style>
 </head>
 <body>
   <div class="auth-wrap">
+    <div class="auth-top">
+      <a class="skeddy-mark" href="{{ url_for('home') }}">
+        <span class="glyph">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <rect x="3" y="5" width="18" height="16" rx="3" stroke="#fff" stroke-width="2"/>
+            <path d="M3 10h18M8 3v4M16 3v4" stroke="#fff" stroke-width="2" stroke-linecap="round"/>
+            <circle cx="12" cy="15.5" r="2.2" fill="#fff"/>
+          </svg>
+        </span>
+        <span class="name">Skeddy</span>
+      </a>
+      <div class="auth-sub">{% block subtitle %}{% endblock %}</div>
+    </div>
+
     <div class="card auth-card">
-      <div class="auth-head">
-        <h1>WMSL Schedule Builder</h1>
-        <p>{% block subtitle %}{% endblock %}</p>
-      </div>
       <div class="card-body p-4">
         {% if error %}
           <div class="alert alert-danger py-2">{{ error }}</div>
@@ -28,6 +43,7 @@
         {% block content %}{% endblock %}
       </div>
     </div>
+
     <p class="text-center text-muted small mt-3">{% block footer %}{% endblock %}</p>
   </div>
 </body>

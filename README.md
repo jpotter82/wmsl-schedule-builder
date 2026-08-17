@@ -1,11 +1,23 @@
-# WMSL Schedule Builder
+# Skeddy
 
-A scheduling tool for the Willoughby Mixed Slo-Pitch Association. It builds a full
-season schedule from three CSV files, respecting team availability, blackout dates
-and field inventory, and favouring 4-team **doubleheader pods** over single games.
+**Smarter schedules for rec sports.**
 
-Runs as a local web app: edit season settings in the browser, upload your CSVs,
-generate a schedule, review it, and download an XLSX.
+Skeddy builds a full season schedule from three CSV files, respecting team
+availability, blackout dates and field inventory, and favouring 4-team
+**doubleheader pods** over single games.
+
+Sign up, configure your season in the browser, upload your CSVs, generate a
+schedule, review it, and download an XLSX.
+
+Originally built for the Willoughby Mixed Slo-Pitch Association, whose season is
+used throughout this document as a worked example. Nothing in the scheduler is
+specific to slo-pitch — it works for anything with teams, venues and time slots.
+
+| | |
+|---|---|
+| `/` | Public landing page |
+| `/app` | The scheduler (sign-in required) |
+| `/login`, `/register` | Accounts |
 
 ---
 
@@ -36,7 +48,11 @@ pip install -r requirements.txt
 python app.py
 ```
 
-Then open <http://localhost:5000>.
+Then open <http://localhost:5000>. Create an account, and you'll land in the
+scheduler at `/app`.
+
+The first account created becomes the admin, and inherits any configs and uploads
+left over from before accounts existed.
 
 The dev server runs with `debug=True` and auto-reloads on code changes. See
 [Deployment](#deployment) before exposing it to anyone else.
@@ -456,20 +472,35 @@ docker run -p 5000:5000 -v wmsl-configs:/app/configs wmsl-scheduler
 
 ```
 ├── app.py                  # Flask app — routes and API
+├── auth.py                 # Accounts, sessions, per-user storage
 ├── scheduler_wrapper.py    # Bridge: applies config, runs attempts, scores results
 ├── scheduler_newest.py     # Scheduling engine
+├── dispatch.cgi            # CGI entry point (shared hosting)
+├── passenger_wsgi.py       # Passenger entry point (cPanel Python app)
 ├── requirements.txt
-├── templates/index.html    # Single-page UI
-├── static/js/app.js        # Frontend logic
-├── configs/                # Saved season presets (JSON)
-├── uploads/                # Most recently uploaded CSVs
-└── output/                 # Generated files (cleared each run)
+├── templates/
+│   ├── home.html           # Public landing page
+│   ├── index.html          # The scheduler UI
+│   ├── login.html, register.html, auth_base.html
+│   └── icons/              # Inline SVG partials
+├── static/
+│   ├── css/skeddy.css      # Design tokens shared by every page
+│   ├── css/home.css        # Landing page styles
+│   └── js/app.js           # Scheduler frontend
+└── data/                   # Accounts, signing key, per-user files (gitignored)
+    └── users/<id>/{configs,uploads,output}/
 ```
 
 ### API
 
+All `/api/*` routes require a signed-in session and act only on that user's data.
+
 | Method | Path | Purpose |
 |---|---|---|
+| GET | `/` | Public landing page |
+| GET | `/app` | The scheduler (sign-in required) |
+| GET/POST | `/login`, `/register` | Accounts |
+| GET | `/logout` | End the session |
 | GET | `/api/config/defaults` | Default configuration |
 | GET / POST / DELETE | `/api/configs/<name>` | Load / save / delete a preset |
 | GET | `/api/configs` | List presets |

@@ -214,7 +214,7 @@ def login():
 @login_required
 def logout():
     logout_user()
-    return redirect(url_for('login'))
+    return redirect(url_for('home'))
 
 
 @app.route('/api/me')
@@ -227,6 +227,13 @@ def whoami():
 
 # ------------------------------------------------------------------ app routes
 @app.route('/')
+def home():
+    """Public landing page. The scheduler itself lives at /app behind sign-in."""
+    return render_template('home.html',
+                           signed_in=current_user.is_authenticated)
+
+
+@app.route('/app')
 @login_required
 def index():
     return render_template('index.html', user_email=current_user.email)
