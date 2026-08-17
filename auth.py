@@ -12,6 +12,7 @@ import os
 import re
 import secrets
 import sqlite3
+import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -41,6 +42,33 @@ def env(name, default=''):
 # and the database cannot be fetched over HTTP even if .htaccess is misconfigured
 # or ignored.
 DATA_DIR = Path(env('DATA_DIR') or (BASE_DIR / 'data')).resolve()
+
+
+def _warn_if_data_dir_is_web_reachable():
+    """Warn when the data directory sits inside the application directory.
+
+    On shared hosting the application often IS the document root, which would make
+    data/ fetchable over HTTP. That matters more than it sounds: secret_key signs
+    session cookies, so anyone who downloads it can forge a session for any account
+    without knowing a password, and app.db carries every account's password hash.
+
+    An .htaccess in the repo blocks this, but .htaccess is not guaranteed to be
+    honoured — AllowOverride can forbid it, and a rewrite mistake silently disables
+    it. Set SKEDDY_DATA_DIR to somewhere above the document root instead.
+    """
+    try:
+        DATA_DIR.relative_to(BASE_DIR)
+    except ValueError:
+        return  # already outside the app directory
+    sys.stderr.write(
+        "skeddy: WARNING data directory is inside the application directory\n"
+        f"skeddy:   {DATA_DIR}\n"
+        "skeddy:   If the app directory is your web root, accounts, password hashes\n"
+        "skeddy:   and the session signing key may be downloadable over HTTP.\n"
+        "skeddy:   Set SKEDDY_DATA_DIR to a path above the document root.\n")
+
+
+_warn_if_data_dir_is_web_reachable()
 USERS_DIR = DATA_DIR / 'users'
 DB_PATH = DATA_DIR / 'app.db'
 SECRET_KEY_PATH = DATA_DIR / 'secret_key'

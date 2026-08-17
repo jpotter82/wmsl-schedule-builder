@@ -372,6 +372,7 @@ git clone https://github.com/jpotter82/wmsl-schedule-builder.git .
 python3 -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
 cp .htaccess.example .htaccess
+cp dispatch.cgi.example dispatch.cgi
 chmod 755 dispatch.cgi
 mkdir -p configs uploads output && chmod 755 configs uploads output
 ```
@@ -392,6 +393,11 @@ Check it runs before involving the browser:
 
 Once it works, comment out the `cgitb.enable()` line in `dispatch.cgi` so internal
 errors are not shown to visitors.
+
+`dispatch.cgi` and `.htaccess` are **gitignored on purpose**. Both need host-specific
+edits — the interpreter path, the data directory — and keeping them untracked means
+`git pull` can never overwrite your deployment. Update them from the `.example`
+files when those change.
 
 Shared hosting has one real advantage over free cloud tiers: a **persistent
 filesystem**, so saved configs survive restarts.
@@ -465,6 +471,66 @@ Persist configs across restarts:
 ```bash
 docker run -p 5000:5000 -v wmsl-configs:/app/configs wmsl-scheduler
 ```
+
+---
+
+## Branding
+
+The palette, typography and logo come from the Skeddy brand sheet. Colours live as
+CSS variables in `static/css/skeddy.css`, and nothing hard-codes a hex outside that
+file, so a palette change lands everywhere at once.
+
+| Token | Value | Brand name |
+|---|---|---|
+| `--brand` | `#2E7D32` | Primary Green |
+| `--brand-300` / `--accent` | `#7BC043` | Accent Green |
+| `--ink` | `#0F1720` | Deep Navy (text) |
+| `--ink-600` | `#64748B` | Slate |
+| `--surface` | `#F3F4F6` | Light Gray |
+| `--surface-2` | `#FFFFFF` | White |
+
+Typography is **Poppins** (400/500/600/700) from Google Fonts, with a system stack
+fallback.
+
+### Logo assets
+
+The logo is used as supplied rather than redrawn, so no fidelity is lost. Drop the
+artwork in at these paths:
+
+| File | Used by | Source |
+|---|---|---|
+| `static/img/skeddy-hero.png` | Landing page headline | `brand/branding_image.png` |
+| `static/img/skeddy-icon.png` | Nav and compact placements | `brand/white_flat_logo.png` |
+| `static/img/favicon.png` | Browser tab | `brand/white_flat_logo.png` |
+
+Originals live in `brand/`, outside `static/`, so the full-resolution art and the
+brand sheet are not served over the web. The versions under `static/img/` are resized
+for their actual display size — the nav icon goes from 927 KB to 21 KB, which matters
+on a landing page.
+
+The nav pairs the diamond mark with the wordmark set in Poppins rather than using the
+slogan lockup: it renders about 34px tall, where "smarter schedules for rec sports"
+would be a few pixels high. In the wordmark **only the two d's are green** — `ske`
+and the trailing `y` are the deep navy, matching the logo.
+
+Regenerate the web assets after changing the source art:
+
+```bash
+python - <<'EOF'
+from PIL import Image
+for src, dst, box in (('brand/branding_image.png',  'static/img/skeddy-hero.png', (960, 960)),
+                      ('brand/white_flat_logo.png', 'static/img/skeddy-icon.png', (160, 160)),
+                      ('brand/white_flat_logo.png', 'static/img/favicon.png',     (64, 64))):
+    im = Image.open(src).convert('RGBA'); im.thumbnail(box, Image.LANCZOS)
+    im.save(dst, 'PNG', optimize=True)
+EOF
+```
+
+SVG works too — change the filename in `templates/wordmark.html`, which is the single
+definition every page includes.
+
+If an asset is missing, the image hides itself and a styled text wordmark takes over,
+so a fresh checkout shows the brand rather than a broken-image icon.
 
 ---
 

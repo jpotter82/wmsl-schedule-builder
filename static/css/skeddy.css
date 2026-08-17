@@ -1,87 +1,74 @@
-/* Skeddy design tokens.
+/* Skeddy design tokens — from the brand sheet.
  *
- * Built from the palette the scheduler already used, so the marketing page, the
- * auth screens and the app itself read as one product:
- *   --brand      was the navbar / accordion blue
- *   --surface    was the app page background
- *   --ok/warn/bad were the games-per-week grid states
- *
- * The green accent is the only genuinely new colour: it gives the brand a turf
- * cue and keeps CTAs from reading as generic corporate blue.
+ * Green is primary and navy is the ink/secondary, not the other way round.
+ * Everything (landing page, auth screens, the scheduler) pulls from here so the
+ * product reads as one thing.
  */
 :root {
-  --brand:        #1a5276;
-  --brand-700:    #164864;
-  --brand-300:    #2e6f96;
-  --brand-tint:   #eaf2f8;
+  /* brand palette */
+  --brand:        #2E7D32;   /* Primary Green  */
+  --brand-700:    #256428;
+  --brand-300:    #7BC043;   /* Accent Green   */
+  --brand-tint:   #eaf5ea;
+  --accent:       #7BC043;
+  --accent-600:   #6aa838;
+  --accent-tint:  #eef8e4;
 
-  --accent:       #15803d;
-  --accent-600:   #166534;
-  --accent-tint:  #d5f5e3;
+  --ink:          #0F1720;   /* Deep Navy      */
+  --ink-600:      #64748B;   /* Slate          */
+  --ink-400:      #8b98a8;
+  --line:         #e4e8ed;
 
-  --ink:          #16232e;
-  --ink-600:      #40525f;
-  --ink-400:      #6b7c88;
-  --line:         #dfe5ea;
+  --surface:      #F3F4F6;   /* Light Gray     */
+  --surface-2:    #FFFFFF;
 
-  --surface:      #f5f6fa;
-  --surface-2:    #ffffff;
+  /* schedule/status colours, kept in the brand's green-forward family */
+  --ok:           #e3f4dd;
+  --warn:         #fdf0cf;
+  --bad:          #f7d9d6;
 
-  --ok:           #d5f5e3;
-  --warn:         #f9e79f;
-  --bad:          #f5b7b1;
+  --radius:       16px;      /* rounded corners are a stated brand trait */
+  --radius-sm:    12px;
+  --shadow:       0 1px 2px rgba(15,23,32,.05), 0 8px 24px rgba(15,23,32,.06);
+  --shadow-lg:    0 2px 4px rgba(15,23,32,.06), 0 18px 48px rgba(15,23,32,.10);
 
-  --radius:       14px;
-  --radius-sm:    10px;
-  --shadow:       0 1px 2px rgba(22,35,46,.05), 0 8px 24px rgba(22,35,46,.06);
-  --shadow-lg:    0 2px 4px rgba(22,35,46,.06), 0 18px 48px rgba(22,35,46,.10);
-
-  --font: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font: "Poppins", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 }
 
 body { font-family: var(--font); color: var(--ink); }
 
+h1, h2, h3, h4, h5, .fw-bold, .navbar-brand { font-weight: 600; letter-spacing: -.015em; }
+
 /* ---------------------------------------------------------------- wordmark */
 .skeddy-mark {
-  display: inline-flex;
-  align-items: center;
-  gap: .55rem;
-  font-weight: 700;
-  letter-spacing: -.02em;
-  color: var(--brand);
-  text-decoration: none;
+  display: inline-flex; align-items: center; gap: .4rem;
+  text-decoration: none; line-height: 1;
 }
-.skeddy-mark:hover { color: var(--brand); }
-.skeddy-mark .glyph {
-  width: 30px; height: 30px;
-  border-radius: 9px;
-  background: var(--brand);
-  display: grid; place-items: center;
-  flex: 0 0 auto;
-}
-.skeddy-mark .glyph svg { display: block; }
-.skeddy-mark .name { font-size: 1.2rem; }
-.skeddy-mark.on-dark { color: #fff; }
-.skeddy-mark.on-dark .glyph { background: rgba(255,255,255,.16); }
+.skeddy-mark img { display: block; object-fit: contain; }
+
+/* Wordmark set in Poppins to match the logo's two-tone treatment: "ske" in the
+   deep navy, "ddy" in the primary green. */
+.skeddy-word { font-weight: 700; letter-spacing: -.035em; }
+.skeddy-word .a { color: var(--ink); }
+.skeddy-word .b { color: var(--brand); }
 
 /* ---------------------------------------------------------------- buttons */
-.btn-brand {
+.btn { border-radius: 10px; font-weight: 600; }
+.btn-brand, .btn-accent {
   background: var(--brand); border-color: var(--brand); color: #fff;
-  font-weight: 600;
 }
-.btn-brand:hover, .btn-brand:focus { background: var(--brand-700); border-color: var(--brand-700); color: #fff; }
-
-.btn-accent {
-  background: var(--accent); border-color: var(--accent); color: #fff;
-  font-weight: 600;
+.btn-brand:hover, .btn-brand:focus,
+.btn-accent:hover, .btn-accent:focus {
+  background: var(--brand-700); border-color: var(--brand-700); color: #fff;
 }
-.btn-accent:hover, .btn-accent:focus { background: var(--accent-600); border-color: var(--accent-600); color: #fff; }
-
+/* Secondary per the sheet: white fill, green border and text. */
 .btn-ghost {
-  background: transparent; border-color: var(--line); color: var(--ink);
-  font-weight: 600;
+  background: #fff; border-color: var(--brand); color: var(--brand);
 }
-.btn-ghost:hover, .btn-ghost:focus { background: #fff; border-color: var(--brand-300); color: var(--brand); }
+.btn-ghost:hover, .btn-ghost:focus {
+  background: var(--brand-tint); border-color: var(--brand); color: var(--brand-700);
+}
+.btn-outline-light:hover { color: var(--brand); }
 
 /* ---------------------------------------------------------------- surfaces */
 .s-card {
@@ -92,25 +79,36 @@ body { font-family: var(--font); color: var(--ink); }
   height: 100%;
 }
 .s-card .s-icon {
-  width: 40px; height: 40px; border-radius: 11px;
+  width: 42px; height: 42px; border-radius: 12px;
   background: var(--brand-tint); color: var(--brand);
   display: grid; place-items: center; margin-bottom: .85rem;
 }
-.s-card h3 { font-size: 1.02rem; font-weight: 650; margin: 0 0 .35rem; }
-.s-card p  { font-size: .92rem; color: var(--ink-600); margin: 0; line-height: 1.55; }
+.s-card h3 { font-size: 1.02rem; font-weight: 600; margin: 0 0 .35rem; }
+.s-card p  { font-size: .92rem; color: var(--ink-600); margin: 0; line-height: 1.6; }
+
+/* ------------------------------------------------------------ badges/tags */
+.s-tag {
+  display: inline-block; font-size: .72rem; font-weight: 600;
+  padding: .18rem .6rem; border-radius: 999px;
+}
+.s-tag.division { background: var(--brand); color: #fff; }
+.s-tag.dh       { background: var(--ink-600); color: #fff; }
+.s-tag.playoff  { background: var(--surface); color: var(--ink-600); }
 
 .eyebrow {
-  text-transform: uppercase;
-  letter-spacing: .12em;
-  font-size: .74rem;
-  font-weight: 700;
-  color: var(--brand-300);
+  text-transform: uppercase; letter-spacing: .14em;
+  font-size: .72rem; font-weight: 700; color: var(--brand);
   margin-bottom: .6rem;
 }
-.section-title { font-weight: 700; letter-spacing: -.02em; line-height: 1.15; }
-.lead-muted { color: var(--ink-600); font-size: 1.03rem; line-height: 1.6; }
+.section-title { font-weight: 700; letter-spacing: -.025em; line-height: 1.15; }
+.lead-muted { color: var(--ink-600); font-size: 1.03rem; line-height: 1.65; }
 
-/* Respect users who prefer less motion. */
+/* form controls pick up the brand focus ring */
+.form-control:focus, .form-select:focus {
+  border-color: var(--brand-300);
+  box-shadow: 0 0 0 .2rem rgba(123,192,67,.25);
+}
+
 @media (prefers-reduced-motion: reduce) {
   * { animation: none !important; transition: none !important; }
 }
