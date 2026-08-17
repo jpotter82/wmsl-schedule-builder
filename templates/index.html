@@ -33,9 +33,7 @@
     .form-label.help { cursor: help; border-bottom: 1px dotted var(--ink-600); }
     .form-check[title] { cursor: help; }
 
-    /* Data grids. Green marks good, slate marks neutral; the two alert tints are
-       derived rather than brand colours, because a schedule grid needs three
-       distinguishable states to be readable. */
+    /* Data grids. Status colours come from the semantic tokens in skeddy.css. */
     .matrix-table { font-size: 0.78rem; text-align: center; }
     .matrix-table th, .matrix-table td { padding: 3px 6px; min-width: 34px; }
     .matrix-table th.row-head, .matrix-table td.row-head { position: sticky; left: 0;
@@ -45,9 +43,12 @@
     .matrix-table td.zero { color: var(--ink-400); }
     .matrix-table td.hot  { background: var(--accent-tint); font-weight: 600; }
     .matrix-table .divsep { border-left: 2px solid var(--brand); }
-    .matrix-table td.wk-idle  { background: var(--bad);  color: #8a3b32; font-weight: 600; }
-    .matrix-table td.wk-heavy { background: var(--warn); color: #7a5a10; font-weight: 600; }
-    .matrix-table td.wk-ok    { background: var(--ok); }
+    /* Bootstrap paints cell backgrounds via `.table > :not(caption) > * > *`,
+       which outranks a bare class, so the status classes are repeated here at
+       table specificity. Tokens only — no colour values live in this file. */
+    .matrix-table td.status-on-pace     { background: var(--status-on-pace-bg);     color: var(--status-on-pace); }
+    .matrix-table td.status-over-target { background: var(--status-over-target-bg); color: var(--status-over-target); font-weight: 600; }
+    .matrix-table td.status-idle        { background: var(--status-idle-bg);        color: var(--status-idle);        font-weight: 600; }
     .matrix-table th.lowcap { background: var(--surface); color: var(--ink-400); font-style: italic; }
   </style>
 </head>

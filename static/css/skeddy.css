@@ -22,10 +22,27 @@
   --surface:      #F3F4F6;   /* Light Gray     */
   --surface-2:    #FFFFFF;
 
-  /* schedule/status colours, kept in the brand's green-forward family */
-  --ok:           #e3f4dd;
-  --warn:         #fdf0cf;
-  --bad:          #f7d9d6;
+  /* Semantic status colours for schedule/grid data, NOT brand colours.
+   *
+   * The brand sheet has no alert palette, so the warm and cool tints below are
+   * derived. They are deliberately muted so the app still reads as green, navy,
+   * white and slate. Confine them to data states — never buttons, nav, or
+   * decoration — or the brand hierarchy inverts.
+   *
+   * On pace reuses the brand green rather than restating the hex, so "healthy"
+   * and "Skeddy" stay literally the same colour.
+   *
+   * The two foregrounds are a shade darker than the brief's #B86B00 and #3B6FB6,
+   * which landed at 3.66:1 and 4.42:1 on their own backgrounds — under the 4.5:1
+   * AA floor for the 0.78rem grid text. Hue and saturation are unchanged and the
+   * backgrounds are untouched, so the muted look survives; see the ratios below.
+   */
+  --status-on-pace:         var(--brand);   /* 4.59:1 on its background */
+  --status-on-pace-bg:      #EAF6E2;
+  --status-over-target:     #A05D00;        /* 4.63:1 — informational, not an error */
+  --status-over-target-bg:  #FFF1D6;
+  --status-idle:            #3A6CB1;        /* 4.62:1 */
+  --status-idle-bg:         #E8F0FA;
 
   --radius:       16px;      /* rounded corners are a stated brand trait */
   --radius-sm:    12px;
@@ -94,6 +111,23 @@ h1, h2, h3, h4, h5, .fw-bold, .navbar-brand { font-weight: 600; letter-spacing: 
 .s-tag.division { background: var(--brand); color: #fff; }
 .s-tag.dh       { background: var(--ink-600); color: #fff; }
 .s-tag.playoff  { background: var(--surface); color: var(--ink-600); }
+
+/* ------------------------------------------------------- data status states */
+/* Shared by any data surface that needs to show pace: the weekly grid uses them
+   on cells, the legend on badges. Colour is never the only signal — see the
+   .wk-flag marker and the screen-reader text the grid emits alongside. */
+.status-on-pace     { background: var(--status-on-pace-bg);     color: var(--status-on-pace); }
+.status-over-target { background: var(--status-over-target-bg); color: var(--status-over-target); }
+.status-idle        { background: var(--status-idle-bg);        color: var(--status-idle); }
+
+/* Non-colour marker paired with the state. Sized down so the game count stays
+   the thing you read first. */
+.wk-flag {
+  font-weight: 700;
+  margin-left: .15em;
+  font-size: .92em;
+  opacity: .85;
+}
 
 .eyebrow {
   text-transform: uppercase; letter-spacing: .14em;

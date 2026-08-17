@@ -610,6 +610,28 @@
     });
   }
 
+  // State mapping for the weekly grid, kept as a pure function so the
+  // thresholds are readable in one place and can be exercised directly.
+  //
+  // Low-capacity weeks return null: there are too few diamonds for everyone to
+  // play, so a team sitting out is not a scheduling fault and marking it idle
+  // would cry wolf.
+  //
+  // On pace carries no marker on purpose. It is the majority of cells, and
+  // flagging every one of them turns the grid into noise; the deviations are
+  // what need to catch the eye. The count itself already separates idle (0)
+  // from the rest without relying on colour.
+  function weekStatus(count, target, lowCapacity) {
+    if (lowCapacity) return null;
+    if (count === 0) {
+      return { cls: 'status-idle', flag: '○', label: 'idle' };
+    }
+    if (count > target) {
+      return { cls: 'status-over-target', flag: '!', label: 'over the weekly target of ' + target };
+    }
+    return { cls: 'status-on-pace', flag: '', label: 'on pace' };
+  }
+
   function renderWeeklyTable(wt) {
     var thead = document.querySelector('#weeklyTable thead');
     var tbody = document.querySelector('#weeklyTable tbody');
@@ -639,13 +661,19 @@
       var total = 0;
       counts.forEach(function (c, i) {
         total += c;
-        var lowcap = wt.weeks[i] && wt.weeks[i].low_capacity;
-        var cls = '';
-        if (lowcap) cls = '';
-        else if (c === 0) cls = 'wk-idle';
-        else if (c > target) cls = 'wk-heavy';
-        else cls = 'wk-ok';
-        row += '<td class="' + cls + '">' + c + '</td>';
+        var week = wt.weeks[i];
+        var st = weekStatus(c, target, week && week.low_capacity);
+        if (!st) {
+          row += '<td>' + c + '</td>';
+          return;
+        }
+        // Colour is backed up by the marker glyph, the tooltip and the
+        // screen-reader text, so the state survives without it.
+        var wk = week ? 'w' + week.index : 'week ' + (i + 1);
+        row += '<td class="' + st.cls + '" title="' + wk + ': ' + c +
+          (c === 1 ? ' game' : ' games') + ', ' + st.label + '">' + c +
+          (st.flag ? '<span class="wk-flag" aria-hidden="true">' + st.flag + '</span>' : '') +
+          '<span class="visually-hidden">, ' + st.label + '</span></td>';
       });
       row += '<td><strong>' + total + '</strong></td></tr>';
       tbody.innerHTML += row;
@@ -653,10 +681,13 @@
 
     tbody.innerHTML +=
       '<tr><td colspan="' + (wt.weeks.length + 2) + '" class="small text-muted" style="text-align:left">' +
-      '<span class="badge" style="background:#d5f5e3;color:#145a32">on pace</span> ' +
-      '<span class="badge" style="background:#f9e79f;color:#7d6608">above weekly target</span> ' +
-      '<span class="badge" style="background:#f5b7b1;color:#7b241c">idle week</span> ' +
-      '<span class="badge" style="background:#e8e8e8;color:#666">grey column = too few diamonds that week</span>' +
+      '<span class="badge status-on-pace">on pace</span> ' +
+      '<span class="badge status-over-target">above weekly target ' +
+        '<span class="wk-flag" aria-hidden="true">!</span></span> ' +
+      '<span class="badge status-idle">idle week ' +
+        '<span class="wk-flag" aria-hidden="true">○</span></span> ' +
+      '<span class="badge" style="background:var(--surface);color:var(--ink-600)">' +
+        'grey column = too few diamonds that week</span>' +
       '</td></tr>';
   }
 
