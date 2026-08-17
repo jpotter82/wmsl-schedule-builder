@@ -4,7 +4,7 @@
 Every request starts a fresh Python process, so nothing survives in memory between
 them. That is fine here:
 
-  * WMSL_SYNC_RUNS forces the scheduler to run inside the request rather than on a
+  * SKEDDY_SYNC_RUNS forces the scheduler to run inside the request rather than on a
     background thread, which would be killed the moment the process exits.
   * Run state is mirrored to .run_state.json by app.py, so /api/status and
     /api/results can read the result of a run performed by an earlier process.
@@ -23,7 +23,12 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 
-os.environ.setdefault('WMSL_SYNC_RUNS', '1')
+os.environ.setdefault('SKEDDY_SYNC_RUNS', '1')
+
+# Recommended on shared hosting: keep accounts, password hashes and the session
+# key outside the web root, so they cannot be fetched over HTTP even if .htaccess
+# is misconfigured. Create the directory (chmod 700) and uncomment.
+# os.environ.setdefault('SKEDDY_DATA_DIR', '/home/USERNAME/skeddy-data')
 
 # Surface tracebacks in the browser instead of a bare 500 while setting things up.
 # Comment out once it is working.

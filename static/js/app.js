@@ -4,6 +4,21 @@
   let currentConfig = null;
   let pollTimer = null;
 
+  // If the session expires mid-use, every API call starts returning 401. Send the
+  // user to the login page rather than letting the UI fail silently.
+  const _fetch = window.fetch.bind(window);
+  window.fetch = function (input, init) {
+    return _fetch(input, init).then(function (res) {
+      if (res.status === 401) {
+        var url = (typeof input === 'string') ? input : (input && input.url) || '';
+        if (url.indexOf('/api/') !== -1) {
+          window.location = '/login?next=' + encodeURIComponent(window.location.pathname);
+        }
+      }
+      return res;
+    });
+  };
+
   // --- Init ---
   document.addEventListener('DOMContentLoaded', function () {
     loadDefaults();
