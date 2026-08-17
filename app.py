@@ -11,6 +11,7 @@ from flask_login import (LoginManager, current_user, login_required, login_user,
                          logout_user)
 
 import auth
+import mailer
 from scheduler_wrapper import DEFAULT_CONFIG, run_scheduler, validate_config
 
 app = Flask(__name__)
@@ -38,8 +39,10 @@ login_manager.session_protection = 'strong'
 
 
 @login_manager.user_loader
-def load_user(user_id):
-    return auth.get_user_by_id(user_id)
+def load_user(session_id):
+    # Not get_user_by_id: the session value is "<id>.<password stamp>", so a password
+    # change invalidates cookies issued before it.
+    return auth.get_user_by_session_id(session_id)
 
 
 @login_manager.unauthorized_handler
@@ -208,6 +211,69 @@ def login():
     # Only follow same-site paths, never an absolute URL supplied by the caller.
     return redirect(nxt if nxt.startswith('/') and not nxt.startswith('//')
                     else url_for('index'))
+
+
+def _reset_url(token):
+    """Absolute URL for a reset link.
+
+    Prefers SKEDDY_BASE_URL. Building this from the request would take the host from
+    the Host header, which the caller controls: someone could request a reset for
+    your address and have the mail arrive pointing at their own domain, harvesting
+    the token when you clicked. Falling back to the request host is still the default
+    because it is what works out of the box, but setting SKEDDY_BASE_URL in
+    production closes that off.
+    """
+    base = auth.env('BASE_URL').strip().rstrip('/')
+    path = url_for('reset_password', token=token)
+    return f"{base}{path}" if base else request.url_root.rstrip('/') + path
+
+
+@app.route('/forgot', methods=['GET', 'POST'])
+def forgot_password():
+    if current_user.is_authenticated:
+        return redirect(url_for('index'))
+    if request.method == 'GET':
+        return render_template('forgot.html')
+
+    email = request.form.get('email', '')
+    ip = request.remote_addr or ''
+    # The throttle is checked before the lookup so a blocked caller cannot use
+    # timing differences to tell registered addresses from unregistered ones.
+    if auth.reset_request_allowed(ip):
+        user = auth.get_user_by_email(email)
+        if user:
+            token = auth.create_reset_token(user, ip)
+            mailer.send_password_reset(user.email, _reset_url(token),
+                                       auth.RESET_TOKEN_TTL_SECONDS // 60)
+
+    # Always the same response. Saying "no such account" here would turn this form
+    # into a way to find out who has one.
+    return render_template('forgot.html', sent=True, email=email)
+
+
+@app.route('/reset/<token>', methods=['GET', 'POST'])
+def reset_password(token):
+    user = auth.user_for_reset_token(token)
+    if user is None:
+        return render_template('reset.html', invalid=True), 400
+    if request.method == 'GET':
+        return render_template('reset.html', token=token)
+
+    password = request.form.get('password', '')
+    confirm = request.form.get('confirm', '')
+    error = auth.validate_password(password)
+    if not error and password != confirm:
+        error = "Those passwords do not match."
+    if error:
+        return render_template('reset.html', token=token, error=error), 400
+
+    if not auth.consume_reset_token(token, password):
+        # Only reachable if the link was used elsewhere between the two checks.
+        return render_template('reset.html', invalid=True), 400
+
+    # Deliberately not logged in here: changing the password invalidates every
+    # session, and signing in proves the new password actually works.
+    return redirect(url_for('login', reset='1'))
 
 
 @app.route('/logout')

@@ -1,0 +1,36 @@
+{% extends "auth_base.html" %}
+{% block title %}Reset your password — Skeddy{% endblock %}
+{% block subtitle %}
+  {% if sent %}Check your email{% else %}Reset your password{% endif %}
+{% endblock %}
+
+{% block content %}
+{% if sent %}
+  {#- Same message whether or not the address has an account, so this page cannot
+      be used to find out who is registered. -#}
+  <p class="mb-2">
+    If an account exists for <strong>{{ email }}</strong>, a reset link is on its way.
+  </p>
+  <p class="text-muted small mb-0">
+    The link works once and expires in an hour. If it does not arrive, check your
+    spam folder, then try again.
+  </p>
+{% else %}
+  <p class="text-muted small">
+    Enter the email address on your account and we will send you a link to choose a
+    new password.
+  </p>
+  <form method="post" action="{{ url_for('forgot_password') }}">
+    <div class="mb-3">
+      <label class="form-label" for="email">Email</label>
+      <input class="form-control" type="email" id="email" name="email"
+             value="{{ email or '' }}" required autofocus autocomplete="username">
+    </div>
+    <button class="btn btn-brand w-100" type="submit">Send reset link</button>
+  </form>
+{% endif %}
+{% endblock %}
+
+{% block footer %}
+<a href="{{ url_for('login') }}">Back to sign in</a>
+{% endblock %}

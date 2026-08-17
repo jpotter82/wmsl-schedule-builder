@@ -35,6 +35,19 @@ os.environ.setdefault('SKEDDY_SYNC_RUNS', '1')
 # is misconfigured. Create the directory (chmod 700) and uncomment.
 # os.environ.setdefault('SKEDDY_DATA_DIR', '/home/USERNAME/skeddy-data')
 
+# Password reset email. Without SMTP the reset link is only written to the error
+# log, so nobody can actually recover an account. A cPanel mailbox works.
+#
+# Set SKEDDY_BASE_URL too: without it the link in the mail is built from the Host
+# header, which the requester controls, so a forged request could mail you a link
+# pointing at someone else's site.
+# os.environ.setdefault('SKEDDY_BASE_URL', 'https://schedule.wmsl.ca')
+# os.environ.setdefault('SKEDDY_SMTP_HOST', 'mail.wmsl.ca')
+# os.environ.setdefault('SKEDDY_SMTP_PORT', '587')
+# os.environ.setdefault('SKEDDY_SMTP_USER', 'skeddy@wmsl.ca')
+# os.environ.setdefault('SKEDDY_SMTP_PASSWORD', '...')
+# os.environ.setdefault('SKEDDY_SMTP_FROM', 'Skeddy <skeddy@wmsl.ca>')
+
 # Surface tracebacks in the browser instead of a bare 500 while setting things up.
 # Comment out once it is working -- it exposes file paths and source to visitors.
 #

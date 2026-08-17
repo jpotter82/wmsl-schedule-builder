@@ -446,6 +446,45 @@ A pull that changes only `static/` or `templates/` needs no CGI work at all, but
 hard-refresh the browser: CSS and JS are served with normal caching, and a stale cache
 looks exactly like a failed deploy.
 
+### Password reset email
+
+A user who forgets their password uses **Forgot password?** on the sign-in page. They
+receive a link that works once and expires in an hour; using it signs them out
+everywhere else.
+
+Without SMTP configured the link is only written to the error log, so **nobody can
+actually recover an account until you set this up**. A cPanel mailbox on your own
+domain is enough. Set these in `dispatch.cgi` (untracked, so credentials stay out of
+git):
+
+| Variable | Example | |
+|---|---|---|
+| `SKEDDY_BASE_URL` | `https://schedule.wmsl.ca` | strongly recommended |
+| `SKEDDY_SMTP_HOST` | `mail.wmsl.ca` | required |
+| `SKEDDY_SMTP_FROM` | `Skeddy <skeddy@wmsl.ca>` | required |
+| `SKEDDY_SMTP_PORT` | `587`, or `465` with SSL | default 587 |
+| `SKEDDY_SMTP_USER` | `skeddy@wmsl.ca` | |
+| `SKEDDY_SMTP_PASSWORD` | | |
+| `SKEDDY_SMTP_SSL` | `1` to use SSL instead of STARTTLS | |
+
+Set `SKEDDY_BASE_URL`. Without it the link is built from the `Host` header, which the
+requester controls — someone could trigger a reset for your address and have the mail
+arrive pointing at their own site, capturing the token when you clicked it.
+
+Check it end to end after configuring, and watch the error log: send failures are
+logged rather than shown, because the page is deliberately identical whether or not
+the address has an account.
+
+If you are locked out before SMTP works, set a password directly on the host:
+
+```bash
+cd ~/skeddy && python3 -c "
+import auth
+u = auth.get_user_by_email('you@example.com')
+auth.set_password(u.user_id, 'a-new-long-password')
+print('updated', u.email)"
+```
+
 ### Run state is shared through a file
 
 `/api/run`, `/api/status` and `/api/results` are three separate requests, and the
