@@ -601,7 +601,7 @@ artwork in at these paths:
 | `static/img/skedworx-icon.png` | Nav and compact placements | supplied at final size |
 | `static/img/favicon.png` | Browser tab | `static/img/skedworx-icon.png` |
 | `static/img/spreadsheet-chaos.jpg` | Homepage: the problem | `brand/spreadsheet_solving.png` |
-| `static/img/home-plate.jpg` | Homepage: how it fits together | `brand/diamond_problem_matrix.png` |
+| `static/img/home-plate.jpg` | Homepage: how it fits together | `brand/diamond-problem-matrix.png` |
 
 Originals live in `brand/`, outside `static/`, so the full-resolution art and the
 brand sheet are not served over the web. The versions under `static/img/` are resized
@@ -628,7 +628,7 @@ def flat(src, box):
     return bg
 
 for src, dst, box in (('brand/spreadsheet_solving.png',    'static/img/spreadsheet-chaos.jpg', (1200, 1200)),
-                      ('brand/diamond_problem_matrix.png', 'static/img/home-plate.jpg',        (1000, 1000))):
+                      ('brand/diamond-problem-matrix.png', 'static/img/home-plate.jpg',        (1000, 1000))):
     flat(src, box).save(dst, quality=90, optimize=True, progressive=True)
 
 flat('brand/hero-img.png', (960, 960)).quantize(colors=128).save(
