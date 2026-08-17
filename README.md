@@ -497,15 +497,34 @@ fallback.
 The logo is used as supplied rather than redrawn, so no fidelity is lost. Drop the
 artwork in at these paths:
 
-| File | Used by | Artwork |
+| File | Used by | Source |
 |---|---|---|
-| `static/img/skeddy-hero.png` | Landing page headline | Full lockup **with** the slogan |
-| `static/img/skeddy-lockup.png` | Landing nav, auth pages, app nav, footer | Logo + wordmark, **no** tagline |
-| `static/img/skeddy-icon.png` | Compact placements (`variant='icon'`) | Diamond mark only |
-| `static/img/favicon.png` | Browser tab | 32×32 |
+| `static/img/skeddy-hero.png` | Landing page headline | `brand/branding_image.png` |
+| `static/img/skeddy-icon.png` | Nav and compact placements | `brand/white_flat_logo.png` |
+| `static/img/favicon.png` | Browser tab | `brand/white_flat_logo.png` |
 
-The nav renders its logo about 40px tall, so a slogan baked into that file would be
-illegible — hence the separate hero and nav assets.
+Originals live in `brand/`, outside `static/`, so the full-resolution art and the
+brand sheet are not served over the web. The versions under `static/img/` are resized
+for their actual display size — the nav icon goes from 927 KB to 21 KB, which matters
+on a landing page.
+
+The nav pairs the diamond mark with the wordmark set in Poppins rather than using the
+slogan lockup: it renders about 34px tall, where "smarter schedules for rec sports"
+would be a few pixels high. In the wordmark **only the two d's are green** — `ske`
+and the trailing `y` are the deep navy, matching the logo.
+
+Regenerate the web assets after changing the source art:
+
+```bash
+python - <<'EOF'
+from PIL import Image
+for src, dst, box in (('brand/branding_image.png',  'static/img/skeddy-hero.png', (960, 960)),
+                      ('brand/white_flat_logo.png', 'static/img/skeddy-icon.png', (160, 160)),
+                      ('brand/white_flat_logo.png', 'static/img/favicon.png',     (64, 64))):
+    im = Image.open(src).convert('RGBA'); im.thumbnail(box, Image.LANCZOS)
+    im.save(dst, 'PNG', optimize=True)
+EOF
+```
 
 SVG works too — change the filename in `templates/wordmark.html`, which is the single
 definition every page includes.

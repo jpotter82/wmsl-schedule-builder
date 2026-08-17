@@ -40,17 +40,17 @@ body { font-family: var(--font); color: var(--ink); }
 h1, h2, h3, h4, h5, .fw-bold, .navbar-brand { font-weight: 600; letter-spacing: -.015em; }
 
 /* ---------------------------------------------------------------- wordmark */
-.skeddy-mark { display: inline-flex; align-items: center; text-decoration: none; }
-.skeddy-mark img { display: block; }
-
-/* Shown only if the brand artwork is missing, so a fresh checkout still reads as
-   Skeddy instead of a broken-image icon. Mirrors the logo's two-tone wordmark. */
-.skeddy-fallback {
-  align-items: baseline; font-weight: 700; font-size: 1.5rem;
-  letter-spacing: -.035em; line-height: 1;
+.skeddy-mark {
+  display: inline-flex; align-items: center; gap: .4rem;
+  text-decoration: none; line-height: 1;
 }
-.skeddy-fallback .a { color: var(--ink); }
-.skeddy-fallback .b { color: var(--brand); }
+.skeddy-mark img { display: block; object-fit: contain; }
+
+/* Wordmark set in Poppins to match the logo's two-tone treatment: "ske" in the
+   deep navy, "ddy" in the primary green. */
+.skeddy-word { font-weight: 700; letter-spacing: -.035em; }
+.skeddy-word .a { color: var(--ink); }
+.skeddy-word .b { color: var(--brand); }
 
 /* ---------------------------------------------------------------- buttons */
 .btn { border-radius: 10px; font-weight: 600; }

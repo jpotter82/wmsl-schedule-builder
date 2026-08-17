@@ -1,30 +1,28 @@
-{#- Skeddy logo lockup.
+{#- Skeddy lockup for navigation and auth screens.
 
-    Uses the supplied brand artwork rather than a redrawn copy, so nothing is lost
-    in translation. One definition shared by the landing page, auth screens and the
-    app, so the logo cannot drift between them.
-
-    Assets (see README > Branding):
-      static/img/skeddy-lockup.png  logo + wordmark + tagline
-      static/img/skeddy-icon.png    diamond mark only
-
-    If an asset is missing the image hides itself and a styled text wordmark takes
-    over, so a fresh checkout shows the brand rather than a broken-image icon.
+    Pairs the supplied diamond mark with the wordmark set in Poppins, rather than
+    using the full slogan artwork: the nav renders around 34px tall, where the
+    "smarter schedules for rec sports" line would be a few pixels high and
+    illegible. The slogan lockup is used at full size in the hero instead.
 
     Params:
-      variant  'lockup' (default) or 'icon'
-      height   rendered height in px
+      variant  'lockup' (default, mark + wordmark) or 'icon' (mark only)
+      height   mark height in px
       href     link target, defaults to home
 -#}
 {%- set variant = variant|default('lockup') -%}
-{%- set height  = height|default(38) -%}
-{%- set asset   = 'img/skeddy-icon.png' if variant == 'icon' else 'img/skeddy-lockup.png' -%}
-<a class="skeddy-mark" href="{{ href|default(url_for('home')) }}" aria-label="Skeddy — home">
-  <img src="{{ url_for('static', filename=asset) }}"
-       alt="Skeddy — smarter schedules for rec sports"
-       height="{{ height }}" style="height:{{ height }}px;width:auto" decoding="async"
-       onerror="this.style.display='none';this.nextElementSibling.style.display='inline-flex';">
-  <span class="skeddy-fallback" style="display:none" aria-hidden="true">
-    <span class="a">ske</span><span class="b">ddy</span>
-  </span>
+{%- set height  = height|default(34) -%}
+<a class="skeddy-mark" href="{{ href|default(url_for('home')) }}"
+   aria-label="Skeddy — home">
+  <img src="{{ url_for('static', filename='img/skeddy-icon.png') }}"
+       alt="{% if variant == 'icon' %}Skeddy{% else %}{% endif %}"
+       height="{{ height }}" width="{{ height }}"
+       style="height:{{ height }}px;width:{{ height }}px" decoding="async">
+  {%- if variant != 'icon' %}
+  {#- Matches the logo exactly: only the two d's are green, the rest is the deep
+      navy. Getting this wrong (colouring the y too) makes the nav read as a
+      different mark to the one in the hero. -#}
+  <span class="skeddy-word" style="font-size:{{ (height * 0.62)|round|int }}px"
+    ><span class="a">ske</span><span class="b">dd</span><span class="a">y</span></span>
+  {%- endif %}
 </a>
