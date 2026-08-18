@@ -313,7 +313,11 @@ def home():
 @app.route('/app')
 @login_required
 def index():
-    return render_template('index.html', user_email=current_user.email)
+    # is_admin gates the raw generator log. It is not a security boundary -- the
+    # same text is in /api/status for anyone who looks -- it is about not putting
+    # scheduler internals in front of a league volunteer as if they were an error.
+    return render_template('index.html', user_email=current_user.email,
+                           is_admin=current_user.is_admin)
 
 
 @app.route('/api/config/defaults')
