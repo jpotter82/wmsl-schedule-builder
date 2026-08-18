@@ -560,6 +560,10 @@ def run_scheduler(config, csv_paths, output_dir, config_name=None, progress=None
                 print(f"  ! {w}")
             print("")
 
+        # Display names are a presentation concern, but they have to be in place
+        # before the exports run, and those happen inside the engine.
+        sn.TEAM_DISPLAY = load_team_names(csv_paths.get('teams'))
+
         team_availability = sn.load_team_availability(csv_paths['team_availability'])
         print(f"Loaded team availability ({len(team_availability)} teams)")
         field_availability = sn.load_field_availability(csv_paths['field_availability'])
@@ -786,7 +790,7 @@ def run_scheduler(config, csv_paths, output_dir, config_name=None, progress=None
         result['weekly_table'] = weekly_table
         # IDs stay the keys everywhere above; this rides alongside so the UI can
         # show names without anything downstream having to know about them.
-        result['team_names'] = load_team_names(csv_paths.get('teams'))
+        result['team_names'] = dict(sn.TEAM_DISPLAY)
 
     except Exception as e:
         tb = traceback.format_exc()
