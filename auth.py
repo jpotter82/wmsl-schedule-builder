@@ -22,6 +22,8 @@ from pathlib import Path
 from flask_login import UserMixin
 from werkzeug.security import check_password_hash, generate_password_hash
 
+import plans
+
 BASE_DIR = Path(__file__).resolve().parent
 
 
@@ -141,6 +143,7 @@ def init_db():
                 password_hash TEXT    NOT NULL,
                 display_name  TEXT,
                 is_admin      INTEGER NOT NULL DEFAULT 0,
+                plan          TEXT    NOT NULL DEFAULT 'free',
                 created_at    TEXT    NOT NULL,
                 last_login_at TEXT
             );
@@ -163,7 +166,31 @@ def init_db():
             );
             CREATE INDEX IF NOT EXISTS idx_resets_user ON password_resets(user_id);
             CREATE INDEX IF NOT EXISTS idx_resets_ip ON password_resets(requested_ip, created_at);
+
+            -- Who changed whose plan, when. Deliberately one table rather than a
+            -- general audit framework: plan changes are the only administrative
+            -- action that moves money, and an unexplained upgrade is the one
+            -- thing worth being able to reconstruct.
+            CREATE TABLE IF NOT EXISTS plan_changes (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id      INTEGER NOT NULL,
+                user_email   TEXT    NOT NULL,
+                from_plan    TEXT,
+                to_plan      TEXT    NOT NULL,
+                changed_by   INTEGER,
+                changed_by_email TEXT,
+                created_at   TEXT    NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_plan_changes_user ON plan_changes(user_id, created_at);
         """)
+
+        # Migrate databases created before plans existed. Everyone lands on Free,
+        # which is what they effectively had.
+        cols = {r['name'] for r in conn.execute("PRAGMA table_info(users)")}
+        if 'plan' not in cols:
+            conn.execute("ALTER TABLE users ADD COLUMN plan TEXT NOT NULL DEFAULT 'free'")
+        conn.execute("UPDATE users SET plan = ? WHERE plan IS NULL OR plan = ''",
+                     (plans.DEFAULT_PLAN,))
 
 
 # ---------------------------------------------------------------- user model
@@ -189,7 +216,10 @@ class User(UserMixin):
         self.id = f"{self.user_id}.{self.password_stamp}"
         self.email = row['email']
         self.display_name = row['display_name'] or row['email'].split('@')[0]
+        # Role and plan are independent: an admin may sit on Free, which is how the
+        # free experience gets tested without a second account.
         self.is_admin = bool(row['is_admin'])
+        self.plan = (row['plan'] if 'plan' in row.keys() else None) or plans.DEFAULT_PLAN
 
     # -- storage ---------------------------------------------------------
     @property
@@ -390,7 +420,7 @@ def list_users():
     """Every account, with enough to run a user list. Never returns hashes."""
     with _connect() as conn:
         rows = conn.execute(
-            "SELECT id, email, display_name, is_admin, created_at, last_login_at"
+            "SELECT id, email, display_name, is_admin, plan, created_at, last_login_at"
             " FROM users ORDER BY id").fetchall()
     return [dict(r) for r in rows]
 
@@ -418,6 +448,40 @@ def set_admin(user_id, make_admin):
                      (1 if make_admin else 0, int(user_id)))
     return True, ("%s is now an admin." % user.email if make_admin
                   else "%s is no longer an admin." % user.email)
+
+
+def set_plan(user_id, new_plan, changed_by=None):
+    """Move a user onto a plan, recording who did it. Returns (ok, message).
+
+    The plan is validated here rather than at the route, so no caller can write a
+    value the entitlement service would not recognise.
+    """
+    if not plans.is_valid_plan(new_plan):
+        return False, "Unknown plan."
+    user = get_user_by_id(user_id)
+    if user is None:
+        return False, "No such account."
+    if user.plan == new_plan:
+        return True, "%s is already on %s." % (user.email, plans.PLAN_LABELS[new_plan]['name'])
+
+    with _connect() as conn:
+        conn.execute("UPDATE users SET plan = ? WHERE id = ?", (new_plan, int(user_id)))
+        conn.execute(
+            "INSERT INTO plan_changes (user_id, user_email, from_plan, to_plan,"
+            " changed_by, changed_by_email, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (user.user_id, user.email, user.plan, new_plan,
+             getattr(changed_by, 'user_id', None), getattr(changed_by, 'email', None),
+             datetime.now(timezone.utc).isoformat()))
+    return True, "%s moved from %s to %s." % (
+        user.email, plans.PLAN_LABELS[user.plan]['name'], plans.PLAN_LABELS[new_plan]['name'])
+
+
+def plan_changes(limit=50):
+    """Most recent plan changes, newest first."""
+    with _connect() as conn:
+        rows = conn.execute(
+            "SELECT * FROM plan_changes ORDER BY id DESC LIMIT ?", (int(limit),)).fetchall()
+    return [dict(r) for r in rows]
 
 
 def create_user(email, password, display_name=None, is_admin=None):

@@ -344,13 +344,17 @@
     var name = document.getElementById('configName').value.trim();
     if (!name) { alert('Enter a config name'); return; }
     var cfg = buildConfigFromForm();
+    var response;
     fetch('/api/configs/' + encodeURIComponent(name), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(cfg),
     })
-      .then(function (r) { return r.json(); })
+      .then(function (r) { response = r; return r.json(); })
       .then(function (res) {
+        // A plan limit answers 402 rather than a plain error, so it gets the
+        // upgrade prompt instead of an alert box saying no.
+        if (handledUpgrade(response, res)) return;
         if (res.error) { alert(res.error); return; }
         refreshConfigList();
         document.getElementById('configSelect').value = name;
@@ -858,6 +862,48 @@
     }
   }
   window.refreshEstimate = refreshEstimate;
+
+  // Reusable upgrade prompt. The server answers a blocked action with 402 and the
+  // shape from plans.upgrade_message(); this renders it. Deliberately the only
+  // place that copy lives on the client, so a second paywall needs no new UI and
+  // cannot word it differently.
+  //
+  // It processes no payment -- there is none yet -- and links to /pricing.
+  function showUpgradePrompt(payload) {
+    var existing = document.getElementById('upgradeModal');
+    if (existing) existing.remove();
+
+    var wrap = document.createElement('div');
+    wrap.id = 'upgradeModal';
+    wrap.className = 'modal fade';
+    wrap.tabIndex = -1;
+    wrap.innerHTML =
+      '<div class="modal-dialog modal-dialog-centered">' +
+        '<div class="modal-content">' +
+          '<div class="modal-body p-4">' +
+            '<h2 class="h5 mb-2">' + (payload.title || 'Available with skedworx Pro') + '</h2>' +
+            '<p class="text-muted">' + (payload.message || '') + '</p>' +
+            (payload.plan_price
+              ? '<p class="mb-0"><strong>Pro is ' + payload.plan_price + '.</strong></p>' : '') +
+          '</div>' +
+          '<div class="modal-footer border-0 pt-0 px-4 pb-4">' +
+            '<button class="btn btn-ghost" data-bs-dismiss="modal" type="button">Not now</button>' +
+            '<a class="btn btn-brand" href="' + (payload.learn_more || '/pricing') + '">Learn about Pro</a>' +
+          '</div>' +
+        '</div>' +
+      '</div>';
+    document.body.appendChild(wrap);
+    new bootstrap.Modal(wrap).show();
+  }
+
+  // Any API call may come back 402 when a plan does not cover it.
+  function handledUpgrade(res, body) {
+    if (res.status === 402 && body && body.error === 'upgrade_required') {
+      showUpgradePrompt(body);
+      return true;
+    }
+    return false;
+  }
 
   // Display names from an optional teams.csv. IDs remain the keys in every
   // payload -- division is the first character of the ID, and the grids group and

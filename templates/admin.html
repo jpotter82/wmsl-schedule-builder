@@ -42,8 +42,12 @@
       <p><strong>Admin is granted here, not at signup.</strong> Before this page it was set
          only by being the first account to register, with no way to change it short of
          editing the database on the host.</p>
-      <p>Admin currently means one thing: you can see this page and the generator log on a
-         run. It is not a billing or plan role — there are no plans yet.</p>
+      <p><strong>Role and plan are separate.</strong> Admin controls access to this page
+         and the generator log. Plan controls what the account may do. An admin on Free
+         gets Free entitlements — deliberately, so the free experience can be tested
+         without a second account.</p>
+      <p>Changing a plan here is the only way a plan moves. There is no self-service
+         route, so a user cannot put themselves on Pro. Every change is recorded below.</p>
     </div>
 
     <div class="card">
@@ -51,8 +55,8 @@
         <table class="table table-sm mb-0 align-middle">
           <thead>
             <tr>
-              <th>Account</th><th>Created</th><th>Last sign-in</th>
-              <th>Seasons</th><th>Storage</th><th>Last run</th><th>Admin</th>
+              <th>Account</th><th>Role</th><th>Plan</th><th>Created</th>
+              <th>Last sign-in</th><th>Seasons</th><th>Storage</th><th>Last run</th>
             </tr>
           </thead>
           <tbody>
@@ -62,21 +66,36 @@
                 <strong>{{ u.email }}</strong>
                 <div class="text-muted small">id {{ u.id }}</div>
               </td>
-              <td class="small">{{ (u.created_at or '')[:10] }}</td>
-              <td class="small">{{ (u.last_login_at or '—')[:16]|replace('T', ' ') }}</td>
-              <td class="small">{{ u.usage.configs }}</td>
-              <td class="small">{{ (u.usage.bytes / 1048576)|round(1) }} MB</td>
-              <td class="small">{{ u.usage.last_run or '—' }}</td>
               <td>
                 <form method="post" action="{{ url_for('admin_set_admin', user_id=u.id) }}">
                   <input type="hidden" name="make" value="{{ '0' if u.is_admin else '1' }}">
                   <button class="btn btn-sm {{ 'btn-brand' if u.is_admin else 'btn-outline-secondary' }}"
                           type="submit"
                           title="{{ 'Revoke admin' if u.is_admin else 'Grant admin' }}">
-                    {{ 'Admin' if u.is_admin else 'Make admin' }}
+                    {{ 'Admin' if u.is_admin else 'User' }}
                   </button>
                 </form>
               </td>
+              <td>
+                {#- Role and plan are independent: an admin on Free is a normal,
+                    useful state for testing the free experience. -#}
+                <form method="post" action="{{ url_for('admin_set_plan', user_id=u.id) }}"
+                      class="d-flex gap-1 align-items-center">
+                  <select name="plan" class="form-select form-select-sm" style="width:auto">
+                    {% for p in valid_plans %}
+                      <option value="{{ p }}" {{ 'selected' if u.plan == p else '' }}>
+                        {{ plan_labels[p].name }}
+                      </option>
+                    {% endfor %}
+                  </select>
+                  <button class="btn btn-sm btn-outline-secondary" type="submit">Set</button>
+                </form>
+              </td>
+              <td class="small">{{ (u.created_at or '')[:10] }}</td>
+              <td class="small">{{ (u.last_login_at or '—')[:16]|replace('T', ' ') }}</td>
+              <td class="small">{{ u.usage.configs }}</td>
+              <td class="small">{{ (u.usage.bytes / 1048576)|round(1) }} MB</td>
+              <td class="small">{{ u.usage.last_run or '—' }}</td>
             </tr>
           {% endfor %}
           </tbody>
@@ -84,10 +103,37 @@
       </div>
     </div>
 
-    <p class="text-muted small mt-3 mb-0">
+    <p class="text-muted small mt-3">
       Storage is everything under that account's folder — uploads, generated output and
       saved seasons. Output is cleared at the start of each run, so it moves around.
     </p>
+
+    <h2 class="h5 mt-4 mb-2">Recent plan changes</h2>
+    {% if plan_changes %}
+      <div class="card">
+        <div class="table-responsive">
+          <table class="table table-sm mb-0">
+            <thead><tr><th>When</th><th>Account</th><th>Change</th><th>By</th></tr></thead>
+            <tbody>
+            {% for c in plan_changes %}
+              <tr>
+                <td class="small">{{ (c.created_at or '')[:16]|replace('T', ' ') }}</td>
+                <td class="small">{{ c.user_email }}</td>
+                <td class="small">
+                  {{ plan_labels.get(c.from_plan, {}).get('name', c.from_plan or '—') }}
+                  &rarr;
+                  <strong>{{ plan_labels.get(c.to_plan, {}).get('name', c.to_plan) }}</strong>
+                </td>
+                <td class="small">{{ c.changed_by_email or 'system' }}</td>
+              </tr>
+            {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    {% else %}
+      <p class="text-muted small">No plan changes recorded yet.</p>
+    {% endif %}
   </div>
 </body>
 </html>
