@@ -66,16 +66,21 @@
                onerror="this.style.display='none';this.nextElementSibling.style.display='block';">
           <span class="hero-fallback" style="display:none">Schedules that work<br>for your league.</span>
         </h1>
-        <p class="lead-muted mt-3 mb-4" style="max-width:35rem">
-          Build complex league schedules without wrestling with spreadsheets. skedworx lets you
-          define your teams, fields, game times, divisions and scheduling rules — then builds a
-          schedule that actually works.
+        <p class="lead-muted mt-3" style="max-width:35rem">
+          Building a league schedule is a real job. Teams, fields, divisions, availability,
+          rest, tournaments, requests and league rules all have to fit together.
         </p>
+        <p class="lead-muted" style="max-width:35rem">
+          skedworx handles the tedious part — without hours of wrestling with spreadsheets,
+          or configuring a scheduling system just to get started. Tell it what matters to
+          your league, then review, refine and publish what comes back.
+        </p>
+        <p class="promise">You make the decisions. skedworx does the heavy lifting.</p>
         <div class="d-flex flex-wrap gap-2">
           {% if signed_in %}
             <a class="btn btn-accent btn-lg px-4" href="{{ url_for('index') }}">Open skedworx</a>
           {% else %}
-            <a class="btn btn-accent btn-lg px-4" href="{{ url_for('register') }}">Get Started</a>
+            <a class="btn btn-accent btn-lg px-4" href="{{ url_for('register') }}">Build Your First Schedule</a>
             <a class="btn btn-ghost btn-lg px-4" href="{{ url_for('login') }}">Sign In</a>
           {% endif %}
         </div>
@@ -138,12 +143,18 @@
   <div class="container">
     <div class="row align-items-center g-4 g-lg-5">
       <div class="col-lg-5">
-        <p class="eyebrow">The problem</p>
+        <p class="eyebrow">You know the spreadsheet</p>
         <h2 class="section-title h1">Scheduling a league shouldn't require a spreadsheet PhD.</h2>
         <p class="lead-muted mt-3">
-          A season looks simple until the real world turns up. Then it's a wall of
-          colour-coded cells at 11pm, and one change breaks three other weeks.
+          A season looks simple until the real world turns up. Teams have availability.
+          Fields disappear. Tournament weekends appear. Players end up on multiple teams.
+          One change sends you back through three more weeks of the schedule.
         </p>
+        <p class="lead-muted">
+          There is nothing wrong with the spreadsheet. It is just a poor tool for a problem
+          with this many moving parts — every combination checked by hand, every time.
+        </p>
+        <p class="aside">The spreadsheet works... right up until it doesn't.</p>
       </div>
       <div class="col-lg-7">
         <!-- The caption "We've all been here." is inside the artwork, so it is not
@@ -183,13 +194,11 @@
           play on multiple teams. Everyone has work, family, vacations and everything else
           life throws at them.
         </p>
+        <p>We could simply build a schedule and ask everyone to work around it.</p>
+        <p class="turn">But we thought we could do better.</p>
         <p>
-          We could simply build a schedule and ask everyone to work around it.
-          But we thought we could do better.
-        </p>
-        <p>
-          So we started looking for ways to build the schedule around the people playing in
-          it. That's where skedworx was born.
+          We wanted to build the schedule around the people playing in it. That's where
+          skedworx was born.
         </p>
       </div>
     </div>
@@ -280,9 +289,15 @@
         <p class="eyebrow">And because every league is different</p>
         <h2 class="section-title h1">Your league has its own rules.<br>skedworx understands that.</h2>
         <p class="lead-muted mt-3">
-          Most schedulers assume every league looks the same. Yours doesn't. skedworx is a
-          scheduling engine you configure, not a template you have to live with.
+          Some scheduling tools are simple enough to set up in a minute, and never handle a
+          real league. Others handle anything at all, once you have spent a fortnight
+          configuring them. Neither is much use on a Tuesday night in March.
         </p>
+        <p class="lead-muted">
+          skedworx is a scheduling engine you configure — not a template you have to live
+          with, and not a project of its own before it does anything useful.
+        </p>
+        <p class="aside">The problem is complicated. Your job shouldn't be.</p>
         <ul class="feature-list mt-4">
           <li>Each division gets its own format, game count and rules</li>
           <li>Availability and blackout dates are respected, not worked around</li>
@@ -362,38 +377,25 @@
   </div>
 </section>
 
-<!-- ------------------------------------------------------------- time saved -->
-<section class="section">
-  <div class="container">
-    <div class="mx-auto text-center" style="max-width:42rem">
-      <h2 class="section-title h1">You have a league to run.<br>Not a spreadsheet to babysit.</h2>
-      <p class="lead-muted mt-3 mb-0">
-        Less time moving cells. Less time chasing availability. Less time negotiating
-        reschedules. More time on the part of the job you actually signed up for.
-      </p>
-    </div>
-  </div>
-</section>
-
 <!-- ------------------------------------------------------------ who it's for -->
 <section class="section band" id="who">
   <div class="container">
     <div class="text-center mx-auto" style="max-width:44rem">
       <p class="eyebrow">Who it's for</p>
-      <h2 class="section-title h1">Made for the person who ended up with the spreadsheet.</h2>
+      <h2 class="section-title h1">Made for the person who builds the schedule.</h2>
       <p class="lead-muted mt-3">
-        You volunteered to run the league. Somehow, you also became the scheduler. skedworx
-        gives you a better way to handle the part of the job that shouldn't take your
-        entire evening.
+        You know your league, your rules and your constraints. None of that is the hard
+        part. The hard part is the hours it takes to work through every combination by
+        hand — and that is the part skedworx takes off your plate.
       </p>
     </div>
 
     <div class="row g-3 g-md-4 mt-4">
       {% for icon, title, body in [
-        ('team', 'Recreational leagues', 'Volunteer administrators putting a season together around everyone else\'s availability.'),
+        ('team', 'Recreational leagues', 'Schedulers fitting a season around everyone else\'s availability.'),
         ('layers', 'Sports associations', 'Several divisions or leagues that each work a little differently.'),
         ('trophy', 'Tournament organisers', 'Brackets and pools that still have to fit real field time.'),
-        ('rules', 'League coordinators', 'Anyone who inherited the dreaded spreadsheet.')
+        ('rules', 'League coordinators', 'Anyone who owns the schedule and would like their evenings back.')
       ] %}
       <div class="col-md-6 col-lg-3">
         <div class="s-card p-4">
@@ -433,18 +435,20 @@
 <!-- ------------------------------------------------------------- final CTA -->
 <section class="cta">
   <div class="container text-center">
-    <h2 class="section-title h1 text-white mb-3">You have a league to run.</h2>
-    <p class="mb-4 cta-sub">Let skedworx handle the schedule.</p>
+    <h2 class="section-title h1 text-white mb-3">You have a league to run.<br>Not a spreadsheet to babysit.</h2>
+    <p class="mb-4 cta-sub">
+      Spend less time building and fixing the schedule. More time running the league.
+    </p>
     <div class="d-flex flex-wrap justify-content-center gap-2">
       {% if signed_in %}
         <a class="btn btn-accent btn-lg px-4" href="{{ url_for('index') }}">Open skedworx</a>
       {% else %}
-        <a class="btn btn-accent btn-lg px-4" href="{{ url_for('register') }}">Get Started</a>
+        <a class="btn btn-accent btn-lg px-4" href="{{ url_for('register') }}">Build Your First Schedule</a>
         <a class="btn btn-outline-light btn-lg px-4" href="{{ url_for('login') }}">Sign In</a>
       {% endif %}
     </div>
     <p class="cta-sub small mt-4 mb-0">
-      Spend less time fixing the schedule. More time running the league.
+      Free to start · Bring your own CSVs
     </p>
   </div>
 </section>
