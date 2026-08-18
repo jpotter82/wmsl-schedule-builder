@@ -32,6 +32,20 @@
                        border-radius: var(--radius-sm); margin-bottom: 8px; font-weight: 600; }
     .form-label.help { cursor: help; border-bottom: 1px dotted var(--ink-600); }
 
+    /* Unsent-file notice. Uses the over-target status tokens rather than a new
+       colour: this is the same "needs your attention, nothing is broken" state
+       the weekly grid already uses. */
+    .upload-pending {
+      font-size: .86rem; font-weight: 600;
+      color: var(--status-over-target);
+      background: var(--status-over-target-bg);
+      border: 1px solid #f0dcae;
+      border-radius: 999px; padding: .4rem .9rem;
+    }
+    /* Hidden with d-none, which is display:none !important -- so no display
+       property here, and the flex parent supplies the spacing either way. */
+    .btn-attention { box-shadow: 0 0 0 .25rem var(--status-over-target-bg); }
+
     /* Collapsible planning guidance. <details> rather than a Bootstrap collapse:
        no JS, and it still works if scripts fail. */
     .guide { border: 1px solid var(--brand-wash-line); border-radius: var(--radius-sm);
@@ -411,9 +425,12 @@
                    href="{{ url_for('static', filename='samples/team_blackouts.csv') }}">Download sample</a>
               </div>
             </div>
-            <div class="mt-3">
-              <button class="btn btn-brand" onclick="uploadFiles()">Upload All Files</button>
-              <span id="uploadStatus" class="ms-2"></span>
+            <div class="mt-3 d-flex flex-wrap align-items-center gap-3">
+              <button class="btn btn-brand" id="btnUpload" onclick="uploadFiles()">Upload All Files</button>
+              <span id="uploadPending" class="upload-pending d-none">
+                New file selected — upload it before you run, or the run uses your last upload.
+              </span>
+              <span id="uploadStatus"></span>
             </div>
             <div id="uploadSummary" class="mt-3"></div>
           </div>
