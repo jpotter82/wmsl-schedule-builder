@@ -16,6 +16,7 @@ import sys
 # Passenger does not always start with the app root on sys.path.
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-os.environ.setdefault('SKEDWORX_SYNC_RUNS', '1')
+# SKEDWORX_SYNC_RUNS is no longer read: runs are scored a slice per request, so
+# there is no background thread to protect and no long request to avoid.
 
 from app import app as application  # noqa: E402

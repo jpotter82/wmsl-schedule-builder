@@ -847,10 +847,14 @@
       ' (' + attempts + (attempts === 1 ? ' attempt, ' : ' attempts, ') + uploadedSlots + ' slots).';
     // Long runs happen inside one request on shared hosting, where the server may
     // give up before the scheduler does.
-    el.className = secs > 60 ? 'small text-warning-emphasis' : 'small text-muted';
+    // No timeout warning: runs are scored a slice per request, so no single
+    // request is long regardless of how many attempts are asked for. What is still
+    // true is that the score curve flattens early, so a very long run mostly buys
+    // waiting.
+    el.className = 'small text-muted';
     if (secs > 60) {
-      el.textContent += ' Long runs risk a server timeout — 50 to 100 attempts' +
-        ' usually gets most of the benefit.';
+      el.textContent += ' Most of the gain arrives in the first 10 to 20 attempts,' +
+        ' so a much longer run is mostly extra waiting.';
     }
   }
   window.refreshEstimate = refreshEstimate;

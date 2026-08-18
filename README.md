@@ -413,19 +413,23 @@ trading one problem for another.
 
 ## Deployment
 
-### Set `SKEDWORX_SYNC_RUNS=1` when deploying
+### Runs are scored a slice per request
 
-Run state is held **in memory** in this process. By default the scheduler runs on a
-background thread and the browser polls for progress, which is fine locally but breaks
-on any host that runs several worker processes or recycles idle ones (cPanel/Passenger,
-multi-worker gunicorn): the status poll can land on a process that never ran the job,
-and the UI hangs.
+A long run is not one long request. `/api/run` records the job, then each call to
+`/api/run/chunk` scores the next 25 attempts and reports progress; the browser loops
+until it finishes. Only the winning seed is re-run at the end to write the outputs.
 
-Setting `SKEDWORX_SYNC_RUNS=1` runs the scheduler inside the request instead. There is no
-downside — a full 15-attempt run takes **about 1.6 seconds**, well inside any request
-timeout — and it removes the failure mode completely. The UI handles both modes.
+That matters on shared hosting, where a request is typically cut off somewhere
+between 30 and 120 seconds. A 500-attempt run is roughly 70 seconds of work but no
+single request exceeds a few seconds, so **there is nothing to tune and no timeout to
+raise**. It also means progress is real rather than a guess, because every slice
+reports how far along it is.
 
-`passenger_wsgi.py` sets it automatically.
+Nothing has to survive in memory between requests: the job lives in
+`run_state.json`, so multiple workers or a fresh process per request are both fine.
+
+> `SKEDWORX_SYNC_RUNS` is no longer read. It existed to keep a background thread
+> alive under CGI, and slicing removed the need for it. Setting it does nothing.
 
 ### Shared hosting with Setup Python App (Passenger)
 
@@ -591,7 +595,7 @@ under CGI, intermittently under Passenger or multi-worker gunicorn. Run state is
 therefore mirrored to `.run_state.json` (written atomically) and read back from there,
 so results survive whichever process happens to serve the next request.
 
-This is also why `SKEDWORX_SYNC_RUNS=1` matters: a background thread would be killed when
+This is also why runs are sliced across requests rather than backgrounded: a thread would be killed when
 a CGI process exits, taking the run with it.
 
 ### Local network / small production
@@ -601,24 +605,24 @@ Do **not** ship `app.run(debug=True)` — the debugger allows remote code execut
 Windows:
 
 ```bash
-set SKEDWORX_SYNC_RUNS=1 && pip install waitress && waitress-serve --listen=0.0.0.0:5000 app:app
+pip install waitress && waitress-serve --listen=0.0.0.0:5000 app:app
 ```
 
 Linux / macOS:
 
 ```bash
-SKEDWORX_SYNC_RUNS=1 gunicorn --workers 2 --timeout 120 --bind 0.0.0.0:5000 app:app
+gunicorn --workers 2 --bind 0.0.0.0:5000 app:app
 ```
 
-With `SKEDWORX_SYNC_RUNS=1` multiple workers are safe, because no state has to survive
-between requests.
+Multiple workers are safe: a run's job record lives in `run_state.json`, so a slice
+can be served by any worker.
 
 ### Cloud (Render, Railway, Fly.io, Azure App Service …)
 
 Start command:
 
 ```bash
-SKEDWORX_SYNC_RUNS=1 gunicorn --workers 2 --timeout 120 --bind 0.0.0.0:$PORT app:app
+gunicorn --workers 2 --bind 0.0.0.0:$PORT app:app
 ```
 
 Before deploying, be aware of these:
@@ -626,11 +630,12 @@ Before deploying, be aware of these:
 - **Ephemeral filesystem.** `configs/`, `uploads/` and `output/` are local directories.
   On most platforms they are wiped on restart or redeploy, so **saved configs will not
   survive**. Attach a persistent volume, or move configs to object storage / a database.
-- **Request timeouts.** Many platforms cap requests at 30–60s. Scheduler runs are
-  already backgrounded and polled, so this is usually fine — but raise the server
-  timeout as above.
-- **No authentication.** The app has no login. Anyone who can reach it can upload files
-  and generate schedules. Put it behind auth or restrict it to a private network.
+- **Request timeouts.** Not a concern: runs are scored a slice per request, and no
+  slice takes more than a few seconds however many attempts are asked for.
+- **Accounts.** The app has sign-in, per-account storage and password reset. Every
+  file path derives from the signed-in session, so accounts cannot reach each other's
+  data. Signup is open by default — set `SKEDWORX_INVITE_CODE` to require a shared
+  secret, and configure SMTP or nobody can recover a forgotten password.
 - **Memory.** A run holds the full schedule in memory. Comfortable within a 512 MB instance.
 
 ### Docker
@@ -643,7 +648,6 @@ RUN pip install --no-cache-dir -r requirements.txt gunicorn
 COPY . .
 RUN mkdir -p configs uploads output
 EXPOSE 5000
-ENV SKEDWORX_SYNC_RUNS=1
 CMD ["gunicorn", "--workers", "2", "--timeout", "120", "--bind", "0.0.0.0:5000", "app:app"]
 ```
 
