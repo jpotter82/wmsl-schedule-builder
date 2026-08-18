@@ -62,7 +62,7 @@ Additions in this version:
       * Schedule sheet (same rows as field_availability, blanks for unused slots)
       * Teams sheet
       * Summary sheet (all formulas; updates if you edit Schedule)
-      * TeamDate helper sheet (for DH-day counting formulas)
+      * Team Days helper sheet (for DH-day counting formulas)
       * Matchup Matrix sheet (formula-based, symmetric counts)
       * Conditional formatting (unused slots, illegal matchups, home==away, matrix heatmap)
 Requires:
@@ -3610,9 +3610,12 @@ def export_schedule_to_xlsx(field_availability, schedule, division_teams, output
         ws_u.cell(row=rr, column=10).alignment = Alignment(wrap_text=True, vertical="top")
     _autofit(ws_u, last_u, 10, min_width=10, max_width=22)
 
-    # ---------------- TeamDate (helper: games/day + non-adjacent DH detection) ----------------
-    ws_td = wb.create_sheet("TeamDate")
-    ws_td.append(["Key", "Date", "Team", "GamesThatDay", "MinSlot", "MaxSlot", "NonAdjFlag", "WeekNum"])
+    # ---------------- Team Days (helper: games/day + split-DH detection) ----------------
+    # One row per team per date: what each team is doing on each day of the
+    # season, and whether a doubleheader actually landed back to back.
+    ws_td = wb.create_sheet("Team Days")
+    ws_td.append(["Key", "Date", "Team", "Games That Day", "First Slot", "Last Slot",
+                  "Split Doubleheader?", "Week #"])
     for cell in ws_td[1]:
         cell.font = Font(bold=True)
         cell.fill = PatternFill("solid", fgColor="D9E1F2")
@@ -3683,9 +3686,9 @@ def export_schedule_to_xlsx(field_availability, schedule, division_teams, output
     # Legacy helper tabs
     add_unscheduled_to_workbook(wb, remaining_matchups, all_teams, team_stats or defaultdict(dict), doubleheader_count or defaultdict(int), sched_last, weeks_count=len(unique_weeks))
 
-    # ---------------- Team Diagnostics ("Why this team is a problem") ----------------
+    # ---------------- Pace & Gaps ("why this team is a problem") ----------------
     if diagnostics:
-        ws_diag = wb.create_sheet("Team Diagnostics")
+        ws_diag = wb.create_sheet("Pace & Gaps")
 
         # Get monthly checkpoint columns from the first team that has pace data
         month_cols = []
@@ -3695,9 +3698,9 @@ def export_schedule_to_xlsx(field_availability, schedule, division_teams, output
                 break
 
         headers_diag = [
-            "Division", "Team", "Target", "Scheduled", "Deficit",
-            "Max Gap (days)", "Worst Gap Start", "Worst Gap End",
-            "Back-Heavy %", "DH Count", "DH Min", "DH Max",
+            "Division", "Team", "Target", "Scheduled", "Short By",
+            "Longest Gap (days)", "Gap Started", "Gap Ended",
+            "% Games In Second Half", "DH Days", "DH Min", "DH Max",
             "Status"
         ]
         # Add monthly pacing columns
