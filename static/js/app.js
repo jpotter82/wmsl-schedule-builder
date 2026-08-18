@@ -482,13 +482,8 @@
     logEl.textContent = 'Starting scheduler...\n';
 
     var attempts = cfg.general.attempts || 1;
-    var bar = document.getElementById('runProgress');
-    if (attempts > 1) {
-      bar.classList.remove('d-none');
-      setProgress(0, attempts, null);
-    } else {
-      bar.classList.add('d-none');
-    }
+    document.getElementById('runProgress').classList.remove('d-none');
+    setProgressWorking(attempts);
 
     fetch('/api/run', {
       method: 'POST',
@@ -529,10 +524,25 @@
     document.getElementById('runSpinnerText').textContent = 'Running...';
   }
 
+  // Indeterminate while a run is in flight: full-width animated stripes and a
+  // plain "Working..." label. Says the true thing -- something is happening, and
+  // how long it takes is not knowable from here.
+  function setProgressWorking(total) {
+    var el = document.getElementById('runProgressBar');
+    el.style.width = '100%';
+    el.removeAttribute('aria-valuenow');
+    el.textContent = total > 1 ? 'Working... ' + total + ' attempts' : 'Working...';
+    document.getElementById('runSpinnerText').textContent =
+      total > 1 ? 'Running ' + total + ' attempts...' : 'Running...';
+  }
+
+  // Upgrade to a real bar only when attempt counts actually arrive, which happens
+  // in background mode where the run can be polled while it is still going.
   function setProgress(done, total, bestScore) {
     var pct = total ? Math.round((done / total) * 100) : 0;
     var el = document.getElementById('runProgressBar');
     el.style.width = pct + '%';
+    el.setAttribute('aria-valuenow', pct);
     el.textContent = 'Attempt ' + done + ' / ' + total +
       (bestScore != null ? '  (best score ' + bestScore + ')' : '');
     document.getElementById('runSpinnerText').textContent =
@@ -547,7 +557,10 @@
         if (res.log) logEl.textContent = res.log;
         logEl.scrollTop = logEl.scrollHeight;
 
-        if (res.progress && res.progress.total > 1) {
+        // res.progress.done only advances mid-run, which cannot happen when the
+        // request blocked for the whole run -- so this upgrade is background-mode
+        // only, and the indeterminate bar stands everywhere else.
+        if (res.progress && res.progress.total > 1 && res.progress.done < res.progress.total) {
           document.getElementById('runProgress').classList.remove('d-none');
           setProgress(res.progress.done, res.progress.total, res.progress.best_score);
         }
