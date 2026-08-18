@@ -117,6 +117,7 @@
       {% with height = 34 %}{% include 'wordmark.html' %}{% endwith %}
       <div class="d-flex align-items-center">
         <span class="me-3 small d-none d-sm-inline" style="color:var(--ink-600)">{{ user_email }}</span>
+        {% if is_admin %}<a class="btn btn-sm btn-ghost me-2" href="{{ url_for('admin_home') }}">Admin</a>{% endif %}
         <a class="btn btn-sm btn-ghost" href="{{ url_for('logout') }}">Sign out</a>
       </div>
     </div>

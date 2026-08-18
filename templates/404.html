@@ -1,0 +1,7 @@
+{% extends "auth_base.html" %}
+{% block title %}Not found — skedworx{% endblock %}
+{% block subtitle %}That page isn't here{% endblock %}
+{% block content %}
+<p class="mb-3">The page you asked for does not exist, or you do not have access to it.</p>
+<a class="btn btn-brand w-100" href="{{ url_for('index') }}">Back to the scheduler</a>
+{% endblock %}

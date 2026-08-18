@@ -3,6 +3,8 @@ import os
 import re
 import shutil
 import threading
+from datetime import datetime
+from functools import wraps
 from pathlib import Path
 
 from flask import (Flask, jsonify, redirect, render_template, request,
@@ -285,6 +287,68 @@ def reset_password(token):
     # Deliberately not logged in here: changing the password invalidates every
     # session, and signing in proves the new password actually works.
     return redirect(url_for('login', reset='1'))
+
+
+# ------------------------------------------------------------------ admin
+def admin_required(view):
+    """Admin-only route guard.
+
+    Separate from @login_required rather than checked inside each view, so a new
+    admin route cannot be added without deciding who may see it.
+    """
+    @wraps(view)
+    @login_required
+    def wrapped(*args, **kwargs):
+        if not current_user.is_admin:
+            # 404 rather than 403: there is no reason to confirm the page exists
+            # to someone who cannot use it.
+            return render_template('404.html'), 404
+        return view(*args, **kwargs)
+    return wrapped
+
+
+def _account_usage(user_id):
+    """Rough per-account footprint, for the user list."""
+    home = auth.USERS_DIR / str(user_id)
+    out = {'configs': 0, 'bytes': 0, 'last_run': None}
+    if not home.is_dir():
+        return out
+    cfg = home / 'configs'
+    if cfg.is_dir():
+        out['configs'] = sum(1 for f in cfg.glob('*.json'))
+    for f in home.rglob('*'):
+        if f.is_file():
+            try:
+                out['bytes'] += f.stat().st_size
+            except OSError:
+                pass
+    state = home / 'run_state.json'
+    if state.is_file():
+        try:
+            out['last_run'] = datetime.utcfromtimestamp(state.stat().st_mtime).strftime('%Y-%m-%d %H:%M')
+        except (OSError, ValueError):
+            pass
+    return out
+
+
+@app.route('/admin')
+@admin_required
+def admin_home():
+    users = auth.list_users()
+    for u in users:
+        u['usage'] = _account_usage(u['id'])
+    return render_template('admin.html', users=users,
+                           admin_count=auth.admin_count(),
+                           notice=request.args.get('notice'),
+                           problem=request.args.get('problem'))
+
+
+@app.route('/admin/users/<int:user_id>/admin', methods=['POST'])
+@admin_required
+def admin_set_admin(user_id):
+    make = request.form.get('make') == '1'
+    ok, message = auth.set_admin(user_id, make)
+    return redirect(url_for('admin_home', **({'notice': message} if ok else {'problem': message})))
 
 
 @app.route('/logout')
