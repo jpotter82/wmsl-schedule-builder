@@ -59,6 +59,14 @@ def main():
     print(f"  {'SMTP_PASSWORD':<11}: {'set, ' + str(len(password)) + ' chars' if password else '(not set)'}")
     print()
 
+    # A wrong BASE_URL is the one setting that fails silently: mail sends fine and
+    # the link simply points at the wrong host. Show it so it can be eyeballed.
+    if settings['BASE_URL']:
+        print(f"  reset links will look like:")
+        print(f"    {settings['BASE_URL'].rstrip('/')}/reset/<token>")
+        print("  That host must be where this app is actually served, or the link 404s.")
+        print()
+
     problems = []
     if not settings['SMTP_HOST']:
         problems.append("SMTP_HOST is not set - nothing will ever be sent.")
