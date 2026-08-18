@@ -31,6 +31,24 @@
     .division-header { background: var(--brand-ink); color: #fff; padding: 6px 10px;
                        border-radius: var(--radius-sm); margin-bottom: 8px; font-weight: 600; }
     .form-label.help { cursor: help; border-bottom: 1px dotted var(--ink-600); }
+
+    /* Collapsible planning guidance. <details> rather than a Bootstrap collapse:
+       no JS, and it still works if scripts fail. */
+    .guide { border: 1px solid var(--line); border-radius: var(--radius-sm);
+             background: var(--surface-2); margin-bottom: 1rem; }
+    .guide > summary { cursor: pointer; padding: .7rem .9rem; font-weight: 600;
+                       font-size: .93rem; list-style: none; }
+    .guide > summary::-webkit-details-marker { display: none; }
+    .guide > summary::before { content: "\25B8"; display: inline-block; width: 1em;
+                               color: var(--ink-400); transition: transform .15s ease; }
+    .guide[open] > summary::before { transform: rotate(90deg); }
+    .guide .guide-body { padding: 0 .9rem .9rem 1.9rem; }
+    .guide h6 { font-size: .88rem; font-weight: 700; margin: .9rem 0 .3rem; }
+    .guide p, .guide li { font-size: .88rem; color: var(--ink-600); line-height: 1.6;
+                          margin-bottom: .4rem; }
+    .guide code { background: var(--surface); padding: .05rem .3rem; border-radius: 4px;
+                  color: var(--ink); font-size: .85em; }
+    .guide .rule { color: var(--ink); font-weight: 600; }
     .form-check[title] { cursor: help; }
 
     /* Data grids. Status colours come from the semantic tokens in skedworx.css. */
@@ -75,6 +93,66 @@
         </h2>
         <div id="panelConfig" class="accordion-collapse collapse show" data-bs-parent="#mainAccordion">
           <div class="accordion-body">
+            <details class="guide">
+              <summary>Planning guide — read this before your first run</summary>
+              <div class="guide-body">
+
+                <h6>1. Season length is the usual reason a schedule comes up short</h6>
+                <p>
+                  <span class="rule">Weeks needed = Target games &divide; Weekly Game Limit.</span>
+                  At 14 games and a limit of 2, every team needs at least 7 weeks
+                  <em>with a game in each one</em> — so a 7-week season has no room for a
+                  blackout, a rainout or a bye. Give yourself 2–3 spare weeks.
+                </p>
+                <p>
+                  This is the first thing to check. No amount of extra diamond time fixes a
+                  season that is too short.
+                </p>
+
+                <h6>2. How much field time to provide</h6>
+                <p>
+                  <span class="rule">Games needed = Teams &times; Target games &divide; 2.</span>
+                  Twenty-two teams at 14 games is 154 games, so you need at least 154 slots
+                  — one slot being one diamond at one time.
+                </p>
+                <p>
+                  Aim for roughly <span class="rule">1.5&times; to 2&times;</span> that. The
+                  extra is not waste: it is the room the scheduler needs to respect
+                  availability and rest, and the room you need for makeups later. Past about
+                  2&times;, more slots stop helping — what is left is constraints, not space.
+                </p>
+
+                <h6>3. Doubleheader pods need the right shape</h6>
+                <p>
+                  A pod is 4 teams playing across <span class="rule">two back-to-back times
+                  on two diamonds</span>, on the same date. A date with only one time slot
+                  can never host one.
+                </p>
+                <p>
+                  With <strong>DH Only</strong> ticked, the division needs
+                  <span class="rule">teams &times; doubleheader days divisible by 4</span>.
+                  Eight teams works. Six does not — <code>6 &times; 7 = 42</code>, and 42
+                  does not divide by 4, so two teams finish short no matter what else you
+                  change. For odd sizes, leave DH Only off and set Min DH = Max DH instead.
+                </p>
+
+                <h6>4. A few games short is normal</h6>
+                <p>
+                  Availability, blackouts and rest requirements interact. Landing a handful
+                  short of target with zero violations is a good schedule, not a failure —
+                  raising <strong>Attempts</strong> usually recovers some of it. If you are
+                  short by dozens, go back to point 1.
+                </p>
+
+                <h6>5. Every constraint costs something</h6>
+                <p>
+                  In a tight season, protecting one team's Tuesdays moves games onto someone
+                  else. Change one setting at a time and re-run, and watch the summary tiles
+                  rather than guessing.
+                </p>
+              </div>
+            </details>
+
             <!-- Save / Load -->
             <div class="row mb-3">
               <div class="col-md-6">
@@ -276,6 +354,24 @@
         </h2>
         <div id="panelUpload" class="accordion-collapse collapse" data-bs-parent="#mainAccordion">
           <div class="accordion-body">
+            <div class="alert alert-light border d-flex flex-wrap align-items-center gap-2 py-2">
+              <span class="small">
+                <strong>No data yet?</strong> Grab the sample season — 22 teams across three
+                divisions, ten weeks of diamond time — and run it with the default settings.
+              </span>
+              <a class="btn btn-sm btn-ghost ms-auto" download
+                 href="{{ url_for('static', filename='samples/team_availability.csv') }}">Teams</a>
+              <a class="btn btn-sm btn-ghost" download
+                 href="{{ url_for('static', filename='samples/field_availability.csv') }}">Fields</a>
+              <a class="btn btn-sm btn-ghost" download
+                 href="{{ url_for('static', filename='samples/team_blackouts.csv') }}">Blackouts</a>
+            </div>
+            <p class="small text-muted">
+              <strong>Field availability defines your ceiling</strong> — the scheduler can
+              never place more games than there are rows in that file. One row is one
+              diamond at one time. Aim for 1.5&times; to 2&times; the games you need, so
+              there is room for rest, availability and makeups.
+            </p>
             <div class="row g-3">
               <div class="col-md-4">
                 <label class="form-label fw-bold">Team Availability</label>
@@ -284,7 +380,9 @@
                   <div>Drag & drop or <a href="#" onclick="document.getElementById('file_team_availability').click();return false">browse</a></div>
                   <div class="filename mt-1" id="fname_team_availability"></div>
                 </div>
-                <small class="text-muted">Columns: Team, Mon, Tue, Wed, ...</small>
+                <small class="text-muted d-block">Columns: Team, Mon, Tue, Wed, ...</small>
+                <a class="small" download
+                   href="{{ url_for('static', filename='samples/team_availability.csv') }}">Download sample</a>
               </div>
               <div class="col-md-4">
                 <label class="form-label fw-bold">Field Availability</label>
@@ -293,7 +391,9 @@
                   <div>Drag & drop or <a href="#" onclick="document.getElementById('file_field_availability').click();return false">browse</a></div>
                   <div class="filename mt-1" id="fname_field_availability"></div>
                 </div>
-                <small class="text-muted">Columns: Date, Time, Diamond</small>
+                <small class="text-muted d-block">Columns: Date, Time, Diamond</small>
+                <a class="small" download
+                   href="{{ url_for('static', filename='samples/field_availability.csv') }}">Download sample</a>
               </div>
               <div class="col-md-4">
                 <label class="form-label fw-bold">Team Blackouts</label>
@@ -302,7 +402,9 @@
                   <div>Drag & drop or <a href="#" onclick="document.getElementById('file_team_blackouts').click();return false">browse</a></div>
                   <div class="filename mt-1" id="fname_team_blackouts"></div>
                 </div>
-                <small class="text-muted">Columns: Team, Date1, Date2, ...</small>
+                <small class="text-muted d-block">Columns: Team, Date1, Date2, ...</small>
+                <a class="small" download
+                   href="{{ url_for('static', filename='samples/team_blackouts.csv') }}">Download sample</a>
               </div>
             </div>
             <div class="mt-3">

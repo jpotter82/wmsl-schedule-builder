@@ -98,6 +98,29 @@ Output files are suffixed with the config name, e.g. `softball_schedule_wmsl-fal
 
 All three files need a header row (its contents are ignored — only column position matters).
 
+### Sample files
+
+A complete, working season ships under `static/samples/`, linked from the upload step
+in the app:
+
+| File | Contents |
+|---|---|
+| `team_availability.csv` | 22 teams — A1–A8, B1–B8, C1–C6 — matching the default divisions |
+| `field_availability.csv` | 320 slots: two diamonds, weeknight doubles, Sunday blocks, ten weeks |
+| `team_blackouts.csv` | Two teams with real blackout runs; the rest are omitted |
+
+Team names come from the division config, so the sample teams line up with the shipped
+defaults: download all three, upload, and run without changing a setting.
+
+That run lands within a handful of games of target with no violations. The last few
+are ordinary scheduling difficulty — a team or two finishing 13 of 14 — rather than
+anything structural, and raising **Attempts** usually closes them.
+
+Division A ships with **8** teams rather than 6 for a specific reason: it is
+**DH Only**, a pod seats 4, and `6 × 7 = 42` does not divide by 4, so a 6-team
+DH-only division leaves two teams permanently short no matter how much diamond time
+exists. See [`DH Only` requires team count divisible by 4](#dh-only-requires-team-count-divisible-by-4).
+
 ### `team_availability.csv`
 
 Which **days of the week** each team can play. The first column is the team name;
@@ -120,7 +143,7 @@ The parser is deliberately forgiving. All of these work:
 Unrecognised tokens are ignored silently, so check the load count reported after upload.
 
 > **Team names encode the division.** The first character is the division letter:
-> `A1`–`A6` are Division A, `B1`–`B8` are Division B. Team counts in the config
+> `A1`–`A8` are Division A, `B1`–`B8` are Division B. Team counts in the config
 > generate these names, so they must line up with your CSV.
 
 ### `field_availability.csv`
@@ -617,8 +640,8 @@ artwork in at these paths:
 | File | Used by | Source |
 |---|---|---|
 | `static/img/skedworx-hero.png` | Landing page headline | `brand/hero-img.png` |
-| `static/img/skedworx-icon.png` | Nav and compact placements | supplied at final size |
-| `static/img/favicon.png` | Browser tab | `static/img/skedworx-icon.png` |
+| `static/img/skedworx-icon.png` | Nav and compact placements | `brand/white_flat_logo.png` |
+| `static/img/favicon.png` | Browser tab | `brand/white_flat_logo.png` |
 | `static/img/spreadsheet-chaos.jpg` | Homepage: the problem | `brand/spreadsheet_solving.png` |
 | `static/img/home-plate.jpg` | Homepage: how it fits together | `brand/diamond-problem-matrix.png` |
 
@@ -630,6 +653,10 @@ which matters on a landing page.
 The two marketing illustrations ship as **JPEG**: they are detailed, near-photographic
 artwork where PNG lands around 480 KB each. The hero lockup stays **PNG-8**, because it
 is flat colour and JPEG rings visibly around the letterforms.
+
+The diamond mark is **PNG with alpha** and must stay that way — the diamond is filled,
+the surround is transparent. The hero lockup has no alpha, so it is drawn with
+`mix-blend-mode: multiply` to drop its white background against the tinted hero.
 
 The nav pairs the diamond mark with the wordmark set in Poppins rather than using the
 full lockup: it renders about 34px tall, where "schedules that work for your league"
@@ -653,8 +680,13 @@ for src, dst, box in (('brand/spreadsheet_solving.png',    'static/img/spreadshe
 flat('brand/hero-img.png', (960, 960)).quantize(colors=128).save(
     'static/img/skedworx-hero.png', optimize=True)
 
-ic = Image.open('static/img/skedworx-icon.png').convert('RGBA')
-ic.thumbnail((64, 64), Image.LANCZOS); ic.save('static/img/favicon.png', optimize=True)
+# The mark keeps its alpha: only the diamond is filled, and the surround is
+# transparent. Flattening it onto white puts a visible white tile back on the
+# grey auth pages.
+for dst, box in (('static/img/skedworx-icon.png', (160, 160)),
+                 ('static/img/favicon.png',       (64, 64))):
+    ic = Image.open('brand/white_flat_logo.png').convert('RGBA')
+    ic.thumbnail(box, Image.LANCZOS); ic.save(dst, optimize=True)
 EOF
 ```
 
@@ -689,6 +721,7 @@ so a fresh checkout shows the brand rather than a broken-image icon.
 │   ├── css/skedworx.css    # Design tokens shared by every page
 │   ├── css/home.css        # Landing page styles
 │   ├── img/                # Web-sized assets only (583 KB total)
+│   ├── samples/            # Example CSVs, linked from the upload step
 │   └── js/app.js           # Scheduler frontend
 ├── brand/                  # Source artwork and brand sheet — NOT web-served
 └── data/                   # Accounts, signing key, per-user files (gitignored)
