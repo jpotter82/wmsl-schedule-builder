@@ -30,6 +30,7 @@ specific to slo-pitch — it works for anything with teams, venues and time slot
 - [Configuration Reference](#configuration-reference)
 - [Understanding the Output](#understanding-the-output)
 - [Capacity Planning](#capacity-planning) — read this before blaming the scheduler
+- [Plans and Limits](#plans-and-limits)
 - [Deployment](#deployment)
 - [Project Structure](#project-structure)
 - [Troubleshooting](#troubleshooting)
@@ -102,28 +103,39 @@ Every file needs a header row. Its contents are ignored — only column position
 
 ### Sample files
 
-A complete, working season ships under `static/samples/`, linked from the upload step
-in the app:
+Two complete seasons ship under `static/samples/`, both linked from the upload step
+in the app.
+
+**The default season** — `static/samples/` — matches the shipped config exactly, so it
+runs with nothing changed:
 
 | File | Contents |
 |---|---|
-| `team_availability.csv` | 22 teams — A1–A8, B1–B8, C1–C6 — matching the default divisions |
-| `field_availability.csv` | 320 slots: two diamonds, weeknight doubles, Sunday blocks, ten weeks |
+| `team_availability.csv` | 8 teams, A1–A8; one plays a narrower week, so availability is actually exercised |
+| `field_availability.csv` | 108 slots: two diamonds, Monday and Wednesday doubles, Sunday mornings, nine weeks |
 | `team_blackouts.csv` | Two teams with real blackout runs; the rest are omitted |
-| `teams.csv` | Display names for all 22, so the sample output reads in words |
+| `teams.csv` | Display names for all 8, so the sample output reads in words |
 
-Team IDs come from the division config, so the sample teams line up with the shipped
-defaults: download them, upload, and run without changing a setting. `teams.csv` is
-optional — the other three are not.
+At 10 attempts it lands **2 to 6 games short of target, with no availability
+violations** — a realistic result rather than a staged one. The exact figure moves with
+the seed, and so do the softer numbers: worst idle gap ran 7 to 11 days and idle
+team-weeks 0 to 3 across five measured runs. The shortfall is ordinary scheduling
+difficulty rather than anything structural, and raising **Attempts** usually closes
+some of it.
 
-That run lands within a handful of games of target with no violations. The last few
-are ordinary scheduling difficulty — a team or two finishing 13 of 14 — rather than
-anything structural, and raising **Attempts** usually closes them.
+**A full league** — `static/samples/full-league/` — is the 22-team, three-division
+season this tool was built for: 320 field slots across ten weeks. Set the divisions to
+8 / 8 / 6 with DH Only on A before running it. It exceeds the Free team limit, so it
+needs Pro.
 
-Division A ships with **8** teams rather than 6 for a specific reason: it is
-**DH Only**, a pod seats 4, and `6 × 7 = 42` does not divide by 4, so a 6-team
-DH-only division leaves two teams permanently short no matter how much diamond time
-exists. See [`DH Only` requires team count divisible by 4](#dh-only-requires-team-count-divisible-by-4).
+Team IDs come from the division config, not the CSV, so the sample teams line up with
+whichever config you are running. `teams.csv` is optional — the other three are not.
+
+In the full-league sample, Division A carries **8** teams rather than 6 for a specific
+reason: it is **DH Only**, a pod seats 4, and `6 × 7 = 42` does not divide by 4, so a
+6-team DH-only division leaves two teams permanently short no matter how much diamond
+time exists. See
+[`DH Only` requires team count divisible by 4](#dh-only-requires-team-count-divisible-by-4).
 
 ### `team_availability.csv`
 
@@ -408,6 +420,54 @@ host single games only.
 At high utilisation there is no slack, so every constraint you add costs games
 elsewhere. Adding dates or diamonds is the only change that buys options instead of
 trading one problem for another.
+
+---
+
+## Plans and Limits
+
+Entitlements live in one file, [`plans.py`](plans.py). Nothing else in the app asks
+what plan somebody is on — it asks whether they may do a thing, `plans.can(user,
+'export')`, or what their ceiling is, `plans.limit(user, 'teams')`. Today those answers
+come from a `plan` column; when billing arrives they will come from a subscription
+record, and no caller changes.
+
+| | Free | Pro |
+|---|---|---|
+| Teams per season | **12** | Unlimited |
+| Saved seasons | Unlimited | Unlimited |
+| Runs | Unlimited | Unlimited |
+| Exports, seed replay, run history | Included | Included |
+
+**Team count is the only limit that refuses anything.** It is the honest measure: team
+count is what makes scheduling hard, so it tracks both the work the tool saves and the
+size of league that can justify paying. A six-team rec league should never pay. A
+twenty-team association plausibly should.
+
+The check happens at `POST /api/run`, before any file is read or any previous output
+cleared — so a refusal costs nothing and cannot destroy the last run that worked.
+Saving a config is never refused, including an oversized one: nobody should discover a
+boundary by losing their work.
+
+### Rules that are defined but dormant
+
+`ENFORCED` in `plans.py` lists the rules that actually refuse something. Everything
+absent from it is defined, documented and inert: `can()` and `limit()` answer honestly,
+but nothing is blocked. `ENFORCEMENT_NOTES` records why each one is still waiting —
+export needs a product decision, "advanced constraints" has no agreed definition, and
+runs-per-month is not countable while history keeps only the most recent 25 entries.
+
+This is deliberate. A limit gets switched on when its number is agreed, not when it is
+first sketched, so a half-finished idea cannot start refusing real users.
+
+### Changing a plan
+
+There is no self-service upgrade route, by design — a user cannot put themselves on Pro
+by any request. An admin does it from `/admin`, and every change is written to the
+`plan_changes` table with who did it, both plans and a timestamp. `/pricing` is
+informational and says outright that there is no payment flow yet.
+
+Roles and plans are independent: an admin sitting on Free gets Free entitlements, which
+is how the free experience gets tested without a second account.
 
 ---
 

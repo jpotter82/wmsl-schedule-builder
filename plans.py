@@ -51,8 +51,15 @@ PLANS = {
             'advanced_constraints': True,
         },
         'limits': {
-            'saved_seasons': 1,
-            'teams': UNLIMITED,
+            # Saved seasons is unlimited now that teams carries the boundary.
+            # Capping how many files somebody keeps was artificial: a large league
+            # that saved one config paid nothing, while a small one that liked
+            # experimenting kept hitting a wall.
+            'saved_seasons': UNLIMITED,
+            # The commercial boundary. 12 covers a single-division rec league --
+            # the "six teams, $199 is rich" case -- and asks for payment only from
+            # leagues big enough that the tool is saving real evenings.
+            'teams': 12,
             'runs_per_month': UNLIMITED,
         },
     },
@@ -78,7 +85,7 @@ PLANS = {
 #: Kept deliberately short. A limit belongs here once its number is agreed, not
 #: when it is first sketched.
 ENFORCED = {
-    'saved_seasons',
+    'teams',
 }
 
 ENFORCEMENT_NOTES = {
@@ -93,14 +100,9 @@ ENFORCEMENT_NOTES = {
         "No agreed definition of which settings are 'advanced'. Splitting the "
         "config form on a guess would be an invented restriction."
     ),
-    'teams': (
-        "The most defensible limit -- team count is what makes scheduling hard, and "
-        "it tracks both the value delivered and the size of league that can justify "
-        "a subscription. A six-team beer league should never pay; a twenty-team "
-        "association obviously might. Dormant until the number is agreed, and note "
-        "the shipped defaults and sample season are both 22 teams: any cap below "
-        "that refuses a new user on their first run, which is the worst possible "
-        "place to put a paywall."
+    'saved_seasons': (
+        "Was the boundary, now unlimited on both plans. It capped filing rather "
+        "than value, and teams does the job better."
     ),
     'runs_per_month': (
         "Not enforceable from the current run history, which keeps only the most "

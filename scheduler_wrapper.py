@@ -12,13 +12,17 @@ import scheduler_newest as sn
 
 
 DEFAULT_CONFIG = {
+    # A small single-division league, because this is what a new account sees
+    # before it has any data of its own. It runs inside the Free team limit, and
+    # 8 teams at 14 games is a clean double round-robin, so a first run finishes
+    # rather than teaching someone that the tool comes up short.
+    #
+    # The three-division 22-team season this used to default to is still shipped,
+    # as the full-league sample, for anyone who wants to see pods and cross-
+    # division play.
     'divisions': {
-        # 8, not 6: a pod seats 4, so a DH-only division needs teams x DH days
-        # divisible by 4. 6 x 7 = 42 leaves two teams permanently short, which made
-        # the shipped default structurally unsatisfiable. 8 x 7 = 56 divides cleanly.
-        'A': {'team_count': 8, 'inter': False, 'target_games': 14, 'min_dh': 6, 'max_dh': 6, 'dh_only': True},
-        'B': {'team_count': 8, 'inter': False, 'target_games': 14, 'min_dh': 6, 'max_dh': 6, 'dh_only': False},
-        'C': {'team_count': 6, 'inter': False, 'target_games': 14, 'min_dh': 6, 'max_dh': 6, 'dh_only': False},
+        'A': {'team_count': 8, 'inter': False, 'target_games': 14,
+              'min_dh': 0, 'max_dh': 3, 'dh_only': False},
     },
     'general': {
         'max_retries': 20000,
@@ -35,20 +39,15 @@ DEFAULT_CONFIG = {
         'idle_gap_weight': 1500,
     },
     'pair_rules': {
-        'A': {'min': 2, 'soft_cap': 4},
-        'B': {'min': 1, 'soft_cap': 3},
-        'C': {'min': 1, 'soft_cap': 3},
+        'A': {'min': 1, 'soft_cap': 4},
     },
     # Inter-division play. A pair only generates games when BOTH divisions have
     # inter=True AND the pair is listed here with enabled=True. 'degree' is the
     # average number of cross-division games per team against that division.
-    'inter_pairs': {
-        'A-B': {'enabled': False, 'degree': 0},
-        'A-C': {'enabled': False, 'degree': 0},
-        'B-C': {'enabled': False, 'degree': 4},
-    },
-    'sunday_pod_rotation': ['B', 'C', 'A'],
-    'sunday_pods_per_sunday': 3,
+    # Empty by default now that the default league is a single division.
+    'inter_pairs': {},
+    'sunday_pod_rotation': ['A'],
+    'sunday_pods_per_sunday': 2,
     'sunday_priority': 0,
     'sunday_pods_only': False,
 }
