@@ -203,6 +203,18 @@ INTER_DEGREE = {
 def div_of(team):
     return team[0].upper()
 
+# Optional display names, keyed by team ID: {"A1": "Base Invaders"}.
+#
+# Set by the wrapper from teams.csv. The ID stays the scheduler's identity --
+# div_of reads its first character, and the pods, pair rules and every lookup key
+# off it -- so this is consulted only where a team is written out for a human.
+TEAM_DISPLAY = {}
+
+
+def disp(team):
+    """Display name for a team, falling back to its ID."""
+    return TEAM_DISPLAY.get(team, team) if team else team
+
 def target_games(team):
     return DIVISION_SETTINGS[div_of(team)]['target_games']
 
@@ -2932,9 +2944,14 @@ def output_schedule_to_csv_full(field_availability, schedule, output_file):
     rows = build_slot_rows(field_availability, schedule)
     with open(output_file, mode='w', newline='') as file:
         writer = csv.writer(file)
-        writer.writerow(["Date", "Day", "Time", "Diamond", "Home Team", "Home Division", "Away Team", "Away Division"])
+        # Names are appended rather than replacing the IDs: the ID is what ties a
+        # row back to the config and the other CSVs, and anything reading this file
+        # by column position keeps working.
+        writer.writerow(["Date", "Day", "Time", "Diamond", "Home Team", "Home Division",
+                         "Away Team", "Away Division", "Home Name", "Away Name"])
         for dt, slot, field, home, home_div, away, away_div in rows:
-            writer.writerow([dt.strftime('%Y-%m-%d'), dow_label(dt), slot, field, home, home_div, away, away_div])
+            writer.writerow([dt.strftime('%Y-%m-%d'), dow_label(dt), slot, field,
+                             home, home_div, away, away_div, disp(home), disp(away)])
     return rows
 
 
@@ -3089,11 +3106,11 @@ def output_unscheduled_matchups_csv(remaining_matchups, output_file):
     _oriented, unordered = summarize_remaining_matchups(remaining_matchups)
     rows = []
     for (t1, t2), cnt in sorted(unordered.items(), key=lambda x: (-x[1], x[0][0], x[0][1])):
-        rows.append((div_of(t1), t1, div_of(t2), t2, cnt))
+        rows.append((div_of(t1), t1, disp(t1), div_of(t2), t2, disp(t2), cnt))
 
     with open(output_file, mode='w', newline='') as f:
         w = csv.writer(f)
-        w.writerow(["Division1", "Team1", "Division2", "Team2", "RemainingGames"])
+        w.writerow(["Division1", "Team1", "Team1Name", "Division2", "Team2", "Team2Name", "RemainingGames"])
         for r in rows:
             w.writerow(list(r))
     return rows
@@ -3105,7 +3122,7 @@ def output_team_remaining_needs_csv(all_teams, team_stats, doubleheader_count, o
     """
     with open(output_file, mode='w', newline='') as f:
         w = csv.writer(f)
-        w.writerow(["Division","Team","TargetGames","ScheduledGames","GamesRemaining","MinDH","ScheduledDHDays","DHDaysRemainingToMin"])
+        w.writerow(["Division","Team","TeamName","TargetGames","ScheduledGames","GamesRemaining","MinDH","ScheduledDHDays","DHDaysRemainingToMin"])
         for t in sorted(all_teams, key=lambda x: (div_of(x), x)):
             target = target_games(t)
             scheduled = team_stats[t]['total_games']
@@ -3113,7 +3130,7 @@ def output_team_remaining_needs_csv(all_teams, team_stats, doubleheader_count, o
             mindh = min_dh(t)
             dh_done = doubleheader_count[t]
             dh_rem = max(0, mindh - dh_done)
-            w.writerow([div_of(t), t, target, scheduled, games_rem, mindh, dh_done, dh_rem])
+            w.writerow([div_of(t), t, disp(t), target, scheduled, games_rem, mindh, dh_done, dh_rem])
 
 def add_unscheduled_to_workbook(wb, remaining_matchups, all_teams, team_stats, doubleheader_count, sched_last, weeks_count=None):
     """Add two sheets: Unscheduled (one row per remaining matchup) and Remaining Needs.
@@ -3382,7 +3399,11 @@ def export_schedule_to_xlsx(field_availability, schedule, division_teams, output
         "Date", "Day", "Time", "Diamond", "Home Team", "Away Team", "Home Div", "Away Div",
         "Week #", "SlotIndex", "Game Type", "Home Games After", "Away Games After",
         "Home Last Game", "Away Last Game", "Home Days Since Last", "Away Days Since Last",
-        "Preferred Match", "Flag"
+        "Preferred Match", "Flag",
+        # Appended, not inserted next to the IDs: the Upload sheet and the
+        # Unscheduled formulas address Schedule columns by letter, and shifting
+        # E/F/G/H out from under them would break every one of those references.
+        "Home Name", "Away Name"
     ]
     ws.append(headers)
     for cell in ws[1]:
@@ -3411,7 +3432,8 @@ def export_schedule_to_xlsx(field_availability, schedule, division_teams, output
             meta.get("home_after", ""), meta.get("away_after", ""),
             meta.get("home_last", ""), meta.get("away_last", ""),
             meta.get("home_days_since", ""), meta.get("away_days_since", ""),
-            meta.get("preferred_match", ""), meta.get("flag", "Open Slot" if not home else "")
+            meta.get("preferred_match", ""), meta.get("flag", "Open Slot" if not home else ""),
+            disp(home), disp(away)
         ])
 
     n = len(rows)
@@ -3422,9 +3444,9 @@ def export_schedule_to_xlsx(field_availability, schedule, division_teams, output
         ws.cell(row=r, column=15).number_format = "yyyy-mm-dd"
 
     ws.freeze_panes = "A2"
-    ws.auto_filter.ref = f"A1:S{n + 1}"
+    ws.auto_filter.ref = f"A1:U{n + 1}"   # through the two name columns
     ws.column_dimensions['J'].hidden = True
-    _autofit(ws, n + 1, 19)
+    _autofit(ws, n + 1, 21)
 
     # ---------------- Teams ----------------
     ws_t = wb.create_sheet("Teams")
@@ -3433,7 +3455,7 @@ def export_schedule_to_xlsx(field_availability, schedule, division_teams, output
         cell.font = Font(bold=True)
         cell.fill = PatternFill("solid", fgColor="D9E1F2")
     for t in all_teams:
-        ws_t.append([t, div_of(t), ""])
+        ws_t.append([t, div_of(t), disp(t)])
     ws_t.freeze_panes = "A2"
     ws_t.auto_filter.ref = f"A1:C{len(all_teams)+1}"
     _autofit(ws_t, len(all_teams) + 1, 3, min_width=8, max_width=24)
