@@ -139,10 +139,22 @@ def validate_config(config):
                     f"Division {name} is doubleheader-only but has {count} teams. "
                     f"Pods need at least 4 teams — this division cannot be scheduled."
                 )
-            if count % 4 != 0 and count >= 4:
+            # A pod seats 4 teams for one date, so the season needs
+            # teams x doubleheader days to divide by 4. Testing team_count alone
+            # is wrong in both directions: 6 teams over 6 DH days is 36, which
+            # divides fine, while 6 over 7 is 42, which does not.
+            dh_days = target // 2 if target else 0
+            seats = count * dh_days
+            if count >= 4 and dh_days and seats % 4 != 0:
+                short_teams = seats % 4
                 warnings.append(
-                    f"Division {name} is doubleheader-only with {count} teams. "
-                    f"Pods use 4 teams at a time, so some dates will leave teams idle."
+                    f"Division {name} is doubleheader-only, so every game comes from a "
+                    f"4-team pod. {count} teams x {dh_days} doubleheader days = {seats}, "
+                    f"which does not divide by 4 — so {short_teams} team"
+                    f"{'s' if short_teams != 1 else ''} will finish 2 games short of "
+                    f"target no matter how much field time you add. Use a team count "
+                    f"where teams x days divides by 4 (8 teams x 7 days = 56 works), or "
+                    f"untick DH Only and set Min DH = Max DH instead."
                 )
             if target % 2 != 0:
                 warnings.append(
