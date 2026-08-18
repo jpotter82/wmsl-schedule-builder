@@ -486,9 +486,15 @@
                 document.getElementById('configSelect').value || '');
     document.getElementById('btnRun').disabled = true;
     document.getElementById('runSpinner').classList.remove('d-none');
-    var logEl = document.getElementById('runLog');
-    logEl.classList.remove('d-none');
-    logEl.textContent = 'Starting scheduler...\n';
+    var logEl = document.getElementById('runLog');          // admin only
+    if (logEl) logEl.textContent = 'Starting scheduler...\n';
+
+    var note = document.getElementById('runStatusNote');
+    note.classList.remove('d-none');
+    var secs = estimateSeconds(parseInt(document.getElementById('attempts').value) || 1);
+    note.innerHTML = '<strong>Building your schedule.</strong> This runs on the server ' +
+      'and does not need this tab to stay in front' +
+      (secs != null ? ' \u2014 it usually takes ' + humanSeconds(secs) + '.' : '.');
 
     var attempts = cfg.general.attempts || 1;
     document.getElementById('runProgress').classList.remove('d-none');
@@ -502,7 +508,9 @@
       .then(function (r) { return r.json(); })
       .then(function (res) {
         if (res.error) {
-          logEl.textContent += 'ERROR: ' + res.error + '\n';
+          if (logEl) logEl.textContent += 'ERROR: ' + res.error + '\n';
+          document.getElementById('runStatusNote').innerHTML =
+            '<strong class="text-danger">Could not start.</strong> ' + res.error;
           finishRun();
           return;
         }
@@ -571,8 +579,10 @@
       .then(function (r) { return r.json(); })
       .then(function (res) {
         var logEl = document.getElementById('runLog');
-        if (res.log) logEl.textContent = res.log;
-        logEl.scrollTop = logEl.scrollHeight;
+        if (logEl && res.log) {
+          logEl.textContent = res.log;
+          logEl.scrollTop = logEl.scrollHeight;
+        }
 
         // res.progress.done only advances mid-run, which cannot happen when the
         // request blocked for the whole run -- so this upgrade is background-mode
@@ -613,6 +623,15 @@
         // Set before anything renders: every table below asks tn() for labels, and
         // renderTeamStats runs first.
         teamNames = res.team_names || {};
+        // renderStats needs the grid's dimensions to size "on target", and it runs
+        // first, so hand it over before anything renders.
+        lastWeeklyTable = res.weekly_table || null;
+        // Recover the slot count from the run itself, so the estimate survives a
+        // page reload rather than only existing right after an upload.
+        if (!uploadedSlots && lastWeeklyTable && lastWeeklyTable.weeks) {
+          var slots = lastWeeklyTable.weeks.reduce(function (n, w) { return n + (w.slots || 0); }, 0);
+          if (slots) { uploadedSlots = slots; refreshEstimate(); }
+        }
 
         renderStats(res.stats);
         renderWarnings(res.warnings);
@@ -626,34 +645,71 @@
 
   function renderStats(stats) {
     var shortCls = stats.games_short > 0 ? ' text-danger' : ' text-success';
-    var html =
-      '<div class="col-md-3"><div class="card stat-card p-3"><div class="text-muted">Total Games</div><h3>' + stats.total_games + '</h3></div></div>' +
-      '<div class="col-md-3"><div class="card stat-card p-3"><div class="text-muted">Games Short of Target</div><h3 class="' + shortCls.trim() + '">' + (stats.games_short != null ? stats.games_short : '-') + '</h3></div></div>' +
-      // These count TEAM-weeks, not weeks: one team with no games in one week is
-      // one idle team-week. Labelling them "weeks" read as whole weeks of the
-      // season being empty, which is a different and much worse thing.
-      '<div class="col-md-3"><div class="card stat-card p-3" title="Times a team had no games in a week. 55 across 22 teams and 10 weeks means 55 of 220 team-weeks were byes.">' +
-        '<div class="text-muted">Idle Team-Weeks</div><h3>' + (stats.idle_weeks != null ? stats.idle_weeks : '-') + '</h3>' +
-        '<small class="text-muted">a team with no games that week</small></div></div>' +
-      '<div class="col-md-3"><div class="card stat-card p-3" title="Times a team played more than one game above its weekly target.">' +
-        '<div class="text-muted">Heavy Team-Weeks</div><h3>' + (stats.heavy_weeks != null ? stats.heavy_weeks : '-') + '</h3>' +
-        '<small class="text-muted">a team over its weekly target</small></div></div>';
 
-    if (stats.worst_idle_gap != null) {
-      var gapCls = stats.idle_violations > 0 ? 'text-danger' : 'text-success';
-      html +=
-        '<div class="col-md-3"><div class="card stat-card p-3"><div class="text-muted">Longest Layoff</div>' +
-        '<h3 class="' + gapCls + '">' + stats.worst_idle_gap + 'd</h3>' +
-        '<small class="text-muted">target ' + (stats.max_idle_days || 14) + 'd &middot; ' +
-        stats.idle_violations + ' over</small></div></div>';
+    // On-target team-weeks is the complement of the two problem tiles: every
+    // team-week is either idle, over target, or fine. Derived here rather than
+    // added to the payload so the three always add up to the same total.
+    var wt = lastWeeklyTable;
+    var totalTeamWeeks = (wt && wt.teams && wt.weeks) ? wt.teams.length * wt.weeks.length : null;
+    var onTarget = (totalTeamWeeks != null)
+      ? totalTeamWeeks - (stats.idle_weeks || 0) - (stats.heavy_weeks || 0)
+      : null;
+    var onTargetPct = (totalTeamWeeks && onTarget != null)
+      ? Math.round(100 * onTarget / totalTeamWeeks) : null;
+
+    function tile(label, value, sub, cls, tip) {
+      return '<div class="col-md-4"><div class="card stat-card p-3"' +
+        (tip ? ' title="' + tip + '"' : '') + '>' +
+        '<div class="text-muted">' + label + '</div>' +
+        '<h3 class="' + (cls || '') + '">' + value + '</h3>' +
+        (sub ? '<small class="text-muted">' + sub + '</small>' : '') +
+        '</div></div>';
     }
 
+    // Row 1 is the shape of the season, row 2 is what needs attention.
+    var html = '<div class="row g-3">';
+
+    html += tile('Total Games', stats.total_games, 'games placed');
+
+    html += tile('Team-Weeks On Target',
+      onTarget != null ? onTarget + ' / ' + totalTeamWeeks : '-',
+      onTargetPct != null ? onTargetPct + '% of team-weeks' : 'weeks within target',
+      onTargetPct != null && onTargetPct >= 80 ? 'text-success' : '',
+      'Team-weeks that were neither idle nor over target. Every team-week is one of the three.');
+
+    if (stats.worst_idle_gap != null) {
+      html += tile('Longest Layoff', stats.worst_idle_gap + 'd',
+        'target ' + (stats.max_idle_days || 14) + 'd \u00b7 ' + stats.idle_violations + ' over',
+        stats.idle_violations > 0 ? 'text-danger' : 'text-success');
+    } else {
+      html += tile('Longest Layoff', '-', 'no games scheduled');
+    }
+
+    html += '</div><div class="row g-3 mt-1">';
+
+    html += tile('Games Short of Target',
+      stats.games_short != null ? stats.games_short : '-',
+      'summed across all teams', shortCls.trim());
+
+    html += tile('Idle Team-Weeks',
+      stats.idle_weeks != null ? stats.idle_weeks : '-',
+      'a team with no games that week', '',
+      'Times a team had no games in a week, out of ' + (totalTeamWeeks || '?') + ' team-weeks.');
+
+    html += tile('Heavy Team-Weeks',
+      stats.heavy_weeks != null ? stats.heavy_weeks : '-',
+      'a team over its weekly target', '',
+      'Times a team played more than one game above its weekly target.');
+
+    html += '</div>';
+
     if (stats.attempts_run > 1) {
-      html += '<div class="col-12"><div class="alert alert-info py-2 mb-0 small">' +
+      html += '<div class="row g-3 mt-1"><div class="col-12">' +
+        '<div class="alert alert-info py-2 mb-0 small">' +
         'Ran <strong>' + stats.attempts_run + '</strong> attempts. Best was seed <strong>' +
         stats.best_seed + '</strong> (score ' + stats.best_score + ', lower is better). ' +
         'Re-enter that seed under Random Seed to reproduce this exact schedule.' +
-        '</div></div>';
+        '</div></div></div>';
     }
     document.getElementById('statsCards').innerHTML = html;
   }
@@ -747,6 +803,7 @@
   // payload -- division is the first character of the ID, and the grids group and
   // sort on it -- so this is applied only where a name is printed.
   var teamNames = {};
+  var lastWeeklyTable = null;
 
   function tn(id) {
     return (teamNames && teamNames[id]) || id;
