@@ -21,6 +21,15 @@
   --brand-700:    #216B15;   /* hover                                          */
   --brand-300:    #78C043;   /* Accent Green   */
   --brand-tint:   #E7F6E4;
+
+  /* --brand-ink at low alpha: a translucent version of the section header, for
+     panels that should read as part of the app's own furniture rather than as a
+     card sitting on top of it. Over white this composites to about #E7F1E6.
+     Text on it needs the -on-wash pair below; plain --ink-600 lands at 4.11:1. */
+  --brand-wash:      #2880191c;
+  --brand-wash-line: #28801938;
+  --ink-600-on-wash: #5E6D83;   /* 4.54:1 on the wash, 5.26:1 on white */
+  --brand-on-wash:   #267B18;   /* 4.61:1 on the wash, 5.35:1 on white */
   --accent:       #78C043;
   --accent-600:   #5f9c33;
   --accent-tint:  #eef8e4;
