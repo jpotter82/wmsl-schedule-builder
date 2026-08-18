@@ -12,7 +12,10 @@ import scheduler_newest as sn
 
 DEFAULT_CONFIG = {
     'divisions': {
-        'A': {'team_count': 6, 'inter': False, 'target_games': 14, 'min_dh': 6, 'max_dh': 6, 'dh_only': True},
+        # 8, not 6: a pod seats 4, so a DH-only division needs teams x DH days
+        # divisible by 4. 6 x 7 = 42 leaves two teams permanently short, which made
+        # the shipped default structurally unsatisfiable. 8 x 7 = 56 divides cleanly.
+        'A': {'team_count': 8, 'inter': False, 'target_games': 14, 'min_dh': 6, 'max_dh': 6, 'dh_only': True},
         'B': {'team_count': 8, 'inter': False, 'target_games': 14, 'min_dh': 6, 'max_dh': 6, 'dh_only': False},
         'C': {'team_count': 6, 'inter': False, 'target_games': 14, 'min_dh': 6, 'max_dh': 6, 'dh_only': False},
     },

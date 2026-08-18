@@ -242,7 +242,9 @@
   };
 
   function addDivisionRow(name, d, p) {
-    d = d || { team_count: 6, inter: false, dh_only: false, target_games: 14, min_dh: 6, max_dh: 6 };
+    // 8 rather than 6: pods seat 4, so a DH-only division needs teams x DH days
+    // divisible by 4. Starting at 6 hands people a division that cannot finish.
+    d = d || { team_count: 8, inter: false, dh_only: false, target_games: 14, min_dh: 6, max_dh: 6 };
     p = p || { min: 1, soft_cap: 3 };
     const container = document.getElementById('divisionsContainer');
     const row = document.createElement('div');
