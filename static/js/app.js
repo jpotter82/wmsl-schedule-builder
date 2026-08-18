@@ -2,7 +2,6 @@
   'use strict';
 
   let currentConfig = null;
-  let pollTimer = null;
 
   // If the session expires mid-use, every API call starts returning 401. Send the
   // user to the login page rather than letting the UI fail silently.
@@ -481,90 +480,32 @@
   };
 
   // --- Run scheduler ---
-  window.runScheduler = function () {
-    var cfg = buildConfigFromForm();
-    var name = (document.getElementById('configName').value.trim() ||
-                document.getElementById('configSelect').value || '');
-    document.getElementById('btnRun').disabled = true;
-    document.getElementById('runSpinner').classList.remove('d-none');
-    var logEl = document.getElementById('runLog');          // admin only
-    if (logEl) logEl.textContent = 'Starting scheduler...\n';
-
-    var note = document.getElementById('runStatusNote');
-    note.classList.remove('d-none');
-    var secs = estimateSeconds(parseInt(document.getElementById('attempts').value) || 1);
-    note.innerHTML = '<strong>Building your schedule.</strong> This runs on the server ' +
-      'and does not need this tab to stay in front' +
-      (secs != null ? ' \u2014 it usually takes ' + humanSeconds(secs) + '.' : '.');
-
-    var attempts = cfg.general.attempts || 1;
-    document.getElementById('runProgress').classList.remove('d-none');
-    setProgressWorking(attempts);
-
-    fetch('/api/run', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ config: cfg, config_name: name }),
-    })
-      .then(function (r) { return r.json(); })
-      .then(function (res) {
-        if (res.error) {
-          if (logEl) logEl.textContent += 'ERROR: ' + res.error + '\n';
-          document.getElementById('runStatusNote').innerHTML =
-            '<strong class="text-danger">Could not start.</strong> ' + res.error;
-          finishRun();
-          return;
-        }
-        // Start the interval BEFORE the first poll: pollStatus clears pollTimer when
-        // the run has finished, so polling first would clear a timer that does not
-        // exist yet and leave the interval running afterwards.
-        if (!res.sync) {
-          // 400ms, not 2s: a 5-attempt run finishes in about 1.9 seconds, so a
-          // 2-second interval reliably had its first poll land after the run was
-          // already over and the bar never moved. Only helps in background mode --
-          // under SYNC_RUNS the request blocks until the run is done, so there is
-          // no window to poll at all.
-          pollTimer = setInterval(pollStatus, 400);
-        }
-        // In synchronous mode the run is already complete when this response
-        // arrives, so check immediately instead of waiting out the interval.
-        pollStatus();
-      })
-      .catch(function (err) {
-        logEl.textContent += 'Failed to start: ' + err + '\n';
-        finishRun();
-      });
-  };
-
   function finishRun() {
     document.getElementById('btnRun').disabled = false;
     document.getElementById('runSpinner').classList.add('d-none');
     document.getElementById('runSpinnerText').textContent = 'Running...';
   }
 
-  // Indeterminate while a run is in flight: full-width animated stripes and a
-  // plain "Working..." label. Says the true thing -- something is happening, and
-  // how long it takes is not knowable from here.
+  // Shown before the first slice reports back, when there is genuinely nothing to
+  // report yet. A 32% sliver that travels, never a full bar -- see skedworx.css.
   function setProgressWorking(total) {
     var el = document.getElementById('runProgressBar');
     var wrap = document.getElementById('runProgress');
     el.classList.add('progress-bar-indeterminate');
     wrap.classList.add('is-indeterminate');
-    el.style.width = '';                       // the class owns the width
+    el.style.width = '';
     el.removeAttribute('aria-valuenow');
-    el.textContent = '';                       // no room for a label in a sliver
+    el.textContent = '';
     var secs = estimateSeconds(total);
     document.getElementById('runSpinnerText').textContent =
       (total > 1 ? 'Running ' + total + ' attempts' : 'Running') +
-      (secs != null ? ' \u2014 ' + humanSeconds(secs) : '...');
+      (secs != null ? ' — ' + humanSeconds(secs) : '...');
   }
 
-  // Upgrade to a real bar only when attempt counts actually arrive, which happens
-  // in background mode where the run can be polled while it is still going.
+  // Real progress, now that slices report how far along they are.
   function setProgress(done, total, bestScore) {
     var pct = total ? Math.round((done / total) * 100) : 0;
     var el = document.getElementById('runProgressBar');
-    // Leaving the working state: drop the sliver so the width means something.
     el.classList.remove('progress-bar-indeterminate');
     document.getElementById('runProgress').classList.remove('is-indeterminate');
     el.style.width = pct + '%';
@@ -575,35 +516,79 @@
       'Attempt ' + done + ' of ' + total + '...';
   }
 
-  function pollStatus() {
-    fetch('/api/status')
+  window.runScheduler = function () {
+    var cfg = buildConfigFromForm();
+    var name = (document.getElementById('configName').value.trim() ||
+                document.getElementById('configSelect').value || '');
+    var attempts = cfg.general.attempts || 1;
+
+    document.getElementById('btnRun').disabled = true;
+    document.getElementById('runSpinner').classList.remove('d-none');
+
+    var logEl = document.getElementById('runLog');          // admin only
+    if (logEl) logEl.textContent = 'Starting scheduler...\n';
+
+    var note = document.getElementById('runStatusNote');
+    note.classList.remove('d-none');
+    var secs = estimateSeconds(attempts);
+    note.innerHTML = '<strong>Building your schedule.</strong> This runs on the server ' +
+      'and does not need this tab to stay in front' +
+      (secs != null ? ' \u2014 it usually takes ' + humanSeconds(secs) + '.' : '.');
+
+    document.getElementById('runProgress').classList.remove('d-none');
+    setProgressWorking(attempts);
+
+    // The run is scored a slice at a time. Each request is a few seconds, which
+    // is what keeps a long run alive on shared hosting -- and because every slice
+    // returns how far along it is, the bar shows real progress rather than an
+    // indeterminate crawl. No separate polling while a run is in flight.
+    fetch('/api/run', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ config: cfg, config_name: name }),
+    })
       .then(function (r) { return r.json(); })
       .then(function (res) {
-        var logEl = document.getElementById('runLog');
-        if (logEl && res.log) {
-          logEl.textContent = res.log;
-          logEl.scrollTop = logEl.scrollHeight;
+        if (res.error) { return runFailed(res.error); }
+        return nextChunk();
+      })
+      .catch(function (err) { runFailed('Failed to start: ' + err); });
+  };
+
+  function nextChunk() {
+    return fetch('/api/run/chunk', { method: 'POST' })
+      .then(function (r) { return r.json(); })
+      .then(function (res) {
+        if (res.error) { return runFailed(res.error); }
+
+        setProgress(res.done, res.total, res.best_score);
+
+        if (!res.finished) {
+          // Yield to the browser between slices so the bar actually repaints.
+          return new Promise(function (resolve) {
+            setTimeout(function () { resolve(nextChunk()); }, 0);
+          });
         }
 
-        // res.progress.done only advances mid-run, which cannot happen when the
-        // request blocked for the whole run -- so this upgrade is background-mode
-        // only, and the indeterminate bar stands everywhere else.
-        if (res.progress && res.progress.total > 1 && res.progress.done < res.progress.total) {
-          document.getElementById('runProgress').classList.remove('d-none');
-          setProgress(res.progress.done, res.progress.total, res.progress.best_score);
+        finishRun();
+        document.getElementById('runProgress').classList.add('d-none');
+        document.getElementById('runStatusNote').classList.add('d-none');
+        if (res.status === 'done') {
+          loadResults();
+        } else {
+          runFailed('The run did not complete. See the log for details.');
         }
+      })
+      .catch(function (err) { runFailed('Run interrupted: ' + err); });
+  }
 
-        if (res.status === 'done' || res.status === 'error') {
-          clearInterval(pollTimer);
-          pollTimer = null;
-          finishRun();
-          document.getElementById('runProgress').classList.add('d-none');
-
-          if (res.status === 'done') {
-            loadResults();
-          }
-        }
-      });
+  function runFailed(message) {
+    var logEl = document.getElementById('runLog');
+    if (logEl) logEl.textContent += 'ERROR: ' + message + '\n';
+    document.getElementById('runStatusNote').innerHTML =
+      '<strong class="text-danger">Run failed.</strong> ' + message;
+    document.getElementById('runProgress').classList.add('d-none');
+    finishRun();
   }
 
   function loadResults() {
