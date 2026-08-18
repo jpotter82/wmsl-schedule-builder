@@ -2,7 +2,8 @@
 
 **Schedules that work for your league.**
 
-skedworx builds a full season schedule from three CSV files, respecting team
+skedworx builds a full season schedule from three CSV files (plus an optional
+fourth for team names), respecting team
 availability, blackout dates and field inventory, and favouring 4-team
 **doubleheader pods** over single games.
 
@@ -71,7 +72,8 @@ live as JSON in `configs/`.
 
 ### 2. Upload CSV Files
 
-Drag and drop (or browse for) the three input files. See
+Drag and drop (or browse for) the three required files, and `teams.csv` if you want
+real names in the output. See
 [Input CSV Formats](#input-csv-formats). The app reports how many rows it read from each.
 
 ### 3. Run Scheduler
@@ -81,7 +83,7 @@ seeds and keeps the best result, showing progress as it goes.
 
 ### 4. Results & Download
 
-- Summary tiles: games short, idle weeks, overloaded weeks, violations
+- Summary tiles: games short, idle team-weeks, heavy team-weeks, longest layoff
 - **Team Summary** — games, home/away split, doubleheader days, playable dates
 - **Games Per Week** — each team's rhythm; green on pace, amber over target, blue idle,
   grey column = a week with too few diamonds to seat the league. Each cell also carries
@@ -96,7 +98,7 @@ Output files are suffixed with the config name, e.g. `softball_schedule_wmsl-fal
 
 ## Input CSV Formats
 
-All three files need a header row (its contents are ignored — only column position matters).
+Every file needs a header row. Its contents are ignored — only column position matters.
 
 ### Sample files
 
@@ -108,9 +110,11 @@ in the app:
 | `team_availability.csv` | 22 teams — A1–A8, B1–B8, C1–C6 — matching the default divisions |
 | `field_availability.csv` | 320 slots: two diamonds, weeknight doubles, Sunday blocks, ten weeks |
 | `team_blackouts.csv` | Two teams with real blackout runs; the rest are omitted |
+| `teams.csv` | Display names for all 22, so the sample output reads in words |
 
-Team names come from the division config, so the sample teams line up with the shipped
-defaults: download all three, upload, and run without changing a setting.
+Team IDs come from the division config, so the sample teams line up with the shipped
+defaults: download them, upload, and run without changing a setting. `teams.csv` is
+optional — the other three are not.
 
 That run lands within a handful of games of target with no violations. The last few
 are ordinary scheduling difficulty — a team or two finishing 13 of 14 — rather than
@@ -168,6 +172,29 @@ Duplicate `(date, time, diamond)` rows are removed automatically.
 
 > **Doubleheader pods need two back-to-back times on two diamonds** — four rows per pod.
 > A date with only one time slot can never host a pod.
+
+### `teams.csv` (optional)
+
+Display names, so a schedule reads as *Base Invaders vs Wild Pitches* rather than
+*A1 vs C1*.
+
+```csv
+TeamID,Name
+A1,Base Invaders
+A2,Sultans of Swat
+```
+
+The **ID stays the key** — it carries the division and every scheduling rule keys off
+it. Names are a label over the top, applied where a team is shown to a person: the
+preview, team summary, weekly grid and matchup matrix in the app, and the schedule,
+team and needs exports.
+
+Omit the file and everything shows IDs, exactly as before. A team missing from it
+falls back to its own ID rather than going blank.
+
+> Names go here rather than in a column on `team_availability.csv` on purpose. That
+> parser reads every cell after the team as a day token and ignores what it does not
+> recognise — so a team called "Sunday Sluggers" would quietly gain a phantom `Sun`.
 
 ### `team_blackouts.csv`
 
@@ -295,18 +322,43 @@ values above it are clamped and behave identically. Configs holding an off-scale
 |---|---|
 | **Total Games** | Games actually placed. |
 | **Games Short of Target** | Summed across all teams. `0` means every team hit its target. |
-| **Idle Weeks** | Team-weeks with no games, excluding weeks too small to seat the league. |
-| **Overloaded Weeks** | Team-weeks above the weekly target. |
+| **Idle Team-Weeks** | One team with no games in one week counts as one. Excludes weeks too small to seat the league. A 22-team, 10-week season has 220 team-weeks, so a 14-game target at 2 per week means roughly 3 byes each — around 60 is normal, not a fault. |
+| **Heavy Team-Weeks** | One team more than a game above its weekly target counts as one. |
 | **Violations** | Games scheduled against availability or blackouts. **Should always be 0.** |
 
 ### Files
 
 | File | Contents |
 |---|---|
-| `softball_schedule_<config>.xlsx` | Full workbook — schedule, per-team stats, diagnostics |
+| `softball_schedule_<config>.xlsx` | Full workbook — twelve sheets, below |
 | `softball_schedule_<config>.csv` | One row per field slot, including unfilled ones |
 | `unscheduled_matchups_<config>.csv` | Matchups that could not be placed |
 | `team_remaining_needs_<config>.csv` | Per-team shortfall against target |
+
+Every file carries team IDs, with display names alongside when `teams.csv` was
+supplied. Names are **added** next to the ID rather than replacing it, so anything
+reading these by column position keeps working.
+
+### Workbook sheets
+
+| Sheet | What it holds |
+|---|---|
+| **Schedule** | Every field slot, filled or not, with per-row diagnostics |
+| **Teams** | ID, division and display name — the lookup the other sheets read |
+| **Team Summary** | Per team: games, home/away, DH days, longest gap, shortfall |
+| **Open Slots** | Slots from your field file with no game in them |
+| **TeamLinkt Upload** | The schedule in TeamLinkt's import shape |
+| **Suggested Matchups** | Best-fit pairings for teams still short, with open dates |
+| **Unscheduled Matches** | Matchups that could not be placed, with why |
+| **Team Days** | One row per team per date: games that day, and split doubleheaders |
+| **Weeks** | Week-by-week totals |
+| **Unscheduled** | One row per remaining matchup, to work down as you place them |
+| **Remaining Needs** | Games and DH days still owed per team |
+| **Pace & Gaps** | Per team: shortfall, longest gap, how back-loaded the season is |
+
+> **TeamLinkt Upload** hardcodes durations as 80 minutes on Sunday and 70 otherwise,
+> and writes the division as the literal string `"Division A"`. Check both against what
+> your TeamLinkt account expects before importing.
 
 Written to `output/`, **cleared at the start of every run** — download anything you
 want to keep before regenerating.
@@ -314,6 +366,9 @@ want to keep before regenerating.
 ---
 
 ## Capacity Planning
+
+> The app carries a short version of this as a **Planning guide** above the config
+> form. This section is the long form: same rules, more detail.
 
 Most "the scheduler is broken" reports are really capacity problems. Check these first.
 
@@ -744,7 +799,7 @@ All `/api/*` routes require a signed-in session and act only on that user's data
 | GET / POST / DELETE | `/api/configs/<name>` | Load / save / delete a preset |
 | GET | `/api/configs` | List presets |
 | POST | `/api/validate` | Config warnings (advisory) |
-| POST | `/api/upload` | Upload the three CSVs |
+| POST | `/api/upload` | Upload the three required CSVs, plus optional `teams` |
 | POST | `/api/run` | Start a run (background) |
 | GET | `/api/status` | Poll status, log and attempt progress |
 | GET | `/api/results` | Stats, weekly table, matrix, preview |

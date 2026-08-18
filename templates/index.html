@@ -24,6 +24,8 @@
        that -- the card said fine while the number said otherwise. Plain border,
        and the number carries the status on its own. */
     .stat-card { border-radius: var(--radius-sm); }
+    /* Bootstrap's progress bar defaults to its own blue. */
+    .progress-bar { background-color: var(--brand-ink); }
     .file-drop { border: 2px dashed var(--line); border-radius: var(--radius-sm); padding: 20px;
                  text-align: center; cursor: pointer; transition: border-color .2s, background .2s; }
     .file-drop:hover, .file-drop.dragover { border-color: var(--brand); background: var(--brand-tint); }
@@ -502,9 +504,13 @@
             <span id="runSpinner" class="ms-2 d-none">
               <span class="spinner-border spinner-border-sm"></span> <span id="runSpinnerText">Running...</span>
             </span>
-            <div id="runProgress" class="progress mt-3 d-none" style="height:20px">
+            <!-- Indeterminate by default. Real progress only exists in background
+                 mode; under SYNC_RUNS the request blocks for the whole run, so the
+                 bar has nothing to report and a 0% bar just looks broken. It
+                 switches to determinate if attempt counts actually arrive. -->
+            <div id="runProgress" class="progress mt-3 d-none" style="height:22px">
               <div id="runProgressBar" class="progress-bar progress-bar-striped progress-bar-animated"
-                   role="progressbar" style="width:0%">0%</div>
+                   role="progressbar" style="width:100%">Working...</div>
             </div>
             <div id="runLog" class="log-output mt-3 d-none"></div>
           </div>
