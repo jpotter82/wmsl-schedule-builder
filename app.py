@@ -610,6 +610,12 @@ def start_run():
     config_name = payload.get('config_name')
     attempts = int((config.get('general') or {}).get('attempts') or 1)
 
+    # Checked before any work starts, so a refusal costs nothing and arrives
+    # before the user watches a progress bar. Dormant until a ceiling is agreed.
+    allowed, upgrade = plans.check_team_limit(current_user, config)
+    if not allowed:
+        return jsonify(upgrade), 402
+
     # Fix the base seed now so the whole run is one reproducible sequence, even
     # though it is scored across several requests.
     base_seed = (config.get('general') or {}).get('random_seed')

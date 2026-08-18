@@ -129,6 +129,40 @@ def main():
     allowed, _ = plans.within_limit(free, 'runs_per_month', 10 ** 6)
     check("...so a huge run count is still allowed", allowed)
 
+    # ------------------------------------------------- teams limit, both ways
+    import copy
+    from scheduler_wrapper import DEFAULT_CONFIG
+    cfg = copy.deepcopy(DEFAULT_CONFIG)
+    check("the shipped default counts 22 teams", plans.team_count(cfg) == 22)
+    check("teams is not enforced today", not plans.enforced('teams'))
+    allowed, _ = plans.check_team_limit(auth.get_user_by_id(boss.user_id), cfg)
+    check("...so a large league runs on Free", allowed)
+
+    # Switch it on temporarily to prove the gate works when a number is agreed.
+    plans.ENFORCED.add('teams')
+    plans.PLANS[plans.FREE]['limits']['teams'] = 12
+    try:
+        free_user = auth.get_user_by_id(boss.user_id)      # boss is back on Free
+        allowed, payload = plans.check_team_limit(free_user, cfg)
+        check("a 22-team season is refused at a cap of 12", allowed is False)
+        check("...with the upgrade payload, naming both numbers",
+              payload['error'] == 'upgrade_required'
+              and '12' in payload['message'] and '22' in payload['message'])
+
+        small = copy.deepcopy(DEFAULT_CONFIG)
+        small['divisions'] = {'A': dict(small['divisions']['A'], team_count=8)}
+        allowed, _ = plans.check_team_limit(free_user, small)
+        check("an 8-team league still runs free", allowed)
+
+        pro_user = auth.get_user_by_id(mem_id) if False else None
+        auth.set_plan(boss.user_id, plans.PRO, changed_by=boss)
+        allowed, _ = plans.check_team_limit(auth.get_user_by_id(boss.user_id), cfg)
+        check("Pro is unaffected by the cap", allowed)
+        auth.set_plan(boss.user_id, plans.FREE, changed_by=boss)
+    finally:
+        plans.ENFORCED.discard('teams')
+        plans.PLANS[plans.FREE]['limits']['teams'] = plans.UNLIMITED
+
     # ---------------------------------------------------------------- pages
     check("/pricing is public", appmod.app.test_client().get('/pricing').status_code == 200)
     body = free_user.get('/pricing').get_data(as_text=True)

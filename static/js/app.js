@@ -542,6 +542,7 @@
     document.getElementById('runProgress').classList.remove('d-none');
     setProgressWorking(attempts);
 
+    var startResponse;
     // The run is scored a slice at a time. Each request is a few seconds, which
     // is what keeps a long run alive on shared hosting -- and because every slice
     // returns how far along it is, the bar shows real progress rather than an
@@ -551,8 +552,15 @@
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ config: cfg, config_name: name }),
     })
-      .then(function (r) { return r.json(); })
+      .then(function (r) { startResponse = r; return r.json(); })
       .then(function (res) {
+        // A plan limit answers 402 with the upgrade payload rather than an error.
+        if (handledUpgrade(startResponse, res)) {
+          document.getElementById('runProgress').classList.add('d-none');
+          document.getElementById('runStatusNote').classList.add('d-none');
+          finishRun();
+          return;
+        }
         if (res.error) { return runFailed(res.error); }
         return nextChunk();
       })

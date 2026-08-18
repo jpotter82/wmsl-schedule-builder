@@ -93,6 +93,15 @@ ENFORCEMENT_NOTES = {
         "No agreed definition of which settings are 'advanced'. Splitting the "
         "config form on a guess would be an invented restriction."
     ),
+    'teams': (
+        "The most defensible limit -- team count is what makes scheduling hard, and "
+        "it tracks both the value delivered and the size of league that can justify "
+        "a subscription. A six-team beer league should never pay; a twenty-team "
+        "association obviously might. Dormant until the number is agreed, and note "
+        "the shipped defaults and sample season are both 22 teams: any cap below "
+        "that refuses a new user on their first run, which is the worst possible "
+        "place to put a paywall."
+    ),
     'runs_per_month': (
         "Not enforceable from the current run history, which keeps only the most "
         "recent 25 entries per account and discards the rest. Counting a month of "
@@ -169,6 +178,39 @@ def upgrade_message(what):
         'plan_price': PLAN_LABELS[PRO]['price'],
         'learn_more': '/pricing',
     }
+
+
+def team_count(config):
+    """Teams a config asks for, which is what a teams limit would measure.
+
+    Counted from the divisions rather than the uploaded CSV: the config is what
+    the scheduler actually builds from, and it is known before any file is read.
+    """
+    divisions = (config or {}).get('divisions') or {}
+    total = 0
+    for d in divisions.values():
+        try:
+            total += int((d or {}).get('team_count') or 0)
+        except (TypeError, ValueError):
+            continue
+    return total
+
+
+def check_team_limit(user, config):
+    """(allowed, payload) for running a config under this user's plan.
+
+    Returns allowed=True while the limit is unenforced, so the rule can be defined
+    and reviewed long before it refuses anybody.
+    """
+    ceiling = limit(user, 'teams')
+    if ceiling is UNLIMITED or not enforced('teams'):
+        return True, None
+    wanted = team_count(config)
+    if wanted <= ceiling:
+        return True, None
+    return False, upgrade_message(
+        'Free covers leagues up to %d teams. This season has %d. '
+        'Pro removes the limit.' % (ceiling, wanted))
 
 
 def describe(user):
