@@ -430,17 +430,28 @@
         </h2>
         <div id="panelUpload" class="accordion-collapse collapse" data-bs-parent="#mainAccordion">
           <div class="accordion-body">
-            <div class="alert alert-light border d-flex flex-wrap align-items-center gap-2 py-2">
-              <span class="small">
-                <strong>No data yet?</strong> Grab the sample season — 22 teams across three
-                divisions, ten weeks of diamond time — and run it with the default settings.
-              </span>
-              <a class="btn btn-sm btn-ghost ms-auto" download
-                 href="{{ url_for('static', filename='samples/team_availability.csv') }}">Teams</a>
-              <a class="btn btn-sm btn-ghost" download
-                 href="{{ url_for('static', filename='samples/field_availability.csv') }}">Fields</a>
-              <a class="btn btn-sm btn-ghost" download
-                 href="{{ url_for('static', filename='samples/team_blackouts.csv') }}">Blackouts</a>
+            <div class="alert alert-light border py-2">
+              <div class="d-flex flex-wrap align-items-center gap-2">
+                <span class="small">
+                  <strong>No data yet?</strong> Grab the sample season — 8 teams, nine weeks of
+                  Monday, Wednesday and Sunday diamond time — and run it with the default
+                  settings, which already match it.
+                </span>
+                <a class="btn btn-sm btn-ghost ms-auto" download
+                   href="{{ url_for('static', filename='samples/team_availability.csv') }}">Teams</a>
+                <a class="btn btn-sm btn-ghost" download
+                   href="{{ url_for('static', filename='samples/field_availability.csv') }}">Fields</a>
+                <a class="btn btn-sm btn-ghost" download
+                   href="{{ url_for('static', filename='samples/team_blackouts.csv') }}">Blackouts</a>
+              </div>
+              <div class="small text-muted mt-2">
+                Running something bigger? A full 22-team, three-division season is there too —
+                <a download href="{{ url_for('static', filename='samples/full-league/team_availability.csv') }}">teams</a>,
+                <a download href="{{ url_for('static', filename='samples/full-league/field_availability.csv') }}">fields</a>,
+                <a download href="{{ url_for('static', filename='samples/full-league/team_blackouts.csv') }}">blackouts</a>,
+                <a download href="{{ url_for('static', filename='samples/full-league/teams.csv') }}">names</a>.
+                Set the divisions to 8 / 8 / 6 first, and note it needs Pro.
+              </div>
             </div>
             <p class="small text-muted mt-3">
               <strong>Field availability defines your ceiling</strong> — the scheduler can

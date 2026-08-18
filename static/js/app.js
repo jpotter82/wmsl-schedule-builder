@@ -31,6 +31,14 @@
 
   // --- Config helpers ---
   function buildConfigFromForm() {
+    // A field whose value may legitimately be zero. `parseInt(v) || fallback` cannot
+    // express that: 0 is falsy, so it takes the fallback and quietly overrides the
+    // user. Only a blank or unparseable field should fall back.
+    function num(el, fallback) {
+      var v = parseInt(el && el.value, 10);
+      return isNaN(v) ? fallback : v;
+    }
+
     const divEls = document.querySelectorAll('.div-row');
     const divisions = {};
     const pairRules = {};
@@ -42,12 +50,12 @@
         inter: el.querySelector('.div-inter').checked,
         dh_only: el.querySelector('.div-dhonly').checked,
         target_games: parseInt(el.querySelector('.div-target').value) || 14,
-        min_dh: parseInt(el.querySelector('.div-mindh').value) || 6,
-        max_dh: parseInt(el.querySelector('.div-maxdh').value) || 6,
+        min_dh: num(el.querySelector('.div-mindh'), 6),
+        max_dh: num(el.querySelector('.div-maxdh'), 6),
       };
       pairRules[name] = {
-        min: parseInt(el.querySelector('.div-pairmin').value) || 1,
-        soft_cap: parseInt(el.querySelector('.div-paircap').value) || 3,
+        min: num(el.querySelector('.div-pairmin'), 1),
+        soft_cap: num(el.querySelector('.div-paircap'), 3),
       };
     });
 
@@ -66,8 +74,8 @@
       general: {
         weekly_game_limit: parseInt(document.getElementById('weeklyGameLimit').value) || 2,
         home_away_balance: parseInt(document.getElementById('homeAwayBalance').value) || 7,
-        hard_min_gap: parseInt(document.getElementById('hardMinGap').value) || 2,
-        preferred_min_gap: parseInt(document.getElementById('preferredMinGap').value) || 3,
+        hard_min_gap: num(document.getElementById('hardMinGap'), 2),
+        preferred_min_gap: num(document.getElementById('preferredMinGap'), 3),
         // max_retries is vestigial in the scheduler (the backtracking loop it governed
         // was replaced by bounded multi-pass greedy filling); kept for config compatibility.
         max_retries: (currentConfig && currentConfig.general && currentConfig.general.max_retries) || 20000,

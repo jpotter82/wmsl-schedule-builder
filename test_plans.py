@@ -60,7 +60,9 @@ def main():
     pro = auth.get_user_by_id(member.user_id)
     free = auth.get_user_by_id(boss.user_id)
 
-    check("Free resolves Free limits", plans.limit(free, 'saved_seasons') == 1)
+    check("Free is capped on teams", plans.limit(free, 'teams') == 12)
+    check("...and unmetered on saved seasons",
+          plans.limit(free, 'saved_seasons') is plans.UNLIMITED)
     check("Pro resolves unlimited saved seasons",
           plans.limit(pro, 'saved_seasons') is plans.UNLIMITED)
     check("both plans may replay a seed",
@@ -106,21 +108,30 @@ def main():
           and bool(latest['created_at']))
 
     # --------------------------------------------------- enforcement, server side
-    free_user = client('member@example.com')            # back on Free
-    r1 = free_user.post('/api/configs/season-one', json={'divisions': {}, 'general': {}})
-    check("a Free account can save its first season", r1.status_code == 200)
-    r2 = free_user.post('/api/configs/season-two', json={'divisions': {}, 'general': {}})
-    check("a second season is refused with 402", r2.status_code == 402)
-    body = r2.get_json()
-    check("...as an upgrade prompt, not a bare error",
-          body.get('error') == 'upgrade_required' and body.get('learn_more') == '/pricing')
-    r3 = free_user.post('/api/configs/season-one', json={'divisions': {}, 'general': {}})
-    check("overwriting the season they already have still works", r3.status_code == 200)
+    free_client = client('member@example.com')          # back on Free
+    for n in ('season-one', 'season-two', 'season-three'):
+        check("a Free account saves %s" % n,
+              free_client.post('/api/configs/' + n,
+                               json={'divisions': {}, 'general': {}}).status_code == 200)
+
+    # The cap is on the size of the league, so it has to be refused where the work
+    # is asked for -- at the run, not at the save.
+    big = {'divisions': {'A': {'team_count': 8}, 'B': {'team_count': 8},
+                         'C': {'team_count': 6}}, 'general': {}}
+    r = free_client.post('/api/run', json={'config': big})
+    check("a 22-team run is refused with 402", r.status_code == 402)
+    body = r.get_json()
+    check("...as an upgrade prompt naming both numbers",
+          body.get('error') == 'upgrade_required'
+          and body.get('learn_more') == '/pricing'
+          and '12' in body['message'] and '22' in body['message'])
+    check("saving that same oversized season is still allowed",
+          free_client.post('/api/configs/too-big', json=big).status_code == 200)
 
     auth.set_plan(member.user_id, plans.PRO, changed_by=boss)
-    pro_user = client('member@example.com')
-    check("Pro can save beyond the Free ceiling",
-          pro_user.post('/api/configs/season-two', json={'divisions': {}, 'general': {}}).status_code == 200)
+    pro_client = client('member@example.com')
+    r = pro_client.post('/api/run', json={'config': big})
+    check("Pro is not refused for size", r.status_code != 402)
 
     # An undecided limit must not refuse anything.
     check("export is not enforced yet", not plans.enforced('export'))
@@ -133,42 +144,39 @@ def main():
     import copy
     from scheduler_wrapper import DEFAULT_CONFIG
     cfg = copy.deepcopy(DEFAULT_CONFIG)
-    check("the shipped default counts 22 teams", plans.team_count(cfg) == 22)
-    check("teams is not enforced today", not plans.enforced('teams'))
-    allowed, _ = plans.check_team_limit(auth.get_user_by_id(boss.user_id), cfg)
-    check("...so a large league runs on Free", allowed)
+    # The shipped default has to sit under the cap, or a new account meets the
+    # paywall on its first run before it has done anything at all.
+    check("the shipped default fits inside the Free cap",
+          plans.team_count(cfg) <= plans.PLANS[plans.FREE]['limits']['teams'])
+    check("teams is the rule that is live", plans.enforced('teams'))
+    boss_free = auth.get_user_by_id(boss.user_id)         # boss is back on Free
+    allowed, _ = plans.check_team_limit(boss_free, cfg)
+    check("...so the default season runs on Free", allowed)
 
-    # Switch it on temporarily to prove the gate works when a number is agreed.
-    plans.ENFORCED.add('teams')
-    plans.PLANS[plans.FREE]['limits']['teams'] = 12
-    try:
-        free_user = auth.get_user_by_id(boss.user_id)      # boss is back on Free
-        allowed, payload = plans.check_team_limit(free_user, cfg)
-        check("a 22-team season is refused at a cap of 12", allowed is False)
-        check("...with the upgrade payload, naming both numbers",
-              payload['error'] == 'upgrade_required'
-              and '12' in payload['message'] and '22' in payload['message'])
+    edge = copy.deepcopy(cfg)
+    edge['divisions'] = {'A': dict(cfg['divisions']['A'], team_count=12)}
+    check("exactly 12 teams is allowed", plans.check_team_limit(boss_free, edge)[0])
+    edge['divisions'] = {'A': dict(cfg['divisions']['A'], team_count=13)}
+    check("13 is not", plans.check_team_limit(boss_free, edge)[0] is False)
 
-        small = copy.deepcopy(DEFAULT_CONFIG)
-        small['divisions'] = {'A': dict(small['divisions']['A'], team_count=8)}
-        allowed, _ = plans.check_team_limit(free_user, small)
-        check("an 8-team league still runs free", allowed)
+    auth.set_plan(boss.user_id, plans.PRO, changed_by=boss)
+    big_cfg = copy.deepcopy(cfg)
+    big_cfg['divisions'] = {'A': {'team_count': 22}}
+    allowed, _ = plans.check_team_limit(auth.get_user_by_id(boss.user_id), big_cfg)
+    check("Pro is unaffected by the cap", allowed)
+    auth.set_plan(boss.user_id, plans.FREE, changed_by=boss)
 
-        pro_user = auth.get_user_by_id(mem_id) if False else None
-        auth.set_plan(boss.user_id, plans.PRO, changed_by=boss)
-        allowed, _ = plans.check_team_limit(auth.get_user_by_id(boss.user_id), cfg)
-        check("Pro is unaffected by the cap", allowed)
-        auth.set_plan(boss.user_id, plans.FREE, changed_by=boss)
-    finally:
-        plans.ENFORCED.discard('teams')
-        plans.PLANS[plans.FREE]['limits']['teams'] = plans.UNLIMITED
+    # An undecided limit must still refuse nothing.
+    check("saved seasons stays dormant", not plans.enforced('saved_seasons'))
+    allowed, _ = plans.within_limit(boss_free, 'saved_seasons', 10 ** 6)
+    check("...so any number of saved seasons is allowed", allowed)
 
     # ---------------------------------------------------------------- pages
     check("/pricing is public", appmod.app.test_client().get('/pricing').status_code == 200)
-    body = free_user.get('/pricing').get_data(as_text=True)
+    body = free_client.get('/pricing').get_data(as_text=True)
     check("pricing shows both plans and no payment button",
           '$199 CAD/year' in body and 'coming soon' in body)
-    me = free_user.get('/api/plan').get_json()
+    me = free_client.get('/api/plan').get_json()
     check("the account can read its own plan", me['plan'] in plans.VALID_PLANS)
 
     shutil.rmtree(tmp, ignore_errors=True)

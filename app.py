@@ -499,18 +499,9 @@ def save_config(name):
     if not safe:
         return jsonify({'error': 'Invalid config name'}), 400
 
-    # A saved config IS a saved season here -- one concept, one limit. Overwriting
-    # an existing one is always allowed, so a Free user can keep working on the
-    # season they have rather than being locked out of their own file.
-    configs_dir = _user_dir('configs')
-    existing = {f.stem for f in configs_dir.glob('*.json')}
-    if safe not in existing:
-        allowed, ceiling = plans.within_limit(current_user, 'saved_seasons', len(existing))
-        if not allowed:
-            payload = plans.upgrade_message(
-                'Free includes %d saved season%s. Upgrade to Pro to keep more than one, '
-                'or overwrite the season you have.' % (ceiling, '' if ceiling == 1 else 's'))
-            return jsonify(payload), 402
+    # Saving is unmetered on both plans. The limit is team count, checked where the
+    # work happens in /api/run -- so nobody is stopped from filing a season they are
+    # allowed to run, and nobody discovers the boundary by losing a config.
     data = request.get_json()
     if not data:
         return jsonify({'error': 'No JSON body'}), 400
@@ -588,6 +579,20 @@ def start_run():
     to be killed. Each slice is a few seconds instead, and doubles as the progress
     report, so no separate polling is needed while a run is in flight.
     """
+    payload = request.get_json() or {}
+    config = payload.get('config', payload) or DEFAULT_CONFIG
+    config_name = payload.get('config_name')
+    attempts = int((config.get('general') or {}).get('attempts') or 1)
+
+    # First, before anything else is read or cleared. The team limit depends only
+    # on the config, so checking it here means a refusal costs nothing, arrives
+    # before any progress bar, and does not delete the output of the last run that
+    # did succeed. It also reads better than being asked to upload three files and
+    # only then being told the league is too big.
+    allowed, upgrade = plans.check_team_limit(current_user, config)
+    if not allowed:
+        return jsonify(upgrade), 402
+
     output_dir = _user_dir('output')
     uploads = _user_dir('uploads')
 
@@ -604,17 +609,6 @@ def start_run():
                 f.unlink()
             except OSError:
                 pass
-
-    payload = request.get_json() or {}
-    config = payload.get('config', payload) or DEFAULT_CONFIG
-    config_name = payload.get('config_name')
-    attempts = int((config.get('general') or {}).get('attempts') or 1)
-
-    # Checked before any work starts, so a refusal costs nothing and arrives
-    # before the user watches a progress bar. Dormant until a ceiling is agreed.
-    allowed, upgrade = plans.check_team_limit(current_user, config)
-    if not allowed:
-        return jsonify(upgrade), 402
 
     # Fix the base seed now so the whole run is one reproducible sequence, even
     # though it is scored across several requests.
