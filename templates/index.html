@@ -276,6 +276,18 @@
         </h2>
         <div id="panelUpload" class="accordion-collapse collapse" data-bs-parent="#mainAccordion">
           <div class="accordion-body">
+            <div class="alert alert-light border d-flex flex-wrap align-items-center gap-2 py-2">
+              <span class="small">
+                <strong>No data yet?</strong> Grab the sample season — 20 teams across three
+                divisions, ten weeks of diamond time — and run it with the default settings.
+              </span>
+              <a class="btn btn-sm btn-ghost ms-auto" download
+                 href="{{ url_for('static', filename='samples/team_availability.csv') }}">Teams</a>
+              <a class="btn btn-sm btn-ghost" download
+                 href="{{ url_for('static', filename='samples/field_availability.csv') }}">Fields</a>
+              <a class="btn btn-sm btn-ghost" download
+                 href="{{ url_for('static', filename='samples/team_blackouts.csv') }}">Blackouts</a>
+            </div>
             <div class="row g-3">
               <div class="col-md-4">
                 <label class="form-label fw-bold">Team Availability</label>
@@ -284,7 +296,9 @@
                   <div>Drag & drop or <a href="#" onclick="document.getElementById('file_team_availability').click();return false">browse</a></div>
                   <div class="filename mt-1" id="fname_team_availability"></div>
                 </div>
-                <small class="text-muted">Columns: Team, Mon, Tue, Wed, ...</small>
+                <small class="text-muted d-block">Columns: Team, Mon, Tue, Wed, ...</small>
+                <a class="small" download
+                   href="{{ url_for('static', filename='samples/team_availability.csv') }}">Download sample</a>
               </div>
               <div class="col-md-4">
                 <label class="form-label fw-bold">Field Availability</label>
@@ -293,7 +307,9 @@
                   <div>Drag & drop or <a href="#" onclick="document.getElementById('file_field_availability').click();return false">browse</a></div>
                   <div class="filename mt-1" id="fname_field_availability"></div>
                 </div>
-                <small class="text-muted">Columns: Date, Time, Diamond</small>
+                <small class="text-muted d-block">Columns: Date, Time, Diamond</small>
+                <a class="small" download
+                   href="{{ url_for('static', filename='samples/field_availability.csv') }}">Download sample</a>
               </div>
               <div class="col-md-4">
                 <label class="form-label fw-bold">Team Blackouts</label>
@@ -302,7 +318,9 @@
                   <div>Drag & drop or <a href="#" onclick="document.getElementById('file_team_blackouts').click();return false">browse</a></div>
                   <div class="filename mt-1" id="fname_team_blackouts"></div>
                 </div>
-                <small class="text-muted">Columns: Team, Date1, Date2, ...</small>
+                <small class="text-muted d-block">Columns: Team, Date1, Date2, ...</small>
+                <a class="small" download
+                   href="{{ url_for('static', filename='samples/team_blackouts.csv') }}">Download sample</a>
               </div>
             </div>
             <div class="mt-3">

@@ -98,6 +98,27 @@ Output files are suffixed with the config name, e.g. `softball_schedule_wmsl-fal
 
 All three files need a header row (its contents are ignored — only column position matters).
 
+### Sample files
+
+A complete, working season ships under `static/samples/`, linked from the upload step
+in the app:
+
+| File | Contents |
+|---|---|
+| `team_availability.csv` | 20 teams — A1–A6, B1–B8, C1–C6 — matching the default divisions |
+| `field_availability.csv` | 320 slots: two diamonds, weeknight doubles, Sunday blocks, ten weeks |
+| `team_blackouts.csv` | Two teams with real blackout runs; the rest are omitted |
+
+Team names come from the division config, so the sample teams line up with the shipped
+defaults: download all three, upload, and run without changing a setting.
+
+That run finishes **6 games short of target**, which is not a field-time problem and
+no amount of extra diamond time fixes it. Division A is 6 teams with **DH Only**, and
+a pod seats 4 — `6 × 7 = 42` does not divide by 4, so two teams always finish short.
+See [`DH Only` requires team count divisible by 4](#dh-only-requires-team-count-divisible-by-4).
+It is left as-is deliberately: it is a real constraint, and better met in a sample than
+discovered mid-season.
+
 ### `team_availability.csv`
 
 Which **days of the week** each team can play. The first column is the team name;
@@ -689,6 +710,7 @@ so a fresh checkout shows the brand rather than a broken-image icon.
 │   ├── css/skedworx.css    # Design tokens shared by every page
 │   ├── css/home.css        # Landing page styles
 │   ├── img/                # Web-sized assets only (583 KB total)
+│   ├── samples/            # Example CSVs, linked from the upload step
 │   └── js/app.js           # Scheduler frontend
 ├── brand/                  # Source artwork and brand sheet — NOT web-served
 └── data/                   # Accounts, signing key, per-user files (gitignored)
