@@ -529,9 +529,12 @@
   // how long it takes is not knowable from here.
   function setProgressWorking(total) {
     var el = document.getElementById('runProgressBar');
-    el.style.width = '100%';
+    var wrap = document.getElementById('runProgress');
+    el.classList.add('progress-bar-indeterminate');
+    wrap.classList.add('is-indeterminate');
+    el.style.width = '';                       // the class owns the width
     el.removeAttribute('aria-valuenow');
-    el.textContent = total > 1 ? 'Working... ' + total + ' attempts' : 'Working...';
+    el.textContent = '';                       // no room for a label in a sliver
     document.getElementById('runSpinnerText').textContent =
       total > 1 ? 'Running ' + total + ' attempts...' : 'Running...';
   }
@@ -541,6 +544,9 @@
   function setProgress(done, total, bestScore) {
     var pct = total ? Math.round((done / total) * 100) : 0;
     var el = document.getElementById('runProgressBar');
+    // Leaving the working state: drop the sliver so the width means something.
+    el.classList.remove('progress-bar-indeterminate');
+    document.getElementById('runProgress').classList.remove('is-indeterminate');
     el.style.width = pct + '%';
     el.setAttribute('aria-valuenow', pct);
     el.textContent = 'Attempt ' + done + ' / ' + total +
