@@ -1,8 +1,8 @@
-# Skeddy
+# skedworx
 
-**Smarter schedules for rec sports.**
+**Schedules that work for your league.**
 
-Skeddy builds a full season schedule from three CSV files, respecting team
+skedworx builds a full season schedule from three CSV files, respecting team
 availability, blackout dates and field inventory, and favouring 4-team
 **doubleheader pods** over single games.
 
@@ -83,8 +83,9 @@ seeds and keeps the best result, showing progress as it goes.
 
 - Summary tiles: games short, idle weeks, overloaded weeks, violations
 - **Team Summary** — games, home/away split, doubleheader days, playable dates
-- **Games Per Week** — each team's rhythm; green on pace, yellow over target, red idle,
-  grey column = a week with too few diamonds to seat the league
+- **Games Per Week** — each team's rhythm; green on pace, amber over target, blue idle,
+  grey column = a week with too few diamonds to seat the league. Each cell also carries
+  a marker and screen-reader text, so the state does not depend on colour alone
 - **Matchup Matrix** — how many times each pair of teams meets
 - **Schedule Preview** — first 100 games
 - Downloads: XLSX, CSV, unscheduled matchups, remaining needs
@@ -334,7 +335,7 @@ trading one problem for another.
 
 ## Deployment
 
-### Set `SKEDDY_SYNC_RUNS=1` when deploying
+### Set `SKEDWORX_SYNC_RUNS=1` when deploying
 
 Run state is held **in memory** in this process. By default the scheduler runs on a
 background thread and the browser polls for progress, which is fine locally but breaks
@@ -342,7 +343,7 @@ on any host that runs several worker processes or recycles idle ones (cPanel/Pas
 multi-worker gunicorn): the status poll can land on a process that never ran the job,
 and the UI hangs.
 
-Setting `SKEDDY_SYNC_RUNS=1` runs the scheduler inside the request instead. There is no
+Setting `SKEDWORX_SYNC_RUNS=1` runs the scheduler inside the request instead. There is no
 downside — a full 15-attempt run takes **about 1.6 seconds**, well inside any request
 timeout — and it removes the failure mode completely. The UI handles both modes.
 
@@ -426,7 +427,7 @@ from the working tree** on any host cloned before it. The site then returns 500 
 nothing useful in the log, because the entry point is simply gone. Recreate it:
 
 ```bash
-cd ~/skeddy && cp dispatch.cgi.example dispatch.cgi \
+cd ~/skedworx && cp dispatch.cgi.example dispatch.cgi \
   && sed -i '1s|.*|#!/usr/bin/python3.9|' dispatch.cgi \
   && chmod 755 dispatch.cgi && head -1 dispatch.cgi
 ```
@@ -434,7 +435,7 @@ cd ~/skeddy && cp dispatch.cgi.example dispatch.cgi \
 Because that failure mode is silent, verify after **every** pull:
 
 ```bash
-cd ~/skeddy && git pull origin main && ls -l dispatch.cgi && head -1 dispatch.cgi
+cd ~/skedworx && git pull origin main && ls -l dispatch.cgi && head -1 dispatch.cgi
 ```
 
 `dispatch.cgi` must exist, be mode `755`, and start with an absolute interpreter path.
@@ -446,6 +447,45 @@ A pull that changes only `static/` or `templates/` needs no CGI work at all, but
 hard-refresh the browser: CSS and JS are served with normal caching, and a stale cache
 looks exactly like a failed deploy.
 
+### Password reset email
+
+A user who forgets their password uses **Forgot password?** on the sign-in page. They
+receive a link that works once and expires in an hour; using it signs them out
+everywhere else.
+
+Without SMTP configured the link is only written to the error log, so **nobody can
+actually recover an account until you set this up**. A cPanel mailbox on your own
+domain is enough. Set these in `dispatch.cgi` (untracked, so credentials stay out of
+git):
+
+| Variable | Example | |
+|---|---|---|
+| `SKEDWORX_BASE_URL` | `https://schedule.wmsl.ca` | strongly recommended |
+| `SKEDWORX_SMTP_HOST` | `mail.wmsl.ca` | required |
+| `SKEDWORX_SMTP_FROM` | `skedworx <skedworx@wmsl.ca>` | required |
+| `SKEDWORX_SMTP_PORT` | `587`, or `465` with SSL | default 587 |
+| `SKEDWORX_SMTP_USER` | `skedworx@wmsl.ca` | |
+| `SKEDWORX_SMTP_PASSWORD` | | |
+| `SKEDWORX_SMTP_SSL` | `1` to use SSL instead of STARTTLS | |
+
+Set `SKEDWORX_BASE_URL`. Without it the link is built from the `Host` header, which the
+requester controls — someone could trigger a reset for your address and have the mail
+arrive pointing at their own site, capturing the token when you clicked it.
+
+Check it end to end after configuring, and watch the error log: send failures are
+logged rather than shown, because the page is deliberately identical whether or not
+the address has an account.
+
+If you are locked out before SMTP works, set a password directly on the host:
+
+```bash
+cd ~/skedworx && python3 -c "
+import auth
+u = auth.get_user_by_email('you@example.com')
+auth.set_password(u.user_id, 'a-new-long-password')
+print('updated', u.email)"
+```
+
 ### Run state is shared through a file
 
 `/api/run`, `/api/status` and `/api/results` are three separate requests, and the
@@ -454,7 +494,7 @@ under CGI, intermittently under Passenger or multi-worker gunicorn. Run state is
 therefore mirrored to `.run_state.json` (written atomically) and read back from there,
 so results survive whichever process happens to serve the next request.
 
-This is also why `SKEDDY_SYNC_RUNS=1` matters: a background thread would be killed when
+This is also why `SKEDWORX_SYNC_RUNS=1` matters: a background thread would be killed when
 a CGI process exits, taking the run with it.
 
 ### Local network / small production
@@ -464,16 +504,16 @@ Do **not** ship `app.run(debug=True)` — the debugger allows remote code execut
 Windows:
 
 ```bash
-set SKEDDY_SYNC_RUNS=1 && pip install waitress && waitress-serve --listen=0.0.0.0:5000 app:app
+set SKEDWORX_SYNC_RUNS=1 && pip install waitress && waitress-serve --listen=0.0.0.0:5000 app:app
 ```
 
 Linux / macOS:
 
 ```bash
-SKEDDY_SYNC_RUNS=1 gunicorn --workers 2 --timeout 120 --bind 0.0.0.0:5000 app:app
+SKEDWORX_SYNC_RUNS=1 gunicorn --workers 2 --timeout 120 --bind 0.0.0.0:5000 app:app
 ```
 
-With `SKEDDY_SYNC_RUNS=1` multiple workers are safe, because no state has to survive
+With `SKEDWORX_SYNC_RUNS=1` multiple workers are safe, because no state has to survive
 between requests.
 
 ### Cloud (Render, Railway, Fly.io, Azure App Service …)
@@ -481,7 +521,7 @@ between requests.
 Start command:
 
 ```bash
-SKEDDY_SYNC_RUNS=1 gunicorn --workers 2 --timeout 120 --bind 0.0.0.0:$PORT app:app
+SKEDWORX_SYNC_RUNS=1 gunicorn --workers 2 --timeout 120 --bind 0.0.0.0:$PORT app:app
 ```
 
 Before deploying, be aware of these:
@@ -506,7 +546,7 @@ RUN pip install --no-cache-dir -r requirements.txt gunicorn
 COPY . .
 RUN mkdir -p configs uploads output
 EXPOSE 5000
-ENV SKEDDY_SYNC_RUNS=1
+ENV SKEDWORX_SYNC_RUNS=1
 CMD ["gunicorn", "--workers", "2", "--timeout", "120", "--bind", "0.0.0.0:5000", "app:app"]
 ```
 
@@ -520,18 +560,32 @@ docker run -p 5000:5000 -v wmsl-configs:/app/configs wmsl-scheduler
 
 ## Branding
 
-The palette, typography and logo come from the Skeddy brand sheet. Colours live as
-CSS variables in `static/css/skeddy.css`, and nothing hard-codes a hex outside that
+The palette, typography and logo come from the skedworx brand sheet. Colours live as
+CSS variables in `static/css/skedworx.css`, and nothing hard-codes a hex outside that
 file, so a palette change lands everywhere at once.
 
-| Token | Value | Brand name |
-|---|---|---|
-| `--brand` | `#2E7D32` | Primary Green |
-| `--brand-300` / `--accent` | `#7BC043` | Accent Green |
-| `--ink` | `#0F1720` | Deep Navy (text) |
-| `--ink-600` | `#64748B` | Slate |
-| `--surface` | `#F3F4F6` | Light Gray |
-| `--surface-2` | `#FFFFFF` | White |
+| Token | Value | Brand name | Use |
+|---|---|---|---|
+| `--brand` | `#42D32A` | Primary Green | fills, borders, large shapes — **never text** |
+| `--brand-ink` | `#288019` | derived | text, buttons, links |
+| `--brand-700` | `#216B15` | derived | hover |
+| `--brand-300` / `--accent` | `#78C043` | Accent Green | |
+| `--ink` | `#0F1720` | Deep Navy | body text |
+| `--ink-600` | `#64748B` | Slate | muted text |
+| `--surface` | `#F3F4F6` | Light Gray | |
+| `--surface-2` | `#FFFFFF` | White | |
+
+**Why there are two greens.** The sheet's Primary Green `#42D32A` is a bright lime. It
+measures **1.98:1** as text on white, and the same against white text on top of it —
+far below the 4.5:1 WCAG AA floor. It is the identity colour and belongs on fills and
+borders, where contrast rules do not apply. Anything carrying text uses `--brand-ink`,
+the same hue and saturation darkened until it clears AA on white (5.01:1) and on the
+grey surface (4.55:1). Putting `--brand` behind a button label is the one mistake this
+palette makes easy, so check any new rule that pairs green with `#fff`.
+
+Slate is `#64748B`, not the `#6474BB` printed on the sheet — that value is a
+periwinkle blue rather than a grey, and reads as a transcription slip. Using it as
+written turns muted body copy purple across every page.
 
 Typography is **Poppins** (400/500/600/700) from Google Fonts, with a system stack
 fallback.
@@ -543,30 +597,45 @@ artwork in at these paths:
 
 | File | Used by | Source |
 |---|---|---|
-| `static/img/skeddy-hero.png` | Landing page headline | `brand/branding_image.png` |
-| `static/img/skeddy-icon.png` | Nav and compact placements | `brand/white_flat_logo.png` |
-| `static/img/favicon.png` | Browser tab | `brand/white_flat_logo.png` |
+| `static/img/skedworx-hero.png` | Landing page headline | `brand/hero-img.png` |
+| `static/img/skedworx-icon.png` | Nav and compact placements | supplied at final size |
+| `static/img/favicon.png` | Browser tab | `static/img/skedworx-icon.png` |
+| `static/img/spreadsheet-chaos.jpg` | Homepage: the problem | `brand/spreadsheet_solving.png` |
+| `static/img/home-plate.jpg` | Homepage: how it fits together | `brand/diamond-problem-matrix.png` |
 
 Originals live in `brand/`, outside `static/`, so the full-resolution art and the
 brand sheet are not served over the web. The versions under `static/img/` are resized
-for their actual display size — the nav icon goes from 927 KB to 21 KB, which matters
-on a landing page.
+to their actual display size — the raw drops total 5.4 MB, the shipped set 583 KB,
+which matters on a landing page.
+
+The two marketing illustrations ship as **JPEG**: they are detailed, near-photographic
+artwork where PNG lands around 480 KB each. The hero lockup stays **PNG-8**, because it
+is flat colour and JPEG rings visibly around the letterforms.
 
 The nav pairs the diamond mark with the wordmark set in Poppins rather than using the
-slogan lockup: it renders about 34px tall, where "smarter schedules for rec sports"
-would be a few pixels high. In the wordmark **only the two d's are green** — `ske`
-and the trailing `y` are the deep navy, matching the logo.
+full lockup: it renders about 34px tall, where "schedules that work for your league"
+would be a few pixels high. In the wordmark `sked` is the deep navy and `worx` is
+green, matching the logo.
 
 Regenerate the web assets after changing the source art:
 
 ```bash
 python - <<'EOF'
 from PIL import Image
-for src, dst, box in (('brand/branding_image.png',  'static/img/skeddy-hero.png', (960, 960)),
-                      ('brand/white_flat_logo.png', 'static/img/skeddy-icon.png', (160, 160)),
-                      ('brand/white_flat_logo.png', 'static/img/favicon.png',     (64, 64))):
+def flat(src, box):
     im = Image.open(src).convert('RGBA'); im.thumbnail(box, Image.LANCZOS)
-    im.save(dst, 'PNG', optimize=True)
+    bg = Image.new('RGB', im.size, (255, 255, 255)); bg.paste(im, mask=im.split()[3])
+    return bg
+
+for src, dst, box in (('brand/spreadsheet_solving.png',    'static/img/spreadsheet-chaos.jpg', (1200, 1200)),
+                      ('brand/diamond-problem-matrix.png', 'static/img/home-plate.jpg',        (1000, 1000))):
+    flat(src, box).save(dst, quality=90, optimize=True, progressive=True)
+
+flat('brand/hero-img.png', (960, 960)).quantize(colors=128).save(
+    'static/img/skedworx-hero.png', optimize=True)
+
+ic = Image.open('static/img/skedworx-icon.png').convert('RGBA')
+ic.thumbnail((64, 64), Image.LANCZOS); ic.save('static/img/favicon.png', optimize=True)
 EOF
 ```
 
@@ -588,15 +657,20 @@ so a fresh checkout shows the brand rather than a broken-image icon.
 ├── dispatch.cgi            # CGI entry point (shared hosting)
 ├── passenger_wsgi.py       # Passenger entry point (cPanel Python app)
 ├── requirements.txt
+├── mailer.py               # Password reset email (smtplib)
+├── test_password_reset.py  # Reset-flow tests: python test_password_reset.py
 ├── templates/
 │   ├── home.html           # Public landing page
 │   ├── index.html          # The scheduler UI
-│   ├── login.html, register.html, auth_base.html
+│   ├── wordmark.html       # The logo lockup — defined once, included everywhere
+│   ├── login.html, register.html, forgot.html, reset.html, auth_base.html
 │   └── icons/              # Inline SVG partials
 ├── static/
-│   ├── css/skeddy.css      # Design tokens shared by every page
+│   ├── css/skedworx.css    # Design tokens shared by every page
 │   ├── css/home.css        # Landing page styles
+│   ├── img/                # Web-sized assets only (583 KB total)
 │   └── js/app.js           # Scheduler frontend
+├── brand/                  # Source artwork and brand sheet — NOT web-served
 └── data/                   # Accounts, signing key, per-user files (gitignored)
     └── users/<id>/{configs,uploads,output}/
 ```
@@ -610,6 +684,8 @@ All `/api/*` routes require a signed-in session and act only on that user's data
 | GET | `/` | Public landing page |
 | GET | `/app` | The scheduler (sign-in required) |
 | GET/POST | `/login`, `/register` | Accounts |
+| GET/POST | `/forgot` | Request a password reset link |
+| GET/POST | `/reset/<token>` | Choose a new password |
 | GET | `/logout` | End the session |
 | GET | `/api/config/defaults` | Default configuration |
 | GET / POST / DELETE | `/api/configs/<name>` | Load / save / delete a preset |

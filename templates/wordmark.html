@@ -1,9 +1,9 @@
-{#- Skeddy lockup for navigation and auth screens.
+{#- skedworx lockup for navigation and auth screens.
 
     Pairs the supplied diamond mark with the wordmark set in Poppins, rather than
     using the full slogan artwork: the nav renders around 34px tall, where the
-    "smarter schedules for rec sports" line would be a few pixels high and
-    illegible. The slogan lockup is used at full size in the hero instead.
+    "schedules that work for your league" lines would be a few pixels high and
+    illegible. The full lockup is used at size in the hero instead.
 
     Params:
       variant  'lockup' (default, mark + wordmark) or 'icon' (mark only)
@@ -12,17 +12,15 @@
 -#}
 {%- set variant = variant|default('lockup') -%}
 {%- set height  = height|default(34) -%}
-<a class="skeddy-mark" href="{{ href|default(url_for('home')) }}"
-   aria-label="Skeddy — home">
-  <img src="{{ url_for('static', filename='img/skeddy-icon.png') }}"
-       alt="{% if variant == 'icon' %}Skeddy{% else %}{% endif %}"
+<a class="sw-mark" href="{{ href|default(url_for('home')) }}"
+   aria-label="skedworx — home">
+  <img src="{{ url_for('static', filename='img/skedworx-icon.png') }}"
+       alt="{% if variant == 'icon' %}skedworx{% else %}{% endif %}"
        height="{{ height }}" width="{{ height }}"
        style="height:{{ height }}px;width:{{ height }}px" decoding="async">
   {%- if variant != 'icon' %}
-  {#- Matches the logo exactly: only the two d's are green, the rest is the deep
-      navy. Getting this wrong (colouring the y too) makes the nav read as a
-      different mark to the one in the hero. -#}
-  <span class="skeddy-word" style="font-size:{{ (height * 0.62)|round|int }}px"
-    ><span class="a">ske</span><span class="b">dd</span><span class="a">y</span></span>
+  {#- Matches the logo: "sked" in the deep navy, "worx" in green. -#}
+  <span class="sw-word" style="font-size:{{ (height * 0.62)|round|int }}px"
+    ><span class="a">sked</span><span class="b">worx</span></span>
   {%- endif %}
 </a>

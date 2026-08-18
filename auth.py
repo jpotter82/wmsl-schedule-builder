@@ -8,6 +8,8 @@ Everything a user owns lives under data/users/<id>/. Those paths are always deri
 from the logged-in session, never from anything in the request, so one user cannot
 reach another's files even if they craft the URL by hand.
 """
+import hashlib
+import hmac
 import os
 import re
 import secrets
@@ -24,20 +26,28 @@ BASE_DIR = Path(__file__).resolve().parent
 
 
 def env(name, default=''):
-    """Read a SKEDDY_<name> setting.
+    """Read a SKEDWORX_<name> setting.
 
-    Falls back to the old WMSL_<name> so an instance deployed before the rename
-    keeps working across a git pull. That matters most for DATA_DIR: silently
-    ignoring it would point the app at a new, empty data directory and make every
-    existing account look as though it had vanished. The fallback can be dropped
-    once no deployment sets the old names.
+    Falls back through the previous names — SKEDDY_<name>, then WMSL_<name> — so an
+    instance deployed under an older name keeps working across a git pull. That
+    matters most for DATA_DIR: silently ignoring it would point the app at a new,
+    empty data directory and make every existing account look as though it had
+    vanished. It matters again for the SMTP settings, where ignoring them would
+    quietly stop password resets from being delivered.
+
+    A rename is not worth an outage, so the old names keep working until every
+    deployment has moved over.
     """
-    return os.environ.get(f'SKEDDY_{name}', os.environ.get(f'WMSL_{name}', default))
+    for prefix in ('SKEDWORX_', 'SKEDDY_', 'WMSL_'):
+        value = os.environ.get(f'{prefix}{name}')
+        if value is not None:
+            return value
+    return default
 
 
 # Where accounts, per-user files and the signing key live.
 #
-# Override with SKEDDY_DATA_DIR. Worth doing on shared hosting where the application
+# Override with SKEDWORX_DATA_DIR. Worth doing on shared hosting where the application
 # sits in the web root: pointing this somewhere above the docroot means user data
 # and the database cannot be fetched over HTTP even if .htaccess is misconfigured
 # or ignored.
@@ -54,18 +64,18 @@ def _warn_if_data_dir_is_web_reachable():
 
     An .htaccess in the repo blocks this, but .htaccess is not guaranteed to be
     honoured — AllowOverride can forbid it, and a rewrite mistake silently disables
-    it. Set SKEDDY_DATA_DIR to somewhere above the document root instead.
+    it. Set SKEDWORX_DATA_DIR to somewhere above the document root instead.
     """
     try:
         DATA_DIR.relative_to(BASE_DIR)
     except ValueError:
         return  # already outside the app directory
     sys.stderr.write(
-        "skeddy: WARNING data directory is inside the application directory\n"
-        f"skeddy:   {DATA_DIR}\n"
-        "skeddy:   If the app directory is your web root, accounts, password hashes\n"
-        "skeddy:   and the session signing key may be downloadable over HTTP.\n"
-        "skeddy:   Set SKEDDY_DATA_DIR to a path above the document root.\n")
+        "skedworx: WARNING data directory is inside the application directory\n"
+        f"skedworx:   {DATA_DIR}\n"
+        "skedworx:   If the app directory is your web root, accounts, password hashes\n"
+        "skedworx:   and the session signing key may be downloadable over HTTP.\n"
+        "skedworx:   Set SKEDWORX_DATA_DIR to a path above the document root.\n")
 
 
 _warn_if_data_dir_is_web_reachable()
@@ -78,7 +88,12 @@ SECRET_KEY_PATH = DATA_DIR / 'secret_key'
 MIN_PASSWORD_LENGTH = 10
 MAX_SIGNUPS_PER_IP_PER_DAY = 5
 
-# Optional shared secret. When SKEDDY_INVITE_CODE is set in the environment,
+# Password resets. An hour is long enough to find the mail and short enough that a
+# link sitting in an inbox is not a standing key to the account.
+RESET_TOKEN_TTL_SECONDS = 3600
+MAX_RESET_REQUESTS_PER_IP_PER_HOUR = 5
+
+# Optional shared secret. When SKEDWORX_INVITE_CODE is set in the environment,
 # registration additionally requires it — a kill switch if open signup is abused,
 # without needing a redeploy.
 INVITE_CODE = env('INVITE_CODE').strip()
@@ -136,14 +151,42 @@ def init_db():
                 created_at REAL NOT NULL
             );
             CREATE INDEX IF NOT EXISTS idx_signups_ip ON signups(ip, created_at);
+
+            CREATE TABLE IF NOT EXISTS password_resets (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id      INTEGER NOT NULL,
+                token_hash   TEXT    NOT NULL UNIQUE,
+                created_at   REAL    NOT NULL,
+                expires_at   REAL    NOT NULL,
+                used_at      REAL,
+                requested_ip TEXT
+            );
+            CREATE INDEX IF NOT EXISTS idx_resets_user ON password_resets(user_id);
+            CREATE INDEX IF NOT EXISTS idx_resets_ip ON password_resets(requested_ip, created_at);
         """)
 
 
 # ---------------------------------------------------------------- user model
+def _password_stamp(password_hash):
+    """Short fingerprint of the stored hash, used to tie a session to a password.
+
+    The session cookie carries "<id>.<stamp>". Changing the password changes the
+    stored hash, so every cookie issued beforehand stops resolving. Without this, a
+    reset would leave an attacker's existing session logged in — which defeats the
+    main reason people reset a password in the first place.
+
+    The stamp is a hash of a hash, so the cookie leaks nothing useful about the
+    password even though it travels to the browser.
+    """
+    return hashlib.sha256((password_hash or '').encode()).hexdigest()[:16]
+
+
 class User(UserMixin):
     def __init__(self, row):
-        self.id = str(row['id'])
         self.user_id = int(row['id'])
+        # Flask-Login stores this in the session and hands it back to the loader.
+        self.password_stamp = _password_stamp(row['password_hash'])
+        self.id = f"{self.user_id}.{self.password_stamp}"
         self.email = row['email']
         self.display_name = row['display_name'] or row['email'].split('@')[0]
         self.is_admin = bool(row['is_admin'])
@@ -180,6 +223,23 @@ def get_user_by_id(user_id):
             "SELECT * FROM users WHERE id = ?", (uid,)).fetchone())
 
 
+def get_user_by_session_id(session_id):
+    """Resolve the "<id>.<stamp>" value Flask-Login keeps in the session cookie.
+
+    Rejects the cookie when the stamp does not match the current password hash, so
+    changing a password signs out every other device. Cookies issued before this
+    format existed carry a bare id and no stamp; they are rejected too, which costs
+    everyone one extra sign-in on the deploy that introduces it.
+    """
+    uid, _, stamp = str(session_id or '').partition('.')
+    user = get_user_by_id(uid)
+    if user is None or not stamp:
+        return None
+    if not hmac.compare_digest(stamp, user.password_stamp):
+        return None
+    return user
+
+
 def get_user_by_email(email):
     with _connect() as conn:
         return _row_to_user(conn.execute(
@@ -210,13 +270,21 @@ def verify_password(email, password):
     return _row_to_user(row)
 
 
+def validate_password(password):
+    """Return an error message, or None when the password is acceptable."""
+    if len(password or '') < MIN_PASSWORD_LENGTH:
+        return f"Password must be at least {MIN_PASSWORD_LENGTH} characters."
+    return None
+
+
 def validate_registration(email, password, invite=None):
     """Return an error message, or None when the details are acceptable."""
     email = (email or '').strip()
     if not EMAIL_RE.match(email):
         return "Enter a valid email address."
-    if len(password or '') < MIN_PASSWORD_LENGTH:
-        return f"Password must be at least {MIN_PASSWORD_LENGTH} characters."
+    bad_password = validate_password(password)
+    if bad_password:
+        return bad_password
     if INVITE_CODE and (invite or '').strip() != INVITE_CODE:
         return "That invite code is not valid."
     if get_user_by_email(email):
@@ -238,6 +306,84 @@ def record_signup(ip):
     with _connect() as conn:
         conn.execute("INSERT INTO signups (ip, created_at) VALUES (?, ?)",
                      (ip or '', time.time()))
+
+
+# ---------------------------------------------------------------- password reset
+def _hash_token(token):
+    """Store only the hash of a reset token.
+
+    Same reasoning as passwords: the database already holds enough to be worth
+    protecting, and a leaked copy should not hand over live reset links. The token
+    is high-entropy and single-use, so a plain SHA-256 is enough here — there is no
+    weak secret to brute-force.
+    """
+    return hashlib.sha256((token or '').encode()).hexdigest()
+
+
+def reset_request_allowed(ip):
+    """Throttle reset requests per IP, so the form cannot be used to spam an inbox."""
+    cutoff = time.time() - 3600
+    with _connect() as conn:
+        n = conn.execute(
+            "SELECT COUNT(*) AS n FROM password_resets"
+            " WHERE requested_ip = ? AND created_at >= ?",
+            (ip or '', cutoff)).fetchone()['n']
+    return n < MAX_RESET_REQUESTS_PER_IP_PER_HOUR
+
+
+def create_reset_token(user, ip=None):
+    """Issue a single-use reset token, invalidating any still outstanding."""
+    token = secrets.token_urlsafe(32)
+    now = time.time()
+    with _connect() as conn:
+        # Asking again should retire the previous link, so a forwarded or leaked
+        # earlier mail cannot still be redeemed.
+        conn.execute("UPDATE password_resets SET used_at = ?"
+                     " WHERE user_id = ? AND used_at IS NULL", (now, user.user_id))
+        conn.execute(
+            "INSERT INTO password_resets (user_id, token_hash, created_at,"
+            " expires_at, requested_ip) VALUES (?, ?, ?, ?, ?)",
+            (user.user_id, _hash_token(token), now,
+             now + RESET_TOKEN_TTL_SECONDS, ip or ''))
+    return token
+
+
+def user_for_reset_token(token):
+    """Return the User a live token belongs to, else None."""
+    if not token:
+        return None
+    with _connect() as conn:
+        row = conn.execute("SELECT * FROM password_resets WHERE token_hash = ?",
+                           (_hash_token(token),)).fetchone()
+    if not row or row['used_at'] is not None or row['expires_at'] < time.time():
+        return None
+    return get_user_by_id(row['user_id'])
+
+
+def consume_reset_token(token, new_password):
+    """Set the new password and burn the token. False if the token is not usable.
+
+    Both happen in one transaction: a password changed without the token being
+    marked used would leave a working link behind.
+    """
+    user = user_for_reset_token(token)
+    if user is None:
+        return False
+    now = time.time()
+    with _connect() as conn:
+        conn.execute("UPDATE users SET password_hash = ? WHERE id = ?",
+                     (generate_password_hash(new_password), user.user_id))
+        conn.execute("UPDATE password_resets SET used_at = ?"
+                     " WHERE user_id = ? AND used_at IS NULL", (now, user.user_id))
+    return True
+
+
+def set_password(user_id, new_password):
+    """Change a password directly. For administrative use from the host."""
+    with _connect() as conn:
+        cur = conn.execute("UPDATE users SET password_hash = ? WHERE id = ?",
+                           (generate_password_hash(new_password), int(user_id)))
+        return cur.rowcount > 0
 
 
 def create_user(email, password, display_name=None, is_admin=None):

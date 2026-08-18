@@ -1,0 +1,37 @@
+{% extends "auth_base.html" %}
+{% block title %}Choose a new password — skedworx{% endblock %}
+{% block subtitle %}
+  {% if invalid %}Link no longer works{% else %}Choose a new password{% endif %}
+{% endblock %}
+
+{% block content %}
+{% if invalid %}
+  <p class="mb-2">This reset link has expired, has already been used, or is not valid.</p>
+  <p class="text-muted small mb-3">Reset links last an hour and work once.</p>
+  <a class="btn btn-brand w-100" href="{{ url_for('forgot_password') }}">Request a new link</a>
+{% else %}
+  <form method="post" action="{{ url_for('reset_password', token=token) }}">
+    <div class="mb-3">
+      <label class="form-label" for="password">New password</label>
+      <input class="form-control" type="password" id="password" name="password"
+             required autofocus autocomplete="new-password" minlength="10">
+      <div class="form-text">At least 10 characters.</div>
+    </div>
+
+    <div class="mb-3">
+      <label class="form-label" for="confirm">Confirm new password</label>
+      <input class="form-control" type="password" id="confirm" name="confirm"
+             required autocomplete="new-password" minlength="10">
+    </div>
+
+    <button class="btn btn-brand w-100" type="submit">Set new password</button>
+  </form>
+  <p class="text-muted small mt-3 mb-0">
+    Setting a new password signs you out everywhere else.
+  </p>
+{% endif %}
+{% endblock %}
+
+{% block footer %}
+<a href="{{ url_for('login') }}">Back to sign in</a>
+{% endblock %}

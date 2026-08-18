@@ -1,17 +1,28 @@
-/* Skeddy design tokens — from the brand sheet.
+/* skedworx design tokens — from the brand sheet.
  *
  * Green is primary and navy is the ink/secondary, not the other way round.
  * Everything (landing page, auth screens, the scheduler) pulls from here so the
  * product reads as one thing.
+ *
+ * TWO greens, and the distinction matters. The sheet's Primary Green #42D32A is a
+ * bright lime: it measures 1.98:1 both as text on white and against white text, so
+ * it cannot legally carry a button label or a line of copy. It is kept as the
+ * identity colour for fills, borders and large shapes, where contrast rules do not
+ * apply. Anything with text on it uses --brand-ink, the same hue and saturation
+ * darkened until it clears AA on white (5.01:1) and on the grey surface (4.55:1).
+ *
+ * Slate is #64748B, not the #6474BB printed on the sheet — that value is a
+ * periwinkle blue and reads as a transcription slip of the existing slate grey.
  */
 :root {
   /* brand palette */
-  --brand:        #2E7D32;   /* Primary Green  */
-  --brand-700:    #256428;
-  --brand-300:    #7BC043;   /* Accent Green   */
-  --brand-tint:   #eaf5ea;
-  --accent:       #7BC043;
-  --accent-600:   #6aa838;
+  --brand:        #42D32A;   /* Primary Green — fills and borders, never text */
+  --brand-ink:    #288019;   /* text, buttons, links: 5.01:1 on white          */
+  --brand-700:    #216B15;   /* hover                                          */
+  --brand-300:    #78C043;   /* Accent Green   */
+  --brand-tint:   #E7F6E4;
+  --accent:       #78C043;
+  --accent-600:   #5f9c33;
   --accent-tint:  #eef8e4;
 
   --ink:          #0F1720;   /* Deep Navy      */
@@ -29,15 +40,16 @@
    * white and slate. Confine them to data states — never buttons, nav, or
    * decoration — or the brand hierarchy inverts.
    *
-   * On pace reuses the brand green rather than restating the hex, so "healthy"
-   * and "Skeddy" stay literally the same colour.
+   * On pace reuses the readable brand green rather than restating the hex, so
+   * "healthy" and "skedworx" stay literally the same colour. It follows
+   * --brand-ink, not --brand: the lime identity green is unreadable as text.
    *
    * The two foregrounds are a shade darker than the brief's #B86B00 and #3B6FB6,
    * which landed at 3.66:1 and 4.42:1 on their own backgrounds — under the 4.5:1
    * AA floor for the 0.78rem grid text. Hue and saturation are unchanged and the
    * backgrounds are untouched, so the muted look survives; see the ratios below.
    */
-  --status-on-pace:         var(--brand);   /* 4.59:1 on its background */
+  --status-on-pace:         var(--brand-ink);  /* 4.6:1 on its background */
   --status-on-pace-bg:      #EAF6E2;
   --status-over-target:     #A05D00;        /* 4.63:1 — informational, not an error */
   --status-over-target-bg:  #FFF1D6;
@@ -57,22 +69,23 @@ body { font-family: var(--font); color: var(--ink); }
 h1, h2, h3, h4, h5, .fw-bold, .navbar-brand { font-weight: 600; letter-spacing: -.015em; }
 
 /* ---------------------------------------------------------------- wordmark */
-.skeddy-mark {
+.sw-mark {
   display: inline-flex; align-items: center; gap: .4rem;
   text-decoration: none; line-height: 1;
 }
-.skeddy-mark img { display: block; object-fit: contain; }
+.sw-mark img { display: block; object-fit: contain; }
 
-/* Wordmark set in Poppins to match the logo's two-tone treatment: "ske" in the
-   deep navy, "ddy" in the primary green. */
-.skeddy-word { font-weight: 700; letter-spacing: -.035em; }
-.skeddy-word .a { color: var(--ink); }
-.skeddy-word .b { color: var(--brand); }
+/* Wordmark set in Poppins to match the logo's two-tone treatment: "sked" in the
+   deep navy, "worx" in green. Uses --brand-ink so the wordmark stays legible at
+   nav sizes; the lime identity green is for shapes, not letterforms. */
+.sw-word { font-weight: 700; letter-spacing: -.035em; }
+.sw-word .a { color: var(--ink); }
+.sw-word .b { color: var(--brand-ink); }
 
 /* ---------------------------------------------------------------- buttons */
 .btn { border-radius: 10px; font-weight: 600; }
 .btn-brand, .btn-accent {
-  background: var(--brand); border-color: var(--brand); color: #fff;
+  background: var(--brand-ink); border-color: var(--brand-ink); color: #fff;
 }
 .btn-brand:hover, .btn-brand:focus,
 .btn-accent:hover, .btn-accent:focus {
@@ -80,12 +93,12 @@ h1, h2, h3, h4, h5, .fw-bold, .navbar-brand { font-weight: 600; letter-spacing: 
 }
 /* Secondary per the sheet: white fill, green border and text. */
 .btn-ghost {
-  background: #fff; border-color: var(--brand); color: var(--brand);
+  background: #fff; border-color: var(--brand-ink); color: var(--brand-ink);
 }
 .btn-ghost:hover, .btn-ghost:focus {
-  background: var(--brand-tint); border-color: var(--brand); color: var(--brand-700);
+  background: var(--brand-tint); border-color: var(--brand-ink); color: var(--brand-700);
 }
-.btn-outline-light:hover { color: var(--brand); }
+.btn-outline-light:hover { color: var(--brand-ink); }
 
 /* ---------------------------------------------------------------- surfaces */
 .s-card {
@@ -97,7 +110,7 @@ h1, h2, h3, h4, h5, .fw-bold, .navbar-brand { font-weight: 600; letter-spacing: 
 }
 .s-card .s-icon {
   width: 42px; height: 42px; border-radius: 12px;
-  background: var(--brand-tint); color: var(--brand);
+  background: var(--brand-tint); color: var(--brand-ink);
   display: grid; place-items: center; margin-bottom: .85rem;
 }
 .s-card h3 { font-size: 1.02rem; font-weight: 600; margin: 0 0 .35rem; }
@@ -108,7 +121,7 @@ h1, h2, h3, h4, h5, .fw-bold, .navbar-brand { font-weight: 600; letter-spacing: 
   display: inline-block; font-size: .72rem; font-weight: 600;
   padding: .18rem .6rem; border-radius: 999px;
 }
-.s-tag.division { background: var(--brand); color: #fff; }
+.s-tag.division { background: var(--brand-ink); color: #fff; }
 .s-tag.dh       { background: var(--ink-600); color: #fff; }
 .s-tag.playoff  { background: var(--surface); color: var(--ink-600); }
 
@@ -131,7 +144,7 @@ h1, h2, h3, h4, h5, .fw-bold, .navbar-brand { font-weight: 600; letter-spacing: 
 
 .eyebrow {
   text-transform: uppercase; letter-spacing: .14em;
-  font-size: .72rem; font-weight: 700; color: var(--brand);
+  font-size: .72rem; font-weight: 700; color: var(--brand-ink);
   margin-bottom: .6rem;
 }
 .section-title { font-weight: 700; letter-spacing: -.025em; line-height: 1.15; }
@@ -140,7 +153,7 @@ h1, h2, h3, h4, h5, .fw-bold, .navbar-brand { font-weight: 600; letter-spacing: 
 /* form controls pick up the brand focus ring */
 .form-control:focus, .form-select:focus {
   border-color: var(--brand-300);
-  box-shadow: 0 0 0 .2rem rgba(123,192,67,.25);
+  box-shadow: 0 0 0 .2rem rgba(120,192,67,.25);
 }
 
 @media (prefers-reduced-motion: reduce) {

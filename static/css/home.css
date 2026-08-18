@@ -1,4 +1,4 @@
-/* Skeddy landing page. Builds on the tokens in skeddy.css. */
+/* skedworx landing page. Builds on the tokens in skedworx.css. */
 
 body { background: var(--surface-2); }
 
@@ -111,12 +111,169 @@ html { scroll-behavior: smooth; }
 .band { background: var(--surface); border-block: 1px solid var(--line); }
 .section-title { font-size: clamp(1.7rem, 3.4vw, 2.35rem); }
 
+/* --------------------------------------------------- story illustrations */
+/* The two marketing graphics are product explanation, not decoration, so they
+   get real width and are never cropped — only scaled. On narrow screens they
+   stack full-bleed rather than shrinking into illegibility. */
+.story-img {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-lg);
+  background: var(--surface-2);
+}
+/* The diamond is square and self-contained; cap it so it does not tower over
+   the copy on wide screens. */
+.story-img.plate {
+  max-width: 40rem;
+  margin-inline: auto;
+  box-shadow: none;
+}
+
+/* --------------------------------------------------- the reality (compact) */
+/* Supporting detail under the spreadsheet graphic. Deliberately NOT cards: the
+   illustration is carrying this section, and six equal boxes would flatten it. */
+.reality {
+  list-style: none;
+  margin: 0; padding: 0;
+  display: grid;
+  gap: .9rem 2rem;
+  grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+  border-top: 1px solid var(--line);
+  padding-top: 1.6rem;
+}
+.reality li { display: flex; flex-direction: column; gap: .15rem; }
+.reality b { font-size: .95rem; color: var(--ink); }
+.reality span { font-size: .9rem; color: var(--ink-600); line-height: 1.55; }
+
+/* ----------------------------------------------------------- origin story */
+/* Plain prose on plain background. No card, no icon — the point is that a
+   person wrote it. */
+.story p {
+  font-size: 1.06rem;
+  line-height: 1.7;
+  color: var(--ink-600);
+  margin-bottom: 1rem;
+}
+.story p:first-child { color: var(--ink); }
+.story p:last-child { margin-bottom: 0; }
+
+/* ------------------------------------------------------------ the chains */
+.chain-head {
+  font-size: .78rem; font-weight: 700; text-transform: uppercase;
+  letter-spacing: .1em; color: var(--ink-400); margin-bottom: .9rem;
+}
+/* The cascade. Muted and grey on purpose: this is the version you don't want,
+   and it should feel like a list that keeps going. */
+.chain {
+  list-style: none; margin: 0; padding: 0;
+  counter-reset: none;
+}
+.chain li {
+  position: relative;
+  padding: .5rem 0 .5rem 1.6rem;
+  font-size: .95rem;
+  color: var(--ink-600);
+}
+.chain li::before {
+  content: "";
+  position: absolute; left: .35rem; top: 1.35rem; bottom: -.35rem;
+  width: 1px; background: var(--line);
+}
+.chain li:last-child::before { display: none; }
+.chain li::after {
+  content: "";
+  position: absolute; left: 0; top: 1rem;
+  width: .5rem; height: .5rem; border-radius: 50%;
+  background: var(--ink-400);
+}
+.chain-after li:last-child { color: var(--ink); font-weight: 600; }
+
+/* The skedworx side: inputs converge on one node and one outcome. */
+.chain-in { display: flex; flex-wrap: wrap; gap: .4rem; }
+.chain-in span {
+  font-size: .85rem; font-weight: 600;
+  padding: .3rem .7rem; border-radius: 999px;
+  background: var(--surface-2); border: 1px solid var(--line); color: var(--ink-600);
+}
+.chain-node {
+  margin: 1rem auto .75rem;
+  width: max-content;
+  padding: .55rem 1.6rem;
+  border-radius: 999px;
+  background: var(--brand-ink); color: #fff;
+  font-weight: 700; letter-spacing: -.02em;
+  position: relative;
+}
+.chain-node::before,
+.chain-node::after {
+  content: "↓";
+  position: absolute; left: 50%; transform: translateX(-50%);
+  color: var(--brand-ink); font-weight: 700;
+}
+.chain-node::before { top: -1.15rem; }
+.chain-node::after  { bottom: -1.35rem; }
+.chain-out {
+  margin: 1.4rem 0 0;
+  text-align: center;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+/* ------------------------------------------------------ philosophy pull-quote */
+.pull {
+  text-align: center;
+  font-size: clamp(1.35rem, 2.8vw, 1.9rem);
+  font-weight: 700;
+  letter-spacing: -.025em;
+  color: var(--ink);
+  max-width: 34rem;
+  margin: 0 auto 1.25rem;
+  padding-top: 2rem;
+  border-top: 2px solid var(--brand);
+  width: fit-content;
+}
+
+/* --------------------------------------------------------- feature list */
+.feature-list { list-style: none; margin: 0; padding: 0; }
+.feature-list li {
+  position: relative;
+  padding: .42rem 0 .42rem 1.6rem;
+  font-size: .96rem;
+  color: var(--ink-600);
+}
+.feature-list li::before {
+  content: "";
+  position: absolute; left: 0; top: .95rem;
+  width: .5rem; height: .5rem; border-radius: 2px;
+  background: var(--brand);
+}
+
+/* ------------------------------------------------------------- trade-offs */
+/* One idea, given a whole section and a wide measure. This is the argument
+   that separates skedworx from a template, so it does not sit in a card. */
+.tradeoff {
+  max-width: 46rem;
+  text-align: center;
+  padding: clamp(1.5rem, 4vw, 2.5rem) 0;
+  border-block: 1px solid var(--line);
+}
+
+/* ------------------------------------------------------------ credibility */
+.credibility {
+  max-width: 42rem; margin-inline: auto;
+  font-size: .95rem; line-height: 1.65; color: var(--ink-600);
+  padding-top: 1.6rem; border-top: 1px solid var(--line);
+}
+.credibility b { color: var(--ink); }
+
 /* ------------------------------------------------------------------ steps */
 .step { position: relative; padding-left: 3.4rem; }
 .step-n {
   position: absolute; left: 0; top: 0;
   width: 2.5rem; height: 2.5rem; border-radius: 12px;
-  background: var(--brand); color: #fff;
+  background: var(--brand-ink); color: #fff;
   display: grid; place-items: center;
   font-weight: 700; font-size: 1.05rem;
 }

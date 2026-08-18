@@ -3,17 +3,17 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Skeddy — Smarter schedules for rec sports</title>
-  <meta name="description" content="Skeddy builds recreational sports league schedules around your real constraints: team availability, field time, divisions, doubleheaders and rest. Stop wrestling with spreadsheets.">
-  <meta property="og:title" content="Skeddy — Smarter schedules for rec sports">
-  <meta property="og:description" content="Define your teams, fields, divisions and scheduling rules. Skeddy generates a schedule that works.">
+  <title>skedworx — schedules that work for your league</title>
+  <meta name="description" content="skedworx builds recreational sports league schedules around your real constraints: team availability, field time, divisions, doubleheaders and rest. Built from a real slo-pitch league.">
+  <meta property="og:title" content="skedworx — schedules that work for your league">
+  <meta property="og:description" content="Give skedworx your teams, fields, times and rules. It builds a schedule around the way your league actually works.">
   <meta property="og:type" content="website">
   <link rel="icon" href="{{ url_for('static', filename='img/favicon.png') }}">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
-  <link href="{{ url_for('static', filename='css/skeddy.css') }}" rel="stylesheet">
+  <link href="{{ url_for('static', filename='css/skedworx.css') }}" rel="stylesheet">
   <link href="{{ url_for('static', filename='css/home.css') }}" rel="stylesheet">
 </head>
 <body>
@@ -31,13 +31,13 @@
 
     <div class="collapse navbar-collapse" id="nav">
       <ul class="navbar-nav ms-lg-4 me-auto mb-2 mb-lg-0">
-        <li class="nav-item"><a class="nav-link" href="#features">Features</a></li>
+        <li class="nav-item"><a class="nav-link" href="#why">Why skedworx</a></li>
         <li class="nav-item"><a class="nav-link" href="#how">How It Works</a></li>
         <li class="nav-item"><a class="nav-link" href="#who">Who It's For</a></li>
       </ul>
       <div class="d-flex flex-column flex-lg-row gap-2">
         {% if signed_in %}
-          <a class="btn btn-accent px-3" href="{{ url_for('index') }}">Open Skeddy</a>
+          <a class="btn btn-accent px-3" href="{{ url_for('index') }}">Open skedworx</a>
         {% else %}
           <a class="btn btn-ghost px-3" href="{{ url_for('login') }}">Sign In</a>
           <a class="btn btn-accent px-3" href="{{ url_for('register') }}">Create Your League</a>
@@ -54,26 +54,26 @@
   <div class="container">
     <div class="row align-items-center g-4 g-lg-5">
       <div class="col-lg-6">
-        <!-- The brand slogan lockup carries the headline. Kept inside the h1 so the
-             page still has exactly one top-level heading, with the slogan as alt
-             text for screen readers and search engines. Falls back to styled text
-             if the artwork is absent. -->
+        <!-- The brand lockup carries the headline. Kept inside the h1 so the page
+             still has exactly one top-level heading, with the slogan as alt text
+             for screen readers and search engines. Falls back to styled text if
+             the artwork is absent. -->
         <h1 class="hero-title">
           <img class="hero-art"
-               src="{{ url_for('static', filename='img/skeddy-hero.png') }}"
-               alt="Skeddy — smarter schedules for rec sports"
+               src="{{ url_for('static', filename='img/skedworx-hero.png') }}"
+               alt="skedworx — schedules that work for your league"
                decoding="async" fetchpriority="high"
                onerror="this.style.display='none';this.nextElementSibling.style.display='block';">
-          <span class="hero-fallback" style="display:none">Smarter schedules<br>for rec sports.</span>
+          <span class="hero-fallback" style="display:none">Schedules that work<br>for your league.</span>
         </h1>
         <p class="lead-muted mt-3 mb-4" style="max-width:35rem">
-          Build complex league schedules without wrestling with spreadsheets. Skeddy lets you
-          define your teams, fields, game times, divisions and scheduling rules — then generates
-          a schedule that actually works.
+          Build complex league schedules without wrestling with spreadsheets. skedworx lets you
+          define your teams, fields, game times, divisions and scheduling rules — then builds a
+          schedule that actually works.
         </p>
         <div class="d-flex flex-wrap gap-2">
           {% if signed_in %}
-            <a class="btn btn-accent btn-lg px-4" href="{{ url_for('index') }}">Open Skeddy</a>
+            <a class="btn btn-accent btn-lg px-4" href="{{ url_for('index') }}">Open skedworx</a>
           {% else %}
             <a class="btn btn-accent btn-lg px-4" href="{{ url_for('register') }}">Get Started</a>
             <a class="btn btn-ghost btn-lg px-4" href="{{ url_for('login') }}">Sign In</a>
@@ -132,117 +132,167 @@
 </section>
 
 <!-- -------------------------------------------------------------- problem -->
+<!-- Deliberately the messiest section on the page. The illustration carries the
+     recognition; the copy stays out of its way. -->
 <section class="section band">
   <div class="container">
-    <div class="text-center mx-auto" style="max-width:44rem">
-      <p class="eyebrow">The problem</p>
-      <h2 class="section-title h1">Scheduling a league shouldn't require a spreadsheet PhD.</h2>
-      <p class="lead-muted mt-3">
-        A season looks simple until the real world turns up. Then it's a wall of
-        colour-coded cells at 11pm, and one change breaks three other weeks.
-      </p>
+    <div class="row align-items-center g-4 g-lg-5">
+      <div class="col-lg-5">
+        <p class="eyebrow">The problem</p>
+        <h2 class="section-title h1">Scheduling a league shouldn't require a spreadsheet PhD.</h2>
+        <p class="lead-muted mt-3">
+          A season looks simple until the real world turns up. Then it's a wall of
+          colour-coded cells at 11pm, and one change breaks three other weeks.
+        </p>
+      </div>
+      <div class="col-lg-7">
+        <!-- The caption "We've all been here." is inside the artwork, so it is not
+             repeated in markup — it lives in the alt text instead. -->
+        <img class="story-img"
+             src="{{ url_for('static', filename='img/spreadsheet-chaos.jpg') }}"
+             alt="A league schedule spreadsheet covered in sticky notes reading MOVE GAME, FIELD CLOSED, TEAM CAN'T PLAY, DOUBLEHEADER??, ASK COACH, ASK AGAIN and DON'T TOUCH WEEK 7, beside the clean schedule skedworx generates instead. Caption: we've all been here."
+             loading="lazy" decoding="async">
+      </div>
     </div>
 
-    <div class="row g-3 g-md-4 mt-4">
-      {% for icon, title, body in [
-        ('calendar', "Teams can't play every night", "Half your teams have a night that never works, and two of them share it."),
-        ('field', 'Fields are the real limit', "Diamonds, courts and rinks are booked solid. You get the slots you get."),
-        ('layers', 'Divisions differ', "Div A wants doubleheaders. Div C wants one night a week. Both are right."),
-        ('rest', 'Rest has to be sane', "Three games in four days, then eleven days off, is how you lose players."),
-        ('pair', 'Doubleheaders need balance', "Everyone accepts a few. Nobody accepts having all of theirs in April."),
-        ('ban', 'Blackouts and exceptions', "Tournaments, holidays, field maintenance, the one team on vacation in July.")
-      ] %}
-      <div class="col-md-6 col-lg-4">
-        <div class="s-card p-4">
-          <div class="s-icon">{% include 'icons/' + icon + '.svg' %}</div>
-          <h3>{{ title }}</h3>
-          <p>{{ body }}</p>
-        </div>
+    <!-- The graphic tells the emotional story; these carry the detail without
+         giving each point a full card. -->
+    <ul class="reality mt-5">
+      <li><b>Teams</b><span>Availability matters. Half your teams have a night that never works.</span></li>
+      <li><b>Fields</b><span>You only have so many slots, and everyone wants the good ones.</span></li>
+      <li><b>Rest</b><span>Three games in four days, then eleven days off, is how you lose players.</span></li>
+      <li><b>Exceptions</b><span>Blackouts, tournaments and vacations happen. Every season.</span></li>
+    </ul>
+  </div>
+</section>
+
+<!-- ----------------------------------------------------------- origin story -->
+<section class="section" id="why">
+  <div class="container">
+    <div class="mx-auto" style="max-width:42rem">
+      <p class="eyebrow">Why skedworx exists</p>
+      <h2 class="section-title h1">skedworx started with a real league problem.</h2>
+      <div class="story mt-4">
+        <p>
+          We run a recreational slo-pitch league where the teams aren't just names on a
+          spreadsheet. We're a tight-knit group, and we know that everyone's schedule is
+          different.
+        </p>
+        <p>
+          Some teams have shift workers. Some travel to tournaments. Some have players who
+          play on multiple teams. Everyone has work, family, vacations and everything else
+          life throws at them.
+        </p>
+        <p>
+          We could simply build a schedule and ask everyone to work around it.
+          But we thought we could do better.
+        </p>
+        <p>
+          So we started looking for ways to build the schedule around the people playing in
+          it. That's where skedworx was born.
+        </p>
       </div>
-      {% endfor %}
     </div>
   </div>
 </section>
 
-<!-- ------------------------------------------------------------- features -->
-<section class="section" id="features">
+<!-- ------------------------------------------------------- accommodation -->
+<section class="section band">
   <div class="container">
-    <div class="text-center mx-auto" style="max-width:44rem">
-      <p class="eyebrow">Features</p>
-      <h2 class="section-title h1">Built for the messy reality of rec sports.</h2>
+    <div class="mx-auto text-center" style="max-width:44rem">
+      <p class="eyebrow">The idea</p>
+      <h2 class="section-title h1">Accommodating teams up front saves headaches later.</h2>
       <p class="lead-muted mt-3">
-        Every setting here exists because a real league needed it.
+        A team that can't play Tuesday isn't necessarily a big problem — until you find out
+        after the schedule is published.
       </p>
     </div>
 
-    <div class="row g-3 g-md-4 mt-4">
-      {% for icon, title, body in [
-        ('rules', 'Flexible scheduling rules', 'Define the rules that matter to your league, instead of bending your league to fit the tool.'),
-        ('layers', 'Multiple divisions', 'Each division gets its own format, game count and rules — they do not have to match.'),
-        ('field', 'Field & time management', 'Set your available diamonds, dates, game times and season window.'),
-        ('team', 'Team constraints', 'Availability, blackout dates and per-team requirements are respected, not worked around.'),
-        ('pair', 'Doubleheaders', 'Control how many each team plays and keep them spread across the season.'),
-        ('rest', 'Rest & spacing', 'Set minimum and preferred gaps, and cap how long a team can go without a game.'),
-        ('cross', 'Cross-division play', 'Choose which divisions meet, and how many times each team plays across.'),
-        ('spark', 'Schedule optimisation', 'Runs many attempts and keeps the best, scored on your priorities — not just filled slots.')
-      ] %}
-      <div class="col-md-6 col-lg-3">
-        <div class="s-card p-4">
-          <div class="s-icon">{% include 'icons/' + icon + '.svg' %}</div>
-          <h3>{{ title }}</h3>
-          <p>{{ body }}</p>
-        </div>
+    <div class="row g-4 g-lg-5 mt-2 align-items-start">
+      <div class="col-lg-6">
+        <p class="chain-head">Found out afterwards</p>
+        <ol class="chain chain-after">
+          <li>Team can't play Tuesday</li>
+          <li>Game needs to move</li>
+          <li>Other team can't play the replacement day</li>
+          <li>Field needs to change</li>
+          <li>Another team gets affected</li>
+          <li>Reschedule</li>
+          <li>Forfeit risk</li>
+        </ol>
       </div>
-      {% endfor %}
+
+      <div class="col-lg-6">
+        <p class="chain-head">Known up front</p>
+        <div class="chain-in">
+          <span>Availability</span><span>Tournament dates</span><span>Team conflicts</span>
+          <span>Field availability</span><span>Rest requirements</span>
+        </div>
+        <div class="chain-node">skedworx</div>
+        <p class="chain-out">A schedule built with those constraints in mind</p>
+        <p class="text-muted small mt-3 mb-0">
+          The goal is to catch scheduling conflicts before they become forfeits,
+          reschedules or last-minute headaches.
+        </p>
+      </div>
     </div>
+
+    <p class="pull mt-5">Schedule for the people, not just the fields.</p>
+    <p class="lead-muted text-center mx-auto mb-0" style="max-width:44rem">
+      skedworx brings team availability, tournament dates, fields, game times, rest
+      requirements and league rules together <em>before</em> the schedule is built. The
+      result isn't just a schedule that fits. It's a schedule designed to work for the
+      people who have to live with it.
+    </p>
   </div>
 </section>
 
-<!-- ----------------------------------------------------------- how it works -->
-<section class="section band" id="how">
+<!-- ------------------------------------------------------------- home plate -->
+<section class="section">
   <div class="container">
-    <div class="text-center mx-auto" style="max-width:44rem">
-      <p class="eyebrow">How it works</p>
-      <h2 class="section-title h1">Three steps, not three weekends.</h2>
+    <div class="mx-auto text-center" style="max-width:44rem">
+      <p class="eyebrow">How it fits together</p>
+      <h2 class="section-title h1">Every league has moving parts.</h2>
+      <p class="lead-muted mt-3">
+        Teams. Fields. Times. Rules. Availability. Requests. They all compete for the same
+        limited space — and skedworx brings them together before the first pitch.
+      </p>
     </div>
 
-    <div class="row g-4 mt-4 steps">
-      {% for n, title, body in [
-        ('1', 'Configure your league', 'Set up divisions, teams, fields, game slots, season dates and the rules you care about. Save it as a preset and reuse it next season.'),
-        ('2', 'Let Skeddy build it', 'Skeddy works through your constraints and generates a schedule designed around them, trying many arrangements and keeping the best.'),
-        ('3', 'Review, adjust & publish', 'Check the summary, per-week grid and matchup matrix. Tweak a setting, re-run, then export to Excel or CSV.')
-      ] %}
-      <div class="col-md-4">
-        <div class="step">
-          <div class="step-n">{{ n }}</div>
-          <h3>{{ title }}</h3>
-          <p>{{ body }}</p>
-        </div>
-      </div>
-      {% endfor %}
-    </div>
+    <!-- The diagram carries its own labels and the "Everything connects at home
+         plate" line, so the surrounding copy stays short rather than restating it. -->
+    <img class="story-img plate mt-4"
+         src="{{ url_for('static', filename='img/home-plate.jpg') }}"
+         alt="A baseball diamond diagram. Teams, rules, fields and schedule sit at the four bases and feed into skedworx at the centre. Teams covers teams, divisions, ranks, requests and constraints; rules covers games per team, doubleheaders, rest and spacing, blackout dates and cross-division play; fields covers diamonds, locations, availability, time slots and blackouts; schedule covers balanced workloads, respecting all rules, minimizing conflicts, fairness and being ready to publish. Caption: everything connects at home plate. Teams, fields, times and rules — skedworx brings them together."
+         loading="lazy" decoding="async">
+
+    <p class="lead-muted text-center mx-auto mt-4 mb-0" style="max-width:38rem">
+      Give skedworx the moving parts. It figures out how they fit together.
+    </p>
   </div>
 </section>
 
 <!-- ------------------------------------------------------- configurability -->
-<section class="section">
+<section class="section band">
   <div class="container">
     <div class="row align-items-center g-4 g-lg-5">
       <div class="col-lg-6">
-        <p class="eyebrow">Configurability</p>
-        <h2 class="section-title h1">Your league has its own rules.<br>Skeddy understands that.</h2>
+        <p class="eyebrow">And because every league is different</p>
+        <h2 class="section-title h1">Your league has its own rules.<br>skedworx understands that.</h2>
         <p class="lead-muted mt-3">
-          Most schedulers assume every league looks the same. Yours doesn't. Skeddy is a
+          Most schedulers assume every league looks the same. Yours doesn't. skedworx is a
           scheduling engine you configure, not a template you have to live with.
         </p>
-        <p class="lead-muted">
-          Change a rule, re-run, and see what it costs — because in a tight season, every
-          constraint you add takes something somewhere else. Skeddy shows you that trade-off
-          instead of hiding it.
-        </p>
-        <a class="btn btn-brand btn-lg px-4 mt-2"
+        <ul class="feature-list mt-4">
+          <li>Each division gets its own format, game count and rules</li>
+          <li>Availability and blackout dates are respected, not worked around</li>
+          <li>Doubleheaders stay balanced across the season, not bunched in April</li>
+          <li>Minimum and preferred rest, plus a cap on the longest layoff</li>
+          <li>Choose which divisions meet, and how often</li>
+        </ul>
+        <a class="btn btn-brand btn-lg px-4 mt-3"
            href="{{ url_for('index') if signed_in else url_for('register') }}">
-          {{ 'Open Skeddy' if signed_in else 'Start configuring' }}
+          {{ 'Open skedworx' if signed_in else 'Start configuring' }}
         </a>
       </div>
 
@@ -269,20 +319,81 @@
   </div>
 </section>
 
+<!-- ------------------------------------------------------------ trade-offs -->
+<section class="section">
+  <div class="container">
+    <div class="tradeoff mx-auto">
+      <p class="eyebrow">The part nobody else shows you</p>
+      <h2 class="section-title h1">Change a rule. See what it costs.</h2>
+      <p class="lead-muted mt-3 mb-0">
+        In a tight season, every constraint you add takes something somewhere else. Ask for
+        more rest and you may fit fewer games. Protect one team's Tuesdays and another team
+        picks up the slack. skedworx runs your season many times over, keeps the best
+        result against the priorities you set, and shows you the trade-off instead of
+        hiding it — so the call is yours, made with the numbers in front of you.
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- ----------------------------------------------------------- how it works -->
+<section class="section band" id="how">
+  <div class="container">
+    <div class="text-center mx-auto" style="max-width:44rem">
+      <p class="eyebrow">How it works</p>
+      <h2 class="section-title h1">Three steps, not three weekends.</h2>
+    </div>
+
+    <div class="row g-4 mt-4 steps">
+      {% for n, title, body in [
+        ('1', 'Configure your league', 'Divisions, teams, fields, game slots, season dates and the rules you care about. Save it as a preset and reuse it next season.'),
+        ('2', 'Let skedworx build it', 'It works through your constraints, tries many arrangements, and keeps the one that fits your league best.'),
+        ('3', 'Review, adjust & publish', 'Check the summary, per-week grid and matchup matrix. Tweak a setting, re-run, then export to Excel or CSV.')
+      ] %}
+      <div class="col-md-4">
+        <div class="step">
+          <div class="step-n">{{ n }}</div>
+          <h3>{{ title }}</h3>
+          <p>{{ body }}</p>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+</section>
+
+<!-- ------------------------------------------------------------- time saved -->
+<section class="section">
+  <div class="container">
+    <div class="mx-auto text-center" style="max-width:42rem">
+      <h2 class="section-title h1">You have a league to run.<br>Not a spreadsheet to babysit.</h2>
+      <p class="lead-muted mt-3 mb-0">
+        Less time moving cells. Less time chasing availability. Less time negotiating
+        reschedules. More time on the part of the job you actually signed up for.
+      </p>
+    </div>
+  </div>
+</section>
+
 <!-- ------------------------------------------------------------ who it's for -->
 <section class="section band" id="who">
   <div class="container">
     <div class="text-center mx-auto" style="max-width:44rem">
       <p class="eyebrow">Who it's for</p>
       <h2 class="section-title h1">Made for the person who ended up with the spreadsheet.</h2>
+      <p class="lead-muted mt-3">
+        You volunteered to run the league. Somehow, you also became the scheduler. skedworx
+        gives you a better way to handle the part of the job that shouldn't take your
+        entire evening.
+      </p>
     </div>
 
     <div class="row g-3 g-md-4 mt-4">
       {% for icon, title, body in [
         ('team', 'Recreational leagues', 'Volunteer administrators putting a season together around everyone else\'s availability.'),
-        ('layers', 'Sports associations', 'Organisations running several divisions or leagues that each work a little differently.'),
-        ('trophy', 'Tournament organisers', 'Structured brackets and pools that still have to fit real field time.'),
-        ('rules', 'League coordinators', 'Anyone who inherited the dreaded spreadsheet and would like their evenings back.')
+        ('layers', 'Sports associations', 'Several divisions or leagues that each work a little differently.'),
+        ('trophy', 'Tournament organisers', 'Brackets and pools that still have to fit real field time.'),
+        ('rules', 'League coordinators', 'Anyone who inherited the dreaded spreadsheet.')
       ] %}
       <div class="col-md-6 col-lg-3">
         <div class="s-card p-4">
@@ -302,17 +413,19 @@
     <p class="eyebrow">Any sport</p>
     <h2 class="section-title h1">One scheduling platform. Any sport.</h2>
     <p class="lead-muted mt-3 mx-auto" style="max-width:40rem">
-      Skeddy schedules around teams, venues, times and rules — not around a particular
-      game. If your season fits that shape, it fits Skeddy.
+      skedworx schedules around teams, venues, times and rules — not around a particular
+      game. If your season fits that shape, it fits skedworx.
     </p>
     <div class="sports mt-4">
       {% for s in ['Baseball','Softball','Soccer','Hockey','Basketball','Volleyball','Pickleball','Ultimate','Curling','Lacrosse'] %}
         <span class="sport">{{ s }}</span>
       {% endfor %}
     </div>
-    <p class="text-muted small mt-4 mb-0">
-      Built and tested on real slo-pitch seasons. Anything that needs teams, venues and
-      time slots works the same way.
+
+    <p class="credibility mt-5 mb-0">
+      <b>Built from a real recreational league.</b>
+      skedworx was developed around the scheduling problems we actually face in slo-pitch —
+      then designed to make those same ideas configurable for other leagues and sports.
     </p>
   </div>
 </section>
@@ -320,18 +433,19 @@
 <!-- ------------------------------------------------------------- final CTA -->
 <section class="cta">
   <div class="container text-center">
-    <h2 class="section-title h1 text-white mb-3">
-      Stop building your season one spreadsheet cell at a time.
-    </h2>
-    <p class="mb-4 cta-sub">Create a smarter schedule with Skeddy.</p>
+    <h2 class="section-title h1 text-white mb-3">You have a league to run.</h2>
+    <p class="mb-4 cta-sub">Let skedworx handle the schedule.</p>
     <div class="d-flex flex-wrap justify-content-center gap-2">
       {% if signed_in %}
-        <a class="btn btn-accent btn-lg px-4" href="{{ url_for('index') }}">Open Skeddy</a>
+        <a class="btn btn-accent btn-lg px-4" href="{{ url_for('index') }}">Open skedworx</a>
       {% else %}
         <a class="btn btn-accent btn-lg px-4" href="{{ url_for('register') }}">Get Started</a>
         <a class="btn btn-outline-light btn-lg px-4" href="{{ url_for('login') }}">Sign In</a>
       {% endif %}
     </div>
+    <p class="cta-sub small mt-4 mb-0">
+      Spend less time fixing the schedule. More time running the league.
+    </p>
   </div>
 </section>
 
@@ -340,7 +454,7 @@
 <footer class="site-foot">
   <div class="container d-flex flex-column flex-sm-row justify-content-between align-items-center gap-2">
     {% with height = 32 %}{% include 'wordmark.html' %}{% endwith %}
-    <span class="text-muted small">Smarter schedules for rec sports.</span>
+    <span class="text-muted small">Schedules that work for your league.</span>
   </div>
 </footer>
 
