@@ -710,8 +710,8 @@
         '<div class="alert alert-info py-2 mb-0 small">' +
         'Ran <strong>' + stats.attempts_run + '</strong> attempts. Best was seed <strong>' +
         stats.best_seed + '</strong> (score ' + stats.best_score + ', lower is better). ' +
-        'That seed is kept in Run History. Re-running it reproduces this schedule exactly ' +
-        'only with Attempts set to 1.' +
+        'That seed is kept in Run History. Re-running it with Attempts set to 1 ' +
+        'reproduces this exact schedule.' +
         '</div></div></div>';
     }
     document.getElementById('statsCards').innerHTML = html;
@@ -739,7 +739,7 @@
       var seedCell = (r.seed != null)
         ? '<code class="small">' + r.seed + '</code>' +
           ' <button class="btn btn-sm btn-ghost ms-1" type="button" onclick="useSeed(' + r.seed + ')"' +
-          ' title="Put this seed in the config. Set Attempts to 1 to re-run from the same starting point.">Use seed</button>'
+          ' title="Put this seed in the config and set Attempts to 1, reproducing this schedule exactly">Use seed</button>'
         : '<span class="text-muted small">—</span>';
 
       tbody.innerHTML +=
@@ -771,6 +771,10 @@
   window.useSeed = function (seed) {
     var el = document.getElementById('randomSeed');
     el.value = seed;
+    // Attempts must be 1 for the replay to be exact: with more, the run starts at
+    // this seed but best-of-N may pick a later attempt instead.
+    document.getElementById('attempts').value = '1';
+    refreshEstimate();
     var panel = document.getElementById('panelConfig');
     if (panel && !panel.classList.contains('show')) {
       new bootstrap.Collapse(panel, { toggle: true });

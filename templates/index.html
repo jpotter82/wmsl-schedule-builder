@@ -619,11 +619,10 @@
             </p>
             <p class="small text-muted">
               <strong>About seeds.</strong> Each run records the seed that produced its best
-              attempt. Putting that seed back in the config re-runs from the same starting
-              point, which reproduces the schedule exactly <em>when that run used a single
-              attempt</em>. With several attempts it lands somewhere close but not identical,
-              because attempts in a run are not fully independent of each other — a known
-              limitation, not something you did wrong.
+              attempt. <strong>Use seed</strong> puts it back in the config and sets Attempts
+              to 1, which reproduces that schedule exactly — same CSVs and settings, same
+              result, every time. Handy for returning to a version you preferred after trying
+              something else.
             </p>
             <div class="table-responsive">
               <table class="table table-sm align-middle" id="historyTable">
