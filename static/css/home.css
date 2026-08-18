@@ -13,7 +13,7 @@ body { background: var(--surface-2); }
   color: var(--ink-600); font-weight: 550; font-size: .95rem;
   padding: .4rem .85rem; border-radius: 8px;
 }
-.site-nav .nav-link:hover { color: var(--brand); background: var(--brand-tint); }
+.site-nav .nav-link:hover { color: var(--brand-ink); background: var(--brand-tint); }
 .navbar-toggler:focus { box-shadow: none; }
 
 /* ------------------------------------------------------------------ hero */
@@ -32,6 +32,12 @@ body { background: var(--surface-2); }
   width: 100%;
   max-width: 30rem;
   height: auto;
+  /* The supplied artwork has a white background baked in, with no alpha channel,
+     so on the tinted hero it would read as a white box. Multiply drops white to
+     nothing against a light background without keying the image and fringing the
+     antialiased letterforms. The hero gradient is always light, so this is safe;
+     browsers without support simply show the white panel, as before. */
+  mix-blend-mode: multiply;
 }
 /* Text used only when the artwork is missing. */
 .hero-fallback {
@@ -82,7 +88,7 @@ body { background: var(--surface-2); }
 }
 .sc-game b { font-weight: 700; }
 .sc-game span { display: block; font-size: .66rem; opacity: .8; margin-top: .1rem; }
-.d-a { background: var(--brand-tint); color: var(--brand); border-color: #cfe6cf; }
+.d-a { background: var(--brand-tint); color: var(--brand-ink); border-color: #cfe6cf; }
 .d-b { background: var(--accent-tint); color: var(--brand-700); border-color: #dcefc8; }
 .d-c { background: var(--surface); color: var(--ink-600); border-color: var(--line); }
 .sc-game.dh { position: relative; }
@@ -268,6 +274,39 @@ html { scroll-behavior: smooth; }
 }
 .credibility b { color: var(--ink); }
 
+/* ------------------------------------------------- copy emphasis treatments */
+/* The central product promise, in the hero. Sized between body and heading so it
+   reads as a statement without competing with the logo lockup above it. */
+.promise {
+  margin: 0 0 1.5rem;
+  padding-left: .9rem;
+  border-left: 3px solid var(--brand);
+  font-size: clamp(1.02rem, 1.6vw, 1.18rem);
+  font-weight: 650;
+  line-height: 1.45;
+  color: var(--ink);
+  max-width: 30rem;
+}
+
+/* Conversational one-liners that land a section. Quieter than .pull, which is a
+   full-width statement; this sits inline at the end of a column of copy. */
+.aside {
+  margin: 1.25rem 0 0;
+  font-size: 1.02rem;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+/* The turn in the origin story. The sentence before it is the easy path, this is
+   the decision -- so it gets the weight, and the paragraphs stay plain around it. */
+.story p.turn {
+  color: var(--ink);
+  font-size: 1.18rem;
+  font-weight: 650;
+  letter-spacing: -.015em;
+  margin: 1.25rem 0;
+}
+
 /* ------------------------------------------------------------------ steps */
 .step { position: relative; padding-left: 3.4rem; }
 .step-n {
@@ -298,7 +337,7 @@ html { scroll-behavior: smooth; }
 .k-value { font-weight: 650; font-size: .92rem; color: var(--ink); white-space: nowrap; }
 .k-value.num { font-variant-numeric: tabular-nums; }
 .k-value.pill {
-  background: var(--brand-tint); color: var(--brand);
+  background: var(--brand-tint); color: var(--brand-ink);
   padding: .15rem .6rem; border-radius: 999px; font-size: .82rem;
 }
 
