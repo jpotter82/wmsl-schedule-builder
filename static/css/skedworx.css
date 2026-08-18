@@ -166,5 +166,11 @@ h1, h2, h3, h4, h5, .fw-bold, .navbar-brand { font-weight: 600; letter-spacing: 
 }
 
 @media (prefers-reduced-motion: reduce) {
-  * { animation: none !important; transition: none !important; }
+  /* Decoration only. Status indicators are exempt below: switching them off left a
+     static full-width bar that reads as "finished" rather than "working", which is
+     worse than the motion it was avoiding. */
+  *:not(.spinner-border):not(.progress-bar-indeterminate) {
+    animation: none !important;
+    transition: none !important;
+  }
 }

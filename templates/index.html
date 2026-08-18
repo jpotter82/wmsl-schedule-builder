@@ -26,6 +26,23 @@
     .stat-card { border-radius: var(--radius-sm); }
     /* Bootstrap's progress bar defaults to its own blue. */
     .progress-bar { background-color: var(--brand-ink); }
+
+    /* The working state. A full-width bar reads as 100% complete no matter how it
+       is striped, so this is a narrow sliver that travels instead -- unmistakably
+       "in progress" rather than "finished". */
+    .progress-bar-indeterminate {
+      width: 32% !important;
+      animation: sw-indeterminate 1.4s ease-in-out infinite;
+    }
+    @keyframes sw-indeterminate {
+      0%   { margin-left: -34%; }
+      100% { margin-left: 100%; }
+    }
+    /* With motion reduced the sliver cannot travel, so it would sit in one place
+       looking like a stalled 32%. The spinner and its text carry it instead. */
+    @media (prefers-reduced-motion: reduce) {
+      #runProgress.is-indeterminate { display: none; }
+    }
     .file-drop { border: 2px dashed var(--line); border-radius: var(--radius-sm); padding: 20px;
                  text-align: center; cursor: pointer; transition: border-color .2s, background .2s; }
     .file-drop:hover, .file-drop.dragover { border-color: var(--brand); background: var(--brand-tint); }
