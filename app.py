@@ -420,6 +420,30 @@ def logout():
     return redirect(url_for('home'))
 
 
+@app.context_processor
+def _asset_helper():
+    """`asset('js/app.js')` -> /static/js/app.js?v=<mtime>.
+
+    Without this a deploy is invisible to anyone who has already loaded the page:
+    the browser keeps serving the cached script, the app keeps behaving like the
+    old build, and the bug looks like it was never fixed. It was -- a stale app.js
+    kept sending min_dh=6 after the form was fixed to send 0, and the server
+    faithfully reported the value it was given.
+
+    Stamped from the file's mtime rather than a hand-bumped constant, because a
+    version number that has to be remembered is a version number that will not be.
+    """
+    def asset(filename):
+        try:
+            stamp = int((Path(app.static_folder) / filename).stat().st_mtime)
+        except OSError:
+            # A missing file is the template's problem, not this helper's; fall
+            # back to an unstamped URL so the 404 says what is actually wrong.
+            return url_for('static', filename=filename)
+        return url_for('static', filename=filename, v=stamp)
+    return {'asset': asset}
+
+
 @app.route('/pricing')
 def pricing():
     """Informational only. No payment flow exists yet, and the page says so."""
