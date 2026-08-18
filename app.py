@@ -460,10 +460,60 @@ def run_status():
                     'progress': state.get('progress')})
 
 
+def _uploaded_team_names():
+    """Team names in the user's uploaded availability file, or None if absent."""
+    path = _user_dir('uploads') / 'team_availability.csv'
+    if not path.is_file():
+        return None
+    names = set()
+    try:
+        with open(path, encoding='utf-8-sig') as fh:
+            for i, line in enumerate(fh):
+                first = line.split(',')[0].strip()
+                # Row 1 is a header whose contents the parser ignores.
+                if i == 0 or not first:
+                    continue
+                names.add(first)
+    except OSError:
+        return None
+    return names
+
+
+def _check_teams_against_config(config):
+    """Warn when the config names teams the availability file does not define.
+
+    Team names are generated from the divisions, so a team with no row in the
+    file is simply never available and plays zero games. The run still succeeds
+    and the shortfall looks like a scheduling failure, which is the most
+    expensive way to discover a mismatched upload.
+    """
+    uploaded = _uploaded_team_names()
+    if not uploaded:
+        return []
+
+    expected = []
+    for div, d in sorted((config.get('divisions') or {}).items()):
+        expected += [f'{div}{i + 1}' for i in range(int(d.get('team_count') or 0))]
+
+    missing = [t for t in expected if t not in uploaded]
+    if not missing:
+        return []
+
+    shown = ', '.join(missing[:8]) + (', and more' if len(missing) > 8 else '')
+    return [
+        f"Your config expects {len(expected)} teams, but the uploaded "
+        f"team_availability.csv has no row for {len(missing)} of them "
+        f"({shown}). Teams with no availability play zero games, so the schedule "
+        f"will come up short. Either add them to the file and upload it again, or "
+        f"change the division team counts to match."
+    ]
+
+
 @app.route('/api/validate', methods=['POST'])
 @login_required
 def validate():
-    return jsonify({'warnings': validate_config(request.get_json() or {})})
+    config = request.get_json() or {}
+    return jsonify({'warnings': validate_config(config) + _check_teams_against_config(config)})
 
 
 @app.route('/api/results')
