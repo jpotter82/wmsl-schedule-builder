@@ -34,19 +34,23 @@
 
     /* Collapsible planning guidance. <details> rather than a Bootstrap collapse:
        no JS, and it still works if scripts fail. */
-    .guide { border: 1px solid var(--line); border-radius: var(--radius-sm);
-             background: var(--surface-2); margin-bottom: 1rem; }
-    .guide > summary { cursor: pointer; padding: .7rem .9rem; font-weight: 600;
-                       font-size: .93rem; list-style: none; }
+    .guide { border: 1px solid var(--brand-wash-line); border-radius: var(--radius-sm);
+             background: var(--brand-wash); margin-bottom: 1.25rem;
+             border-left: 3px solid var(--brand-ink); }
+    .guide > summary { cursor: pointer; padding: .8rem .9rem; font-weight: 650;
+                       font-size: .95rem; list-style: none; color: var(--brand-on-wash); }
+    .guide > summary:hover { color: var(--brand-700); }
     .guide > summary::-webkit-details-marker { display: none; }
     .guide > summary::before { content: "\25B8"; display: inline-block; width: 1em;
-                               color: var(--ink-400); transition: transform .15s ease; }
+                               transition: transform .15s ease; }
+    .guide[open] > summary { border-bottom: 1px solid var(--brand-wash-line); }
     .guide[open] > summary::before { transform: rotate(90deg); }
-    .guide .guide-body { padding: 0 .9rem .9rem 1.9rem; }
-    .guide h6 { font-size: .88rem; font-weight: 700; margin: .9rem 0 .3rem; }
-    .guide p, .guide li { font-size: .88rem; color: var(--ink-600); line-height: 1.6;
+    .guide .guide-body { padding: .2rem .9rem .9rem 1.9rem; }
+    .guide h6 { font-size: .88rem; font-weight: 700; margin: .9rem 0 .3rem; color: var(--ink); }
+    /* Muted copy is darkened for the tint: plain --ink-600 measures 4.11:1 here. */
+    .guide p, .guide li { font-size: .88rem; color: var(--ink-600-on-wash); line-height: 1.6;
                           margin-bottom: .4rem; }
-    .guide code { background: var(--surface); padding: .05rem .3rem; border-radius: 4px;
+    .guide code { background: var(--surface-2); padding: .05rem .3rem; border-radius: 4px;
                   color: var(--ink); font-size: .85em; }
     .guide .rule { color: var(--ink); font-weight: 600; }
     .form-check[title] { cursor: help; }
