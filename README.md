@@ -455,8 +455,12 @@ everywhere else.
 
 Without SMTP configured the link is only written to the error log, so **nobody can
 actually recover an account until you set this up**. A cPanel mailbox on your own
-domain is enough. Set these in `dispatch.cgi` (untracked, so credentials stay out of
-git):
+domain is enough.
+
+Put the settings in `~/skedworx-secrets.env` (`chmod 600`), **above** the web root —
+`dispatch.cgi` loads it if present. `dispatch.cgi` itself sits in the document root, so
+a mailbox password written there is one broken handler away from being served as plain
+text. `KEY=VALUE` per line, unquoted:
 
 | Variable | Example | |
 |---|---|---|
@@ -471,6 +475,21 @@ git):
 Set `SKEDWORX_BASE_URL`. Without it the link is built from the `Host` header, which the
 requester controls — someone could trigger a reset for your address and have the mail
 arrive pointing at their own site, capturing the token when you clicked it.
+
+Check it from the host before trusting it:
+
+```bash
+cd ~/skedworx && python3 check_smtp.py                  # settings, connect, authenticate
+cd ~/skedworx && python3 check_smtp.py you@example.com  # ...and send a real message
+```
+
+`check_smtp.py` reports what is set (never the password), then connects, negotiates TLS
+and logs in, naming the specific failure. Worth using rather than testing through the
+reset form: that form is deliberately silent — identical response whether or not the
+address exists, and send failures are logged rather than shown — so a broken mailbox
+looks exactly like a working one from the browser.
+
+If the test message lands in spam, add SPF and DKIM records for the domain in cPanel.
 
 Check it end to end after configuring, and watch the error log: send failures are
 logged rather than shown, because the page is deliberately identical whether or not
@@ -658,6 +677,7 @@ so a fresh checkout shows the brand rather than a broken-image icon.
 ├── passenger_wsgi.py       # Passenger entry point (cPanel Python app)
 ├── requirements.txt
 ├── mailer.py               # Password reset email (smtplib)
+├── check_smtp.py           # Diagnose mail config from the host
 ├── test_password_reset.py  # Reset-flow tests: python test_password_reset.py
 ├── templates/
 │   ├── home.html           # Public landing page

@@ -35,12 +35,39 @@ os.environ.setdefault('SKEDWORX_SYNC_RUNS', '1')
 # is misconfigured. Create the directory (chmod 700) and uncomment.
 # os.environ.setdefault('SKEDWORX_DATA_DIR', '/home/USERNAME/skedworx-data')
 
-# Password reset email. Without SMTP the reset link is only written to the error
-# log, so nobody can actually recover an account. A cPanel mailbox works.
+# Settings kept OUTSIDE the web root.
 #
-# Set SKEDWORX_BASE_URL too: without it the link in the mail is built from the Host
-# header, which the requester controls, so a forged request could mail you a link
-# pointing at someone else's site.
+# This file lives in the document root, so anything written here is one broken
+# handler away from being served as plain text -- and a mailbox password is worth
+# protecting from that. Put credentials in a file above the root instead:
+#
+#     ~/skedworx-secrets.env      chmod 600
+#
+#     SKEDWORX_SMTP_HOST=mail.example.com
+#     SKEDWORX_SMTP_PORT=587
+#     SKEDWORX_SMTP_USER=noreply@example.com
+#     SKEDWORX_SMTP_PASSWORD=the-mailbox-password
+#     SKEDWORX_SMTP_FROM=skedworx <noreply@example.com>
+#     SKEDWORX_BASE_URL=https://example.com
+#
+# KEY=VALUE per line. Blank lines and # comments ignored; values are taken
+# literally, so do not quote them and do not escape anything.
+_SECRETS = os.path.join(os.path.expanduser('~'), 'skedworx-secrets.env')
+if os.path.exists(_SECRETS):
+    with open(_SECRETS, encoding='utf-8') as _fh:
+        for _line in _fh:
+            _line = _line.strip()
+            if not _line or _line.startswith('#') or '=' not in _line:
+                continue
+            _k, _, _v = _line.partition('=')
+            os.environ.setdefault(_k.strip(), _v.strip())
+
+# Or set them here instead, accepting that they sit in the web root.
+#
+# SKEDWORX_BASE_URL matters as much as the credentials: without it the link in the
+# mail is built from the Host header, which the requester controls, so a forged
+# request could mail you a link pointing at someone else's site.
+#
 # os.environ.setdefault('SKEDWORX_BASE_URL', 'https://schedule.wmsl.ca')
 # os.environ.setdefault('SKEDWORX_SMTP_HOST', 'mail.wmsl.ca')
 # os.environ.setdefault('SKEDWORX_SMTP_PORT', '587')
