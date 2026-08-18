@@ -640,8 +640,8 @@ artwork in at these paths:
 | File | Used by | Source |
 |---|---|---|
 | `static/img/skedworx-hero.png` | Landing page headline | `brand/hero-img.png` |
-| `static/img/skedworx-icon.png` | Nav and compact placements | supplied at final size |
-| `static/img/favicon.png` | Browser tab | `static/img/skedworx-icon.png` |
+| `static/img/skedworx-icon.png` | Nav and compact placements | `brand/white_flat_logo.png` |
+| `static/img/favicon.png` | Browser tab | `brand/white_flat_logo.png` |
 | `static/img/spreadsheet-chaos.jpg` | Homepage: the problem | `brand/spreadsheet_solving.png` |
 | `static/img/home-plate.jpg` | Homepage: how it fits together | `brand/diamond-problem-matrix.png` |
 
@@ -653,6 +653,10 @@ which matters on a landing page.
 The two marketing illustrations ship as **JPEG**: they are detailed, near-photographic
 artwork where PNG lands around 480 KB each. The hero lockup stays **PNG-8**, because it
 is flat colour and JPEG rings visibly around the letterforms.
+
+The diamond mark is **PNG with alpha** and must stay that way — the diamond is filled,
+the surround is transparent. The hero lockup has no alpha, so it is drawn with
+`mix-blend-mode: multiply` to drop its white background against the tinted hero.
 
 The nav pairs the diamond mark with the wordmark set in Poppins rather than using the
 full lockup: it renders about 34px tall, where "schedules that work for your league"
@@ -676,8 +680,13 @@ for src, dst, box in (('brand/spreadsheet_solving.png',    'static/img/spreadshe
 flat('brand/hero-img.png', (960, 960)).quantize(colors=128).save(
     'static/img/skedworx-hero.png', optimize=True)
 
-ic = Image.open('static/img/skedworx-icon.png').convert('RGBA')
-ic.thumbnail((64, 64), Image.LANCZOS); ic.save('static/img/favicon.png', optimize=True)
+# The mark keeps its alpha: only the diamond is filled, and the surround is
+# transparent. Flattening it onto white puts a visible white tile back on the
+# grey auth pages.
+for dst, box in (('static/img/skedworx-icon.png', (160, 160)),
+                 ('static/img/favicon.png',       (64, 64))):
+    ic = Image.open('brand/white_flat_logo.png').convert('RGBA')
+    ic.thumbnail(box, Image.LANCZOS); ic.save(dst, optimize=True)
 EOF
 ```
 
