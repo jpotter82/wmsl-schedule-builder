@@ -506,7 +506,12 @@
         // the run has finished, so polling first would clear a timer that does not
         // exist yet and leave the interval running afterwards.
         if (!res.sync) {
-          pollTimer = setInterval(pollStatus, 2000);
+          // 400ms, not 2s: a 5-attempt run finishes in about 1.9 seconds, so a
+          // 2-second interval reliably had its first poll land after the run was
+          // already over and the bar never moved. Only helps in background mode --
+          // under SYNC_RUNS the request blocks until the run is done, so there is
+          // no window to poll at all.
+          pollTimer = setInterval(pollStatus, 400);
         }
         // In synchronous mode the run is already complete when this response
         // arrives, so check immediately instead of waiting out the interval.
@@ -594,8 +599,15 @@
     var html =
       '<div class="col-md-3"><div class="card stat-card p-3"><div class="text-muted">Total Games</div><h3>' + stats.total_games + '</h3></div></div>' +
       '<div class="col-md-3"><div class="card stat-card p-3"><div class="text-muted">Games Short of Target</div><h3 class="' + shortCls.trim() + '">' + (stats.games_short != null ? stats.games_short : '-') + '</h3></div></div>' +
-      '<div class="col-md-3"><div class="card stat-card p-3"><div class="text-muted">Idle Weeks</div><h3>' + (stats.idle_weeks != null ? stats.idle_weeks : '-') + '</h3></div></div>' +
-      '<div class="col-md-3"><div class="card stat-card p-3"><div class="text-muted">Overloaded Weeks</div><h3>' + (stats.heavy_weeks != null ? stats.heavy_weeks : '-') + '</h3></div></div>';
+      // These count TEAM-weeks, not weeks: one team with no games in one week is
+      // one idle team-week. Labelling them "weeks" read as whole weeks of the
+      // season being empty, which is a different and much worse thing.
+      '<div class="col-md-3"><div class="card stat-card p-3" title="Times a team had no games in a week. 55 across 22 teams and 10 weeks means 55 of 220 team-weeks were byes.">' +
+        '<div class="text-muted">Idle Team-Weeks</div><h3>' + (stats.idle_weeks != null ? stats.idle_weeks : '-') + '</h3>' +
+        '<small class="text-muted">a team with no games that week</small></div></div>' +
+      '<div class="col-md-3"><div class="card stat-card p-3" title="Times a team played more than one game above its weekly target.">' +
+        '<div class="text-muted">Heavy Team-Weeks</div><h3>' + (stats.heavy_weeks != null ? stats.heavy_weeks : '-') + '</h3>' +
+        '<small class="text-muted">a team over its weekly target</small></div></div>';
 
     if (stats.worst_idle_gap != null) {
       var gapCls = stats.idle_violations > 0 ? 'text-danger' : 'text-success';
