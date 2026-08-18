@@ -3234,7 +3234,7 @@ def _autofit(ws, max_row, max_col, min_width=10, max_width=40):
 # definitions while keeping the call sites, so any XLSX export raised NameError.
 # Taken unchanged from main.
 # -------------------------------------------------------------------------------
-def _schedule_row_annotations(rows, team_preferred_days=None):
+def _schedule_row_annotations(rows):
     """Return per-row annotations for Schedule export."""
     scheduled_only = []
     for idx, (dt, slot, field, home, home_div, away, away_div) in enumerate(rows, start=2):
@@ -3286,25 +3286,11 @@ def _schedule_row_annotations(rows, team_preferred_days=None):
         else:
             game_type_parts.append("SINGLE")
 
-        pref_label = "N/A"
-        if team_preferred_days:
-            dow = dow_label(dt)
-            home_pref = dow in team_preferred_days.get(home, set())
-            away_pref = dow in team_preferred_days.get(away, set())
-            if home_pref and away_pref:
-                pref_label = "Both"
-            elif home_pref or away_pref:
-                pref_label = "One"
-            else:
-                pref_label = "None"
-
         flags = []
         if home_days != "" and home_days > MAX_IDLE_DAYS:
             flags.append(f"{home} layoff")
         if away_days != "" and away_days > MAX_IDLE_DAYS:
             flags.append(f"{away} layoff")
-        if pref_label == "None":
-            flags.append("Non-preferred day")
         if recent_repeat:
             flags.append("Quick rematch")
 
@@ -3316,7 +3302,6 @@ def _schedule_row_annotations(rows, team_preferred_days=None):
             "away_last": away_last,
             "home_days_since": home_days,
             "away_days_since": away_days,
-            "preferred_match": pref_label,
             "flag": "; ".join(flags) if flags else "OK",
         }
         previous_dates[home] = d
@@ -3325,22 +3310,13 @@ def _schedule_row_annotations(rows, team_preferred_days=None):
     return metadata
 
 
-def _build_team_summary(schedule, all_teams, team_stats, doubleheader_count, team_preferred_days=None):
+def _build_team_summary(schedule, all_teams, team_stats, doubleheader_count):
     by_team_dates = defaultdict(list)
-    preferred_hits = defaultdict(int)
-    preferred_misses = defaultdict(int)
 
     for (dt, _time, _field, home, _home_div, away, _away_div) in sorted(schedule, key=lambda g: (g[0], g[1], g[2])):
         d = dt.date() if hasattr(dt, 'date') else dt
         by_team_dates[home].append(d)
         by_team_dates[away].append(d)
-        if team_preferred_days:
-            dow = dow_label(dt)
-            for t in (home, away):
-                if dow in team_preferred_days.get(t, set()):
-                    preferred_hits[t] += 1
-                else:
-                    preferred_misses[t] += 1
 
     rows = []
     for t in sorted(all_teams, key=lambda x: (div_of(x), x)):
@@ -3362,8 +3338,6 @@ def _build_team_summary(schedule, all_teams, team_stats, doubleheader_count, tea
             "Last Scheduled Game": dates[-1] if dates else "",
             "Longest Gap": longest_gap,
             "Max Gap Warning": max_gap_warning or "OK",
-            "Preferred Hits": preferred_hits[t] if team_preferred_days else "",
-            "Preferred Misses": preferred_misses[t] if team_preferred_days else "",
             "Games Remaining": max(0, target_games(t) - (int(team_stats[t].get('total_games', 0)) if team_stats else 0)),
             "DH Remaining To Min": max(0, min_dh(t) - (int(doubleheader_count[t]) if doubleheader_count else 0)),
         })
@@ -3376,6 +3350,10 @@ def _build_team_summary(schedule, all_teams, team_stats, doubleheader_count, tea
 # The merge kept this branch's signature but main's body, so the body referenced a
 # parameter that no longer existed and every XLSX export raised NameError.
 def export_schedule_to_xlsx(field_availability, schedule, division_teams, output_path, remaining_matchups=None, team_stats=None, doubleheader_count=None, team_availability=None, team_blackouts=None, diagnostics=None, team_preferred_days=None):
+    # team_preferred_days is accepted but no longer reported on. It still drives
+    # scheduling bonuses on the standalone CLI path, which passes it here; the
+    # columns it used to fill were blank on every web run, since the app does not
+    # collect preferred days.
     if Workbook is None:
         raise RuntimeError("openpyxl is not installed. Run: pip install openpyxl")
 
@@ -3389,7 +3367,7 @@ def export_schedule_to_xlsx(field_availability, schedule, division_teams, output
         pass
 
     all_teams = sorted([t for div in sorted(division_teams.keys()) for t in division_teams[div]])
-    annotations = _schedule_row_annotations(rows, team_preferred_days=team_preferred_days)
+    annotations = _schedule_row_annotations(rows)
 
     # ---------------- Schedule ----------------
     ws = wb.active
@@ -3399,7 +3377,7 @@ def export_schedule_to_xlsx(field_availability, schedule, division_teams, output
         "Date", "Day", "Time", "Diamond", "Home Team", "Away Team", "Home Div", "Away Div",
         "Week #", "SlotIndex", "Game Type", "Home Games After", "Away Games After",
         "Home Last Game", "Away Last Game", "Home Days Since Last", "Away Days Since Last",
-        "Preferred Match", "Flag",
+        "Flag",
         # Appended, not inserted next to the IDs: the Upload sheet and the
         # Unscheduled formulas address Schedule columns by letter, and shifting
         # E/F/G/H out from under them would break every one of those references.
@@ -3432,7 +3410,7 @@ def export_schedule_to_xlsx(field_availability, schedule, division_teams, output
             meta.get("home_after", ""), meta.get("away_after", ""),
             meta.get("home_last", ""), meta.get("away_last", ""),
             meta.get("home_days_since", ""), meta.get("away_days_since", ""),
-            meta.get("preferred_match", ""), meta.get("flag", "Open Slot" if not home else ""),
+            meta.get("flag", "Open Slot" if not home else ""),
             disp(home), disp(away)
         ])
 
@@ -3444,9 +3422,9 @@ def export_schedule_to_xlsx(field_availability, schedule, division_teams, output
         ws.cell(row=r, column=15).number_format = "yyyy-mm-dd"
 
     ws.freeze_panes = "A2"
-    ws.auto_filter.ref = f"A1:U{n + 1}"   # through the two name columns
+    ws.auto_filter.ref = f"A1:T{n + 1}"   # through the two name columns
     ws.column_dimensions['J'].hidden = True
-    _autofit(ws, n + 1, 21)
+    _autofit(ws, n + 1, 20)
 
     # ---------------- Teams ----------------
     ws_t = wb.create_sheet("Teams")
@@ -3462,11 +3440,11 @@ def export_schedule_to_xlsx(field_availability, schedule, division_teams, output
 
     # ---------------- Team Summary ----------------
     ws_ts = wb.create_sheet("Team Summary")
-    summary_rows = _build_team_summary(schedule, all_teams, team_stats or defaultdict(dict), doubleheader_count or defaultdict(int), team_preferred_days=team_preferred_days)
+    summary_rows = _build_team_summary(schedule, all_teams, team_stats or defaultdict(dict), doubleheader_count or defaultdict(int))
     summary_headers = [
         "Division", "Team", "Team Name", "Total Games", "Home", "Away", "DH Days",
-        "Last Scheduled Game", "Longest Gap", "Max Gap Warning", "Preferred Hits",
-        "Preferred Misses", "Games Remaining", "DH Remaining To Min"
+        "Last Scheduled Game", "Longest Gap", "Max Gap Warning",
+        "Games Remaining", "DH Remaining To Min"
     ]
     ws_ts.append(summary_headers)
     for cell in ws_ts[1]:
@@ -3478,8 +3456,8 @@ def export_schedule_to_xlsx(field_availability, schedule, division_teams, output
         ws_ts.cell(row=row_num, column=3, value=f'=IFERROR(VLOOKUP(B{row_num},Teams!$A:$C,3,FALSE),B{row_num})')
         ws_ts.cell(row=row_num, column=8).number_format = "yyyy-mm-dd"
     ws_ts.freeze_panes = "A2"
-    ws_ts.auto_filter.ref = f"A1:N{len(summary_rows)+1}"
-    _autofit(ws_ts, len(summary_rows)+1, 14, min_width=10, max_width=24)
+    ws_ts.auto_filter.ref = f"A1:L{len(summary_rows)+1}"
+    _autofit(ws_ts, len(summary_rows)+1, 12, min_width=10, max_width=24)
 
     # ---------------- Open Slots ----------------
     ws_o = wb.create_sheet("Open Slots")
@@ -3508,7 +3486,9 @@ def export_schedule_to_xlsx(field_availability, schedule, division_teams, output
     _autofit(ws_o, max(2, open_rows+1), 6, min_width=10, max_width=18)
 
     # ---------------- Upload ----------------
-    ws_up = wb.create_sheet("Upload")
+    # Named for what it is: the import format for TeamLinkt. "Upload" alone told
+    # you nothing about where it was going.
+    ws_up = wb.create_sheet("TeamLinkt Upload")
     upload_headers = ["Date", "Time", "Type", "Duration", "Home Team", "Home Division", "Away Team", "Away Division", "Location"]
     ws_up.append(upload_headers)
     for cell in ws_up[1]:
