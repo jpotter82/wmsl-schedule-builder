@@ -386,6 +386,40 @@ def set_password(user_id, new_password):
         return cur.rowcount > 0
 
 
+def list_users():
+    """Every account, with enough to run a user list. Never returns hashes."""
+    with _connect() as conn:
+        rows = conn.execute(
+            "SELECT id, email, display_name, is_admin, created_at, last_login_at"
+            " FROM users ORDER BY id").fetchall()
+    return [dict(r) for r in rows]
+
+
+def admin_count():
+    with _connect() as conn:
+        return conn.execute(
+            "SELECT COUNT(*) AS n FROM users WHERE is_admin = 1").fetchone()['n']
+
+
+def set_admin(user_id, make_admin):
+    """Grant or revoke admin. Returns (ok, message).
+
+    Refuses to remove the last admin: there is no other way back in short of
+    editing the database on the host, and locking yourself out of your own
+    instance is a bad afternoon.
+    """
+    user = get_user_by_id(user_id)
+    if user is None:
+        return False, "No such account."
+    if user.is_admin and not make_admin and admin_count() <= 1:
+        return False, "That is the only admin. Promote someone else first."
+    with _connect() as conn:
+        conn.execute("UPDATE users SET is_admin = ? WHERE id = ?",
+                     (1 if make_admin else 0, int(user_id)))
+    return True, ("%s is now an admin." % user.email if make_admin
+                  else "%s is no longer an admin." % user.email)
+
+
 def create_user(email, password, display_name=None, is_admin=None):
     """Create an account. The first account created becomes the admin."""
     email = (email or '').strip()

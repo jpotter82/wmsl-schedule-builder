@@ -27,6 +27,7 @@
     var attemptsEl = document.getElementById('attempts');
     if (attemptsEl) attemptsEl.addEventListener('input', refreshEstimate);
     refreshEstimate();
+    refreshHistory();
   });
 
   // --- Config helpers ---
@@ -640,6 +641,7 @@
         renderWeeklyTable(res.weekly_table);
         renderMatchupMatrix(res.matchup_matrix);
         renderSchedule(res.schedule_preview);
+        refreshHistory();
       });
   }
 
@@ -708,11 +710,80 @@
         '<div class="alert alert-info py-2 mb-0 small">' +
         'Ran <strong>' + stats.attempts_run + '</strong> attempts. Best was seed <strong>' +
         stats.best_seed + '</strong> (score ' + stats.best_score + ', lower is better). ' +
-        'Re-enter that seed under Random Seed to reproduce this exact schedule.' +
+        'That seed is kept in Run History. Re-running it with Attempts set to 1 ' +
+        'reproduces this exact schedule.' +
         '</div></div></div>';
     }
     document.getElementById('statsCards').innerHTML = html;
   }
+
+  function renderHistory(runs) {
+    var tbody = document.querySelector('#historyTable tbody');
+    var empty = document.getElementById('historyEmpty');
+    if (!tbody) return;
+    tbody.innerHTML = '';
+    if (!runs || !runs.length) {
+      document.getElementById('historyTable').classList.add('d-none');
+      empty.classList.remove('d-none');
+      return;
+    }
+    document.getElementById('historyTable').classList.remove('d-none');
+    empty.classList.add('d-none');
+
+    runs.forEach(function (r) {
+      var onTarget = (r.on_target != null && r.team_weeks)
+        ? r.on_target + ' / ' + r.team_weeks : '—';
+      var layoff = (r.worst_idle_gap != null) ? r.worst_idle_gap + 'd' : '—';
+      var layoffCls = (r.idle_violations > 0) ? ' class="text-end text-danger"' : ' class="text-end"';
+      var shortCls = (r.games_short > 0) ? ' class="text-end text-danger"' : ' class="text-end text-success"';
+      var seedCell = (r.seed != null)
+        ? '<code class="small">' + r.seed + '</code>' +
+          ' <button class="btn btn-sm btn-ghost ms-1" type="button" onclick="useSeed(' + r.seed + ')"' +
+          ' title="Put this seed in the config and set Attempts to 1, reproducing this schedule exactly">Use seed</button>'
+        : '<span class="text-muted small">—</span>';
+
+      tbody.innerHTML +=
+        '<tr>' +
+          '<td class="small">' + r.at + '<div class="text-muted">' +
+            r.attempts + (r.attempts === 1 ? ' attempt' : ' attempts') + '</div></td>' +
+          '<td class="small">' + (r.config_name || '<span class="text-muted">unnamed</span>') + '</td>' +
+          '<td class="text-end">' + (r.total_games != null ? r.total_games : '—') + '</td>' +
+          '<td class="text-end">' + onTarget + '</td>' +
+          '<td' + layoffCls + '>' + layoff + '</td>' +
+          '<td' + shortCls + '>' + (r.games_short != null ? r.games_short : '—') + '</td>' +
+          '<td class="text-end">' + (r.idle_weeks != null ? r.idle_weeks : '—') + '</td>' +
+          '<td class="text-end">' + (r.heavy_weeks != null ? r.heavy_weeks : '—') + '</td>' +
+          '<td>' + seedCell + '</td>' +
+        '</tr>';
+    });
+  }
+
+  function refreshHistory() {
+    fetch('/api/history')
+      .then(function (r) { return r.json(); })
+      .then(function (res) { renderHistory(res.runs || []); })
+      .catch(function () { /* history is a convenience; never block the app on it */ });
+  }
+  window.refreshHistory = refreshHistory;
+
+  // Puts a past run's seed into the config. Only the seed: the CSVs and settings
+  // still have to match, which is why the panel says so.
+  window.useSeed = function (seed) {
+    var el = document.getElementById('randomSeed');
+    el.value = seed;
+    // Attempts must be 1 for the replay to be exact: with more, the run starts at
+    // this seed but best-of-N may pick a later attempt instead.
+    document.getElementById('attempts').value = '1';
+    refreshEstimate();
+    var panel = document.getElementById('panelConfig');
+    if (panel && !panel.classList.contains('show')) {
+      new bootstrap.Collapse(panel, { toggle: true });
+    }
+    el.scrollIntoView({ block: 'center' });
+    el.focus();
+    el.classList.add('border-success');
+    setTimeout(function () { el.classList.remove('border-success'); }, 2000);
+  };
 
   function renderWarnings(warnings) {
     var box = document.getElementById('configWarnings');

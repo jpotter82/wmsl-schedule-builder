@@ -378,7 +378,16 @@ def _run_attempt(config, loaded, seed):
     Returns a dict holding the resulting state — nothing is written to disk here,
     so callers can run many attempts and only persist the best one.
     """
+    # Both, and this matters more than it looks.
+    #
+    # The engine builds its placement RNGs from RANDOM_SEED, not RUN_SEED --
+    # random.Random((RANDOM_SEED or 0) + pass * k). RANDOM_SEED was set once per
+    # run from the config, so every attempt in a best-of-N drew from the SAME
+    # streams and only the global random module varied. That made attempts near
+    # duplicates of each other, and meant replaying a recorded seed on its own
+    # could not reproduce the attempt it came from.
     sn.RUN_SEED = seed
+    sn.RANDOM_SEED = seed
     random.seed(seed)
 
     team_availability = loaded['team_availability']
