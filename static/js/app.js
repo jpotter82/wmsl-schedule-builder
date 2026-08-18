@@ -24,6 +24,9 @@
     loadDefaults();
     refreshConfigList();
     initDropZones();
+    var attemptsEl = document.getElementById('attempts');
+    if (attemptsEl) attemptsEl.addEventListener('input', refreshEstimate);
+    refreshEstimate();
   });
 
   // --- Config helpers ---
@@ -464,6 +467,12 @@
         });
         html += '</div>';
         document.getElementById('uploadSummary').innerHTML = html;
+        // Field slots drive the marginal cost of an attempt, so the estimate can
+        // only be real once we know how many there are.
+        if (info.field_availability && info.field_availability.rows) {
+          uploadedSlots = info.field_availability.rows;
+          refreshEstimate();
+        }
       })
       .catch(function (err) {
         document.getElementById('uploadStatus').innerHTML = '<span class="text-danger">Upload failed: ' + err + '</span>';
@@ -535,8 +544,10 @@
     el.style.width = '';                       // the class owns the width
     el.removeAttribute('aria-valuenow');
     el.textContent = '';                       // no room for a label in a sliver
+    var secs = estimateSeconds(total);
     document.getElementById('runSpinnerText').textContent =
-      total > 1 ? 'Running ' + total + ' attempts...' : 'Running...';
+      (total > 1 ? 'Running ' + total + ' attempts' : 'Running') +
+      (secs != null ? ' \u2014 ' + humanSeconds(secs) : '...');
   }
 
   // Upgrade to a real bar only when attempt counts actually arrive, which happens
@@ -681,6 +692,56 @@
         '</td><td>' + s.dh_days + '</td><td>' + pd + '</td></tr>';
     });
   }
+
+  // Rough run-time estimate, so a run with no observable progress at least says
+  // how long it should take.
+  //
+  // Measured on the sample season: about a second of fixed setup, then a marginal
+  // cost that scales with the number of field slots -- 0.082s per attempt at 160
+  // slots, 0.176s at 320, which is ~0.00055s per slot per attempt either way. That
+  // predicted 89s for a 500-attempt run against 320 slots; the run took 93s.
+  //
+  // Calibrated on a dev machine, so it is a lower bound on shared hosting. Rounded
+  // hard and always labelled "about" for that reason.
+  var SETUP_SECONDS = 1.0;
+  var SECONDS_PER_SLOT_ATTEMPT = 0.00055;
+  var uploadedSlots = 0;
+
+  function estimateSeconds(attempts) {
+    if (!uploadedSlots || !attempts) return null;
+    return SETUP_SECONDS + attempts * uploadedSlots * SECONDS_PER_SLOT_ATTEMPT;
+  }
+
+  function humanSeconds(s) {
+    if (s == null) return '';
+    if (s < 5) return 'a few seconds';
+    if (s < 90) return 'about ' + (Math.round(s / 5) * 5) + ' seconds';
+    var m = Math.round(s / 30) / 2;              // nearest half minute
+    return 'about ' + (m % 1 ? m : m.toFixed(0)) + ' minutes';
+  }
+
+  function refreshEstimate() {
+    var el = document.getElementById('runEstimate');
+    if (!el) return;
+    var attemptsEl = document.getElementById('attempts');
+    var attempts = parseInt(attemptsEl && attemptsEl.value) || 1;
+    var secs = estimateSeconds(attempts);
+    if (secs == null) {
+      el.textContent = 'Upload your CSVs to see an estimated run time.';
+      el.className = 'small text-muted';
+      return;
+    }
+    el.textContent = 'Estimated run time: ' + humanSeconds(secs) +
+      ' (' + attempts + (attempts === 1 ? ' attempt, ' : ' attempts, ') + uploadedSlots + ' slots).';
+    // Long runs happen inside one request on shared hosting, where the server may
+    // give up before the scheduler does.
+    el.className = secs > 60 ? 'small text-warning-emphasis' : 'small text-muted';
+    if (secs > 60) {
+      el.textContent += ' Long runs risk a server timeout — 50 to 100 attempts' +
+        ' usually gets most of the benefit.';
+    }
+  }
+  window.refreshEstimate = refreshEstimate;
 
   // Display names from an optional teams.csv. IDs remain the keys in every
   // payload -- division is the first character of the ID, and the grids group and
