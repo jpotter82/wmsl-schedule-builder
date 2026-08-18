@@ -92,6 +92,18 @@
     .guide .rule { color: var(--ink); font-weight: 600; }
     .form-check[title] { cursor: help; }
 
+    /* Current plan in the nav. Free is quiet; Pro is marked, because that is the
+       one worth recognising at a glance. */
+    .badge-plan {
+      font-size: .72rem; font-weight: 700; text-transform: uppercase;
+      letter-spacing: .08em; text-decoration: none;
+      padding: .2rem .55rem; border-radius: 999px;
+      background: var(--surface); color: var(--ink-600); border: 1px solid var(--line);
+    }
+    .badge-plan:hover { border-color: var(--brand-ink); color: var(--brand-ink); }
+    .badge-plan.is-pro { background: var(--brand-wash); color: var(--brand-on-wash);
+                         border-color: var(--brand-wash-line); }
+
     /* Data grids. Status colours come from the semantic tokens in skedworx.css. */
     .matrix-table { font-size: 0.78rem; text-align: center; }
     .matrix-table th, .matrix-table td { padding: 3px 6px; min-width: 34px; }
@@ -116,7 +128,10 @@
     <div class="container-fluid">
       {% with height = 34 %}{% include 'wordmark.html' %}{% endwith %}
       <div class="d-flex align-items-center">
-        <span class="me-3 small d-none d-sm-inline" style="color:var(--ink-600)">{{ user_email }}</span>
+        <span class="me-2 small d-none d-sm-inline" style="color:var(--ink-600)">{{ user_email }}</span>
+        {#- Current plan, stated plainly. No billing language: there is no billing. -#}
+        <a class="badge-plan {{ 'is-pro' if plan == 'pro' else '' }} me-3 d-none d-sm-inline" href="{{ url_for('pricing') }}"
+           title="Your current plan">{{ plan_name }}</a>
         {% if is_admin %}<a class="btn btn-sm btn-ghost me-2" href="{{ url_for('admin_home') }}">Admin</a>{% endif %}
         <a class="btn btn-sm btn-ghost" href="{{ url_for('logout') }}">Sign out</a>
       </div>

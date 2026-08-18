@@ -13,6 +13,7 @@ from flask_login import (LoginManager, current_user, login_required, login_user,
 
 import auth
 import mailer
+import plans
 from scheduler_wrapper import DEFAULT_CONFIG, run_scheduler, validate_config
 
 app = Flask(__name__)
@@ -383,6 +384,9 @@ def admin_home():
         u['usage'] = _account_usage(u['id'])
     return render_template('admin.html', users=users,
                            admin_count=auth.admin_count(),
+                           plan_labels=plans.PLAN_LABELS,
+                           valid_plans=plans.VALID_PLANS,
+                           plan_changes=auth.plan_changes(15),
                            notice=request.args.get('notice'),
                            problem=request.args.get('problem'))
 
@@ -395,11 +399,45 @@ def admin_set_admin(user_id):
     return redirect(url_for('admin_home', **({'notice': message} if ok else {'problem': message})))
 
 
+@app.route('/admin/users/<int:user_id>/plan', methods=['POST'])
+@admin_required
+def admin_set_plan(user_id):
+    """Move a user between plans. Admin-only, and the only way a plan changes.
+
+    There is deliberately no self-service route: a user cannot put themselves on
+    Pro, by this or any other request. When billing arrives the subscription will
+    move people instead, and this stays as the manual override.
+    """
+    ok, message = auth.set_plan(user_id, request.form.get('plan', ''),
+                                changed_by=current_user)
+    return redirect(url_for('admin_home', **({'notice': message} if ok else {'problem': message})))
+
+
 @app.route('/logout')
 @login_required
 def logout():
     logout_user()
     return redirect(url_for('home'))
+
+
+@app.route('/pricing')
+def pricing():
+    """Informational only. No payment flow exists yet, and the page says so."""
+    # Each card carries its plan key. Deciding anything from the price string
+    # would break the moment the price changes, which is the one thing a pricing
+    # page can expect to do.
+    cards = [dict(plans.PLAN_LABELS[key], key=key, paid=(key != plans.FREE))
+             for key in plans.VALID_PLANS]
+    return render_template('pricing.html', plans=cards,
+                           free_plan=plans.FREE,
+                           current=(plans.plan_of(current_user)
+                                    if current_user.is_authenticated else None))
+
+
+@app.route('/api/plan')
+@login_required
+def my_plan():
+    return jsonify(plans.describe(current_user))
 
 
 @app.route('/api/me')
@@ -424,8 +462,11 @@ def index():
     # is_admin gates the raw generator log. It is not a security boundary -- the
     # same text is in /api/status for anyone who looks -- it is about not putting
     # scheduler internals in front of a league volunteer as if they were an error.
+    plan = plans.plan_of(current_user)
     return render_template('index.html', user_email=current_user.email,
                            is_admin=current_user.is_admin,
+                           plan=plan,
+                           plan_name=plans.PLAN_LABELS[plan]['name'],
                            history_limit=HISTORY_LIMIT)
 
 
@@ -457,6 +498,19 @@ def save_config(name):
     safe = _safe_name(name)
     if not safe:
         return jsonify({'error': 'Invalid config name'}), 400
+
+    # A saved config IS a saved season here -- one concept, one limit. Overwriting
+    # an existing one is always allowed, so a Free user can keep working on the
+    # season they have rather than being locked out of their own file.
+    configs_dir = _user_dir('configs')
+    existing = {f.stem for f in configs_dir.glob('*.json')}
+    if safe not in existing:
+        allowed, ceiling = plans.within_limit(current_user, 'saved_seasons', len(existing))
+        if not allowed:
+            payload = plans.upgrade_message(
+                'Free includes %d saved season%s. Upgrade to Pro to keep more than one, '
+                'or overwrite the season you have.' % (ceiling, '' if ceiling == 1 else 's'))
+            return jsonify(payload), 402
     data = request.get_json()
     if not data:
         return jsonify({'error': 'No JSON body'}), 400
@@ -555,6 +609,12 @@ def start_run():
     config = payload.get('config', payload) or DEFAULT_CONFIG
     config_name = payload.get('config_name')
     attempts = int((config.get('general') or {}).get('attempts') or 1)
+
+    # Checked before any work starts, so a refusal costs nothing and arrives
+    # before the user watches a progress bar. Dormant until a ceiling is agreed.
+    allowed, upgrade = plans.check_team_limit(current_user, config)
+    if not allowed:
+        return jsonify(upgrade), 402
 
     # Fix the base seed now so the whole run is one reproducible sequence, even
     # though it is scored across several requests.
