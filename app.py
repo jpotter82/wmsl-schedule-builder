@@ -374,8 +374,15 @@ def upload_csvs():
             return jsonify({'error': f'Missing file: {key}'}), 400
         f.save(str(uploads / f'{key}.csv'))
 
+    # Optional: display names. Absent means teams show as their IDs, as before.
+    optional = []
+    teams_file = request.files.get('teams')
+    if teams_file and teams_file.filename:
+        teams_file.save(str(uploads / 'teams.csv'))
+        optional.append('teams')
+
     summary = {}
-    for key in required:
+    for key in required + optional:
         with open(uploads / f'{key}.csv', encoding='utf-8-sig') as fh:
             lines = fh.readlines()
         summary[key] = {'rows': max(0, len(lines) - 1),
@@ -410,10 +417,16 @@ def start_run():
 
     csv_paths = {k: str(uploads / f'{k}.csv')
                  for k in ('team_availability', 'field_availability', 'team_blackouts')}
+    # Optional, and added after the required-file check below so its absence is
+    # never treated as a missing upload.
+    _teams_csv = uploads / 'teams.csv'
     for key, path in csv_paths.items():
         if not os.path.exists(path):
             run_lock.release()
             return jsonify({'error': f'CSV not uploaded yet: {key}'}), 400
+
+    if _teams_csv.is_file():
+        csv_paths['teams'] = str(_teams_csv)
 
     # Resolve everything that depends on the signed-in user HERE, while the request
     # context still exists. The background thread below has no request context, so
@@ -529,6 +542,7 @@ def run_results():
         'schedule_preview': r.get('schedule_preview', [])[:100],
         'matchup_matrix': r.get('matchup_matrix', {}),
         'weekly_table': r.get('weekly_table', {}),
+        'team_names': r.get('team_names', {}),
         'output_files': r.get('output_files', {}),
         'warnings': r.get('warnings', []),
         'log': r.get('log', ''),

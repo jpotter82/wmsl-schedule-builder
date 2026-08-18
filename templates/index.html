@@ -384,7 +384,31 @@
               <a class="btn btn-sm btn-ghost" download
                  href="{{ url_for('static', filename='samples/team_blackouts.csv') }}">Blackouts</a>
             </div>
-            <p class="small text-muted">
+            <div class="row g-3 mt-1">
+              <div class="col-md-4">
+                <label class="form-label fw-bold">
+                  Team Names <span class="text-muted fw-normal">(optional)</span>
+                </label>
+                <div class="file-drop" id="drop_teams">
+                  <input type="file" accept=".csv" class="d-none" id="file_teams">
+                  <div>Drag &amp; drop or <a href="#" onclick="document.getElementById('file_teams').click();return false">browse</a></div>
+                  <div class="filename mt-1" id="fname_teams"></div>
+                </div>
+                <small class="text-muted d-block">Columns: TeamID, Name</small>
+                <a class="small" download
+                   href="{{ url_for('static', filename='samples/teams.csv') }}">Download sample</a>
+              </div>
+              <div class="col-md-8">
+                <p class="small text-muted mb-0 mt-md-4">
+                  Without this, teams appear as their IDs — <code>A1</code>, <code>B3</code>.
+                  Supply it and the preview, team summary and grids show real names instead.
+                  The ID stays the key: it is what carries the division, so keep the left
+                  column matching your other files.
+                </p>
+              </div>
+            </div>
+
+            <p class="small text-muted mt-3">
               <strong>Field availability defines your ceiling</strong> — the scheduler can
               never place more games than there are rows in that file. One row is one
               diamond at one time. Aim for 1.5&times; to 2&times; the games you need, so

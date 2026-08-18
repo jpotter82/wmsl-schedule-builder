@@ -403,7 +403,7 @@
   }
 
   function initDropZones() {
-    ['team_availability', 'field_availability', 'team_blackouts'].forEach(function (key) {
+    ['team_availability', 'field_availability', 'team_blackouts', 'teams'].forEach(function (key) {
       var drop = document.getElementById('drop_' + key);
       var input = document.getElementById('file_' + key);
 
@@ -436,6 +436,12 @@
         return;
       }
       fd.append(keys[i], input.files[0]);
+    }
+
+    // Optional, so it is appended only when chosen rather than being required above.
+    var teamsInput = document.getElementById('file_teams');
+    if (teamsInput && teamsInput.files.length) {
+      fd.append('teams', teamsInput.files[0]);
     }
 
     document.getElementById('uploadStatus').innerHTML = '<span class="spinner-border spinner-border-sm"></span> Uploading...';
@@ -569,6 +575,10 @@
           new bootstrap.Collapse(resultsPanel, { toggle: true });
         }
 
+        // Set before anything renders: every table below asks tn() for labels, and
+        // renderTeamStats runs first.
+        teamNames = res.team_names || {};
+
         renderStats(res.stats);
         renderWarnings(res.warnings);
         renderDownloads(res.output_files);
@@ -632,10 +642,22 @@
       var s = perTeam[t];
       var cls = s.total < s.target ? ' class="table-warning"' : '';
       var pd = (s.playable_dates != null) ? s.playable_dates : '-';
-      tbody.innerHTML += '<tr' + cls + '><td>' + t + '</td><td>' + t[0] + '</td><td>' + s.total +
+      // Name in the team column, ID kept alongside so the two can be reconciled
+      // against the CSVs; division still comes from the ID's first character.
+      var label = tn(t) === t ? t : tn(t) + ' <span class="text-muted small">' + t + '</span>';
+      tbody.innerHTML += '<tr' + cls + '><td>' + label + '</td><td>' + t[0] + '</td><td>' + s.total +
         '</td><td>' + s.target + '</td><td>' + s.home + '</td><td>' + s.away +
         '</td><td>' + s.dh_days + '</td><td>' + pd + '</td></tr>';
     });
+  }
+
+  // Display names from an optional teams.csv. IDs remain the keys in every
+  // payload -- division is the first character of the ID, and the grids group and
+  // sort on it -- so this is applied only where a name is printed.
+  var teamNames = {};
+
+  function tn(id) {
+    return (teamNames && teamNames[id]) || id;
   }
 
   // State mapping for the weekly grid, kept as a pure function so the
@@ -685,7 +707,7 @@
     wt.teams.forEach(function (t) {
       var counts = wt.counts[t] || [];
       var target = (wt.soft_target && wt.soft_target[t]) || 2;
-      var row = '<tr><td class="row-head">' + t + '</td>';
+      var row = '<tr><td class="row-head" title="' + t + '">' + tn(t) + '</td>';
       var total = 0;
       counts.forEach(function (c, i) {
         total += c;
@@ -741,7 +763,7 @@
 
     // Body rows
     teams.forEach(function (rowTeam) {
-      var row = '<tr><td class="row-head">' + rowTeam + '</td>';
+      var row = '<tr><td class="row-head" title="' + rowTeam + '">' + tn(rowTeam) + '</td>';
       teams.forEach(function (colTeam, i) {
         var sep = (i > 0 && divs[colTeam] !== divs[teams[i - 1]]) ? ' divsep' : '';
         if (rowTeam === colTeam) {
@@ -763,8 +785,8 @@
     preview.forEach(function (g) {
       tbody.innerHTML += '<tr><td>' + g.date + '</td><td>' + g.day + '</td><td>' + g.time +
         '</td><td>' + g.field + '</td><td><span class="badge bg-primary badge-div">' + g.home_div +
-        '</span> ' + g.home + '</td><td><span class="badge bg-secondary badge-div">' + g.away_div +
-        '</span> ' + g.away + '</td></tr>';
+        '</span> ' + tn(g.home) + '</td><td><span class="badge bg-secondary badge-div">' + g.away_div +
+        '</span> ' + tn(g.away) + '</td></tr>';
     });
   }
 

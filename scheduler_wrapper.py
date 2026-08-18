@@ -1,3 +1,4 @@
+import csv
 import io
 import os
 import re
@@ -489,6 +490,40 @@ def _run_attempt(config, loaded, seed):
     }
 
 
+def load_team_names(path):
+    """Read an optional teams.csv mapping team IDs to display names.
+
+    Deliberately a separate file rather than a column on team_availability.csv.
+    That parser treats every cell after the team as a day token and ignores what
+    it does not recognise, so a team called "Sunday Sluggers" would contribute a
+    phantom Sun to its availability.
+
+    The ID stays the scheduler's key. Division is the first character of the ID
+    in roughly fifteen places in the engine, so display names never reach it —
+    they are a presentation layer over the top.
+
+    Returns {} when the file is missing or unreadable: names are optional, and a
+    bad names file must not stop a season being scheduled.
+    """
+    names = {}
+    if not path or not os.path.isfile(path):
+        return names
+    try:
+        with open(path, encoding='utf-8-sig', newline='') as fh:
+            for i, row in enumerate(csv.reader(fh)):
+                if len(row) < 2:
+                    continue
+                team_id, name = row[0].strip(), row[1].strip()
+                # Row 1 is a header; skip it unless it looks like real data.
+                if i == 0 and name.lower() in ('name', 'team name', 'teamname', 'display'):
+                    continue
+                if team_id and name:
+                    names[team_id] = name
+    except (OSError, csv.Error):
+        return {}
+    return names
+
+
 def run_scheduler(config, csv_paths, output_dir, config_name=None, progress=None):
     """Run the scheduler, optionally over several attempts, keeping the best result.
 
@@ -749,6 +784,9 @@ def run_scheduler(config, csv_paths, output_dir, config_name=None, progress=None
         result['schedule_preview'] = preview
         result['matchup_matrix'] = matchup_matrix
         result['weekly_table'] = weekly_table
+        # IDs stay the keys everywhere above; this rides alongside so the UI can
+        # show names without anything downstream having to know about them.
+        result['team_names'] = load_team_names(csv_paths.get('teams'))
 
     except Exception as e:
         tb = traceback.format_exc()
