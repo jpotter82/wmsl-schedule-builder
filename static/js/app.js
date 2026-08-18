@@ -378,6 +378,30 @@
   };
 
   // --- File upload ---
+  // Choosing a file only puts it in the form -- nothing reaches the server until
+  // Upload runs. That gap is silent and easy to miss: the filename appears, the run
+  // uses the PREVIOUS upload, and the result looks like a scheduling problem rather
+  // than a stale file. Track it and say so.
+  var uploadPending = false;
+
+  function markUploadPending(key, filename) {
+    document.getElementById('fname_' + key).textContent = filename;
+    uploadPending = true;
+    // The previous run's "Uploaded successfully" is about the OLD file, and
+    // leaving it up directly contradicts the notice we are about to show.
+    var status = document.getElementById('uploadStatus');
+    if (status) status.innerHTML = '';
+    renderUploadPending();
+  }
+
+  function renderUploadPending() {
+    var note = document.getElementById('uploadPending');
+    var btn = document.getElementById('btnUpload');
+    if (!note) return;
+    note.classList.toggle('d-none', !uploadPending);
+    if (btn) btn.classList.toggle('btn-attention', uploadPending);
+  }
+
   function initDropZones() {
     ['team_availability', 'field_availability', 'team_blackouts'].forEach(function (key) {
       var drop = document.getElementById('drop_' + key);
@@ -385,7 +409,7 @@
 
       input.addEventListener('change', function () {
         if (input.files.length) {
-          document.getElementById('fname_' + key).textContent = input.files[0].name;
+          markUploadPending(key, input.files[0].name);
         }
       });
 
@@ -396,7 +420,7 @@
         drop.classList.remove('dragover');
         if (e.dataTransfer.files.length) {
           input.files = e.dataTransfer.files;
-          document.getElementById('fname_' + key).textContent = e.dataTransfer.files[0].name;
+          markUploadPending(key, e.dataTransfer.files[0].name);
         }
       });
     });
@@ -424,6 +448,8 @@
           return;
         }
         document.getElementById('uploadStatus').innerHTML = '<span class="text-success">Uploaded successfully</span>';
+        uploadPending = false;
+        renderUploadPending();
         var html = '<div class="row g-2">';
         var info = res.uploaded;
         Object.keys(info).forEach(function (k) {
