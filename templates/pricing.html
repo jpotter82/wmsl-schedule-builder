@@ -65,15 +65,16 @@
 
           {% if not p.paid %}
             <ul>
+              <li>Leagues up to <strong>{{ team_limit }} teams</strong></li>
               <li>Build and generate schedules</li>
               <li>Run history and seed replay</li>
-              <li>One saved season</li>
+              <li>Unlimited saved seasons</li>
             </ul>
             <a class="btn btn-ghost w-100 mt-3" href="{{ url_for('register') }}">Start free</a>
           {% else %}
             <ul>
+              <li><strong>Unlimited teams</strong> &mdash; any size of league</li>
               <li>Everything in Free</li>
-              <li>Unlimited saved seasons</li>
               <li>Full export</li>
             </ul>
             <button class="btn btn-brand w-100 mt-3" type="button" disabled>

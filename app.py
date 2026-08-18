@@ -428,8 +428,12 @@ def pricing():
     # page can expect to do.
     cards = [dict(plans.PLAN_LABELS[key], key=key, paid=(key != plans.FREE))
              for key in plans.VALID_PLANS]
+    # Taken from the rules rather than written into the copy, so the page cannot
+    # advertise a limit the app does not enforce.
+    free_teams = plans.PLANS[plans.FREE]['limits']['teams']
     return render_template('pricing.html', plans=cards,
                            free_plan=plans.FREE,
+                           team_limit=free_teams,
                            current=(plans.plan_of(current_user)
                                     if current_user.is_authenticated else None))
 
@@ -466,6 +470,10 @@ def index():
     return render_template('index.html', user_email=current_user.email,
                            is_admin=current_user.is_admin,
                            plan=plan,
+                           # None means unlimited. Templates gate sample data on this
+                           # rather than on the plan name, so nothing is offered that
+                           # the account would be refused for running.
+                           team_limit=plans.limit(current_user, 'teams'),
                            plan_name=plans.PLAN_LABELS[plan]['name'],
                            history_limit=HISTORY_LIMIT)
 

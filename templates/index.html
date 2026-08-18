@@ -444,14 +444,16 @@
                 <a class="btn btn-sm btn-ghost" download
                    href="{{ url_for('static', filename='samples/team_blackouts.csv') }}">Blackouts</a>
               </div>
+              {% if team_limit is none or team_limit >= 22 %}
               <div class="small text-muted mt-2">
-                Running something bigger? A full 22-team, three-division season is there too —
+                Running something bigger? A full 22-team, three-division season is there too &mdash;
                 <a download href="{{ url_for('static', filename='samples/full-league/team_availability.csv') }}">teams</a>,
                 <a download href="{{ url_for('static', filename='samples/full-league/field_availability.csv') }}">fields</a>,
                 <a download href="{{ url_for('static', filename='samples/full-league/team_blackouts.csv') }}">blackouts</a>,
                 <a download href="{{ url_for('static', filename='samples/full-league/teams.csv') }}">names</a>.
-                Set the divisions to 8 / 8 / 6 first, and note it needs Pro.
+                Set the divisions to 8 / 8 / 6 before running it.
               </div>
+              {% endif %}
             </div>
             <p class="small text-muted mt-3">
               <strong>Field availability defines your ceiling</strong> — the scheduler can
