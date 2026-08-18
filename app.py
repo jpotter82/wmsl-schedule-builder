@@ -123,6 +123,69 @@ def _save_state(state, path):
         pass
 
 
+# How many runs to keep per account. Enough to compare a session's worth of
+# tuning; small enough that the file stays trivial to read and rewrite whole.
+HISTORY_LIMIT = 25
+
+
+def _history_path(home):
+    return home / 'run_history.json'
+
+
+def _read_history(home):
+    try:
+        with open(_history_path(home), encoding='utf-8') as fh:
+            entries = json.load(fh)
+        return entries if isinstance(entries, list) else []
+    except (OSError, ValueError):
+        return []
+
+
+def _append_history(home, entry):
+    """Add a finished run to this account's history, newest first.
+
+    Written whole via temp-and-rename, like run state: under CGI two requests can
+    overlap, and a half-written history file would be lost entirely rather than
+    just stale.
+    """
+    entries = [entry] + _read_history(home)
+    entries = entries[:HISTORY_LIMIT]
+    try:
+        path = _history_path(home)
+        tmp = path.with_suffix('.json.tmp')
+        with open(tmp, 'w', encoding='utf-8') as fh:
+            json.dump(entries, fh)
+        os.replace(tmp, path)
+    except (OSError, TypeError, ValueError):
+        pass
+
+
+def _history_entry(result, config_name, attempts):
+    """The six summary figures, plus what is needed to reproduce the run."""
+    stats = (result or {}).get('stats') or {}
+    wt = (result or {}).get('weekly_table') or {}
+    teams = len(wt.get('teams') or [])
+    weeks = len(wt.get('weeks') or [])
+    team_weeks = teams * weeks
+    idle = stats.get('idle_weeks') or 0
+    heavy = stats.get('heavy_weeks') or 0
+    return {
+        'at': datetime.now().strftime('%Y-%m-%d %H:%M'),
+        'config_name': config_name or '',
+        'seed': stats.get('best_seed'),
+        'attempts': attempts,
+        'total_games': stats.get('total_games'),
+        'on_target': (team_weeks - idle - heavy) if team_weeks else None,
+        'team_weeks': team_weeks or None,
+        'worst_idle_gap': stats.get('worst_idle_gap'),
+        'idle_violations': stats.get('idle_violations'),
+        'max_idle_days': stats.get('max_idle_days'),
+        'games_short': stats.get('games_short'),
+        'idle_weeks': idle,
+        'heavy_weeks': heavy,
+    }
+
+
 def _read_state():
     try:
         with open(current_user.state_file, encoding='utf-8') as fh:
@@ -381,7 +444,8 @@ def index():
     # same text is in /api/status for anyone who looks -- it is about not putting
     # scheduler internals in front of a league volunteer as if they were an error.
     return render_template('index.html', user_email=current_user.email,
-                           is_admin=current_user.is_admin)
+                           is_admin=current_user.is_admin,
+                           history_limit=HISTORY_LIMIT)
 
 
 @app.route('/api/config/defaults')
@@ -468,6 +532,9 @@ def start_run():
 
     output_dir = _user_dir('output')
     uploads = _user_dir('uploads')
+    # Resolved here, not in _run: current_user is a request-context proxy and is
+    # None inside the background thread.
+    home_dir = current_user.home
 
     # Clear previous output. A file that cannot be removed is skipped rather than
     # failing the run: on Windows a just-downloaded file may still be held open by
@@ -516,6 +583,12 @@ def start_run():
             state['result'] = result
             state['log'] = result.get('log', '')
             state['status'] = 'done' if result.get('success') else 'error'
+            # Only successful runs are worth returning to. A failed one has no seed
+            # to reproduce and no figures to compare.
+            if result.get('success'):
+                _append_history(home_dir,
+                                _history_entry(result, config_name,
+                                               (config.get('general') or {}).get('attempts') or 1))
         except Exception as e:
             state['status'] = 'error'
             state['log'] += f'\nFatal error: {e}'
@@ -595,6 +668,12 @@ def _check_teams_against_config(config):
 def validate():
     config = request.get_json() or {}
     return jsonify({'warnings': validate_config(config) + _check_teams_against_config(config)})
+
+
+@app.route('/api/history')
+@login_required
+def run_history():
+    return jsonify({'runs': _read_history(current_user.home)})
 
 
 @app.route('/api/results')

@@ -604,6 +604,51 @@
         </div>
       </div>
 
+      <!-- 5. Run History -->
+      <div class="accordion-item">
+        <h2 class="accordion-header">
+          <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#panelHistory">
+            5. Run History
+          </button>
+        </h2>
+        <div id="panelHistory" class="accordion-collapse collapse" data-bs-parent="#mainAccordion">
+          <div class="accordion-body">
+            <p class="small text-muted">
+              The last {{ history_limit }} successful runs on this account, so you can see
+              whether a change actually helped rather than going on memory.
+            </p>
+            <p class="small text-muted">
+              <strong>About seeds.</strong> Each run records the seed that produced its best
+              attempt. Putting that seed back in the config re-runs from the same starting
+              point, which reproduces the schedule exactly <em>when that run used a single
+              attempt</em>. With several attempts it lands somewhere close but not identical,
+              because attempts in a run are not fully independent of each other — a known
+              limitation, not something you did wrong.
+            </p>
+            <div class="table-responsive">
+              <table class="table table-sm align-middle" id="historyTable">
+                <thead>
+                  <tr>
+                    <th>Run</th><th>Season</th>
+                    <th class="text-end">Games</th>
+                    <th class="text-end">On Target</th>
+                    <th class="text-end">Longest Layoff</th>
+                    <th class="text-end">Short</th>
+                    <th class="text-end">Idle</th>
+                    <th class="text-end">Heavy</th>
+                    <th>Seed</th>
+                  </tr>
+                </thead>
+                <tbody></tbody>
+              </table>
+            </div>
+            <p id="historyEmpty" class="text-muted small mb-0 d-none">
+              No runs yet. Generate a schedule and it will appear here.
+            </p>
+          </div>
+        </div>
+      </div>
+
     </div>
   </div>
 
