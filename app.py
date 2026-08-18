@@ -2,7 +2,6 @@ import json
 import os
 import re
 import shutil
-import threading
 from datetime import datetime
 from functools import wraps
 from pathlib import Path
@@ -55,37 +54,19 @@ def unauthorized():
     return redirect(url_for('login', next=request.path))
 
 
-# Run the scheduler inside the request instead of on a background thread.
-#
-# Required on any host that may run more than one worker process or recycle idle
-# ones (cPanel/Passenger shared hosting, multi-worker gunicorn), because run state
-# lives in memory in this process. Safe to enable anywhere: a 15-attempt run
-# completes in about 1.6 seconds, well inside normal request timeouts.
-SYNC_RUNS = auth.env('SYNC_RUNS').strip().lower() in ('1', 'true', 'yes', 'on')
+# SYNC_RUNS is no longer read. Runs are scored a slice per request now, so there
+# is no background thread to keep alive and no long request to protect: every
+# request is short whatever the host does. Deployments still setting it are
+# harmless, and dispatch.cgi.example no longer bothers.
 
 # Copy leftover pre-accounts configs/ and uploads/ into the first account created.
 # Off by default: see _migrate_legacy_data for why this must not be automatic on a
 # deployment anyone can sign up to.
 MIGRATE_LEGACY = auth.env('MIGRATE_LEGACY').strip().lower() in ('1', 'true', 'yes', 'on')
 
-# One run at a time PER USER, not per server. A single global lock would mean one
-# league admin's run returns HTTP 409 to everyone else for its duration.
-#
-# Only meaningful when several requests share a process (threaded dev server,
-# gunicorn with threads). Under CGI each request is its own process, so this cannot
-# see other requests at all -- which is harmless, because a run there completes
-# inside the request that started it.
-_run_locks = {}
-_run_locks_guard = threading.Lock()
-
-
-def _lock_for_current_user():
-    key = current_user.user_id
-    with _run_locks_guard:
-        lock = _run_locks.get(key)
-        if lock is None:
-            lock = _run_locks[key] = threading.Lock()
-    return lock
+# No in-process lock any more. A run spans several requests, so a lock held in one
+# process could not guard it; the job record in run_state.json is the shared truth
+# instead, and that works whether requests land in one process or twenty.
 
 
 def _blank_state():
@@ -523,18 +504,42 @@ def upload_csvs():
     return jsonify({'uploaded': summary})
 
 
+# How many attempts one request scores. Sized against measurement: an attempt is
+# roughly 0.14s here and slower on shared hosting, so 25 keeps a request near a
+# few seconds -- far inside any CGI timeout -- while the ~0.6s of interpreter
+# startup each request pays stays a small share of the work done.
+CHUNK_ATTEMPTS = 25
+
+
+def _run_paths_or_error(uploads):
+    """The CSV paths for a run, or (None, message) when something is missing."""
+    paths = {k: str(uploads / f'{k}.csv')
+             for k in ('team_availability', 'field_availability', 'team_blackouts')}
+    for key, path in paths.items():
+        if not os.path.exists(path):
+            return None, f'CSV not uploaded yet: {key}'
+    teams_csv = uploads / 'teams.csv'
+    if teams_csv.is_file():
+        paths['teams'] = str(teams_csv)
+    return paths, None
+
+
 @app.route('/api/run', methods=['POST'])
 @login_required
 def start_run():
-    run_lock = _lock_for_current_user()
-    if not run_lock.acquire(blocking=False):
-        return jsonify({'error': 'A scheduler run is already in progress'}), 409
+    """Begin a run. Scores no attempts itself -- the client drives slices.
 
+    Splitting the work across requests is what makes long runs survive shared
+    hosting: a 500-attempt run is ~70 seconds, and one request that long is liable
+    to be killed. Each slice is a few seconds instead, and doubles as the progress
+    report, so no separate polling is needed while a run is in flight.
+    """
     output_dir = _user_dir('output')
     uploads = _user_dir('uploads')
-    # Resolved here, not in _run: current_user is a request-context proxy and is
-    # None inside the background thread.
-    home_dir = current_user.home
+
+    csv_paths, problem = _run_paths_or_error(uploads)
+    if problem:
+        return jsonify({'error': problem}), 400
 
     # Clear previous output. A file that cannot be removed is skipped rather than
     # failing the run: on Windows a just-downloaded file may still be held open by
@@ -549,60 +554,100 @@ def start_run():
     payload = request.get_json() or {}
     config = payload.get('config', payload) or DEFAULT_CONFIG
     config_name = payload.get('config_name')
+    attempts = int((config.get('general') or {}).get('attempts') or 1)
 
-    csv_paths = {k: str(uploads / f'{k}.csv')
-                 for k in ('team_availability', 'field_availability', 'team_blackouts')}
-    # Optional, and added after the required-file check below so its absence is
-    # never treated as a missing upload.
-    _teams_csv = uploads / 'teams.csv'
-    for key, path in csv_paths.items():
-        if not os.path.exists(path):
-            run_lock.release()
-            return jsonify({'error': f'CSV not uploaded yet: {key}'}), 400
-
-    if _teams_csv.is_file():
-        csv_paths['teams'] = str(_teams_csv)
-
-    # Resolve everything that depends on the signed-in user HERE, while the request
-    # context still exists. The background thread below has no request context, so
-    # current_user is unavailable inside it.
-    state_path = current_user.state_file
+    # Fix the base seed now so the whole run is one reproducible sequence, even
+    # though it is scored across several requests.
+    base_seed = (config.get('general') or {}).get('random_seed')
+    if base_seed is None:
+        base_seed = int.from_bytes(os.urandom(4), 'big')
 
     state = _blank_state()
     state['status'] = 'running'
-    _save_state(state, state_path)
+    state['job'] = {
+        'config': config,
+        'config_name': config_name,
+        'base_seed': int(base_seed),
+        'total': attempts,
+        'done': 0,
+        'best_seed': None,
+        'best_score': None,
+    }
+    state['progress'] = {'done': 0, 'total': attempts, 'best_score': None}
+    _save_state(state, current_user.state_file)
 
-    def _progress(done, total, best_score):
-        state['progress'] = {'done': done, 'total': total, 'best_score': best_score}
-        _save_state(state, state_path)
+    return jsonify({'started': True, 'total': attempts, 'chunk': CHUNK_ATTEMPTS})
 
-    def _run():
-        try:
-            result = run_scheduler(config, csv_paths, str(output_dir),
-                                   config_name=config_name, progress=_progress)
-            state['result'] = result
-            state['log'] = result.get('log', '')
-            state['status'] = 'done' if result.get('success') else 'error'
-            # Only successful runs are worth returning to. A failed one has no seed
-            # to reproduce and no figures to compare.
-            if result.get('success'):
-                _append_history(home_dir,
-                                _history_entry(result, config_name,
-                                               (config.get('general') or {}).get('attempts') or 1))
-        except Exception as e:
-            state['status'] = 'error'
-            state['log'] += f'\nFatal error: {e}'
-            state['result'] = {'success': False, 'error': str(e), 'log': state['log']}
-        finally:
-            _save_state(state, state_path)
-            run_lock.release()
 
-    if SYNC_RUNS:
-        _run()
-        return jsonify({'started': True, 'sync': True, 'status': state['status']})
+@app.route('/api/run/chunk', methods=['POST'])
+@login_required
+def run_chunk():
+    """Score the next slice of attempts, and finish the run when they run out."""
+    state = _read_state()
+    job = state.get('job')
+    if not job or state.get('status') != 'running':
+        return jsonify({'error': 'No run in progress'}), 409
 
-    threading.Thread(target=_run, daemon=True).start()
-    return jsonify({'started': True, 'sync': False})
+    uploads = _user_dir('uploads')
+    output_dir = _user_dir('output')
+    csv_paths, problem = _run_paths_or_error(uploads)
+    if problem:
+        state['status'] = 'error'
+        state['log'] = problem
+        _save_state(state, current_user.state_file)
+        return jsonify({'error': problem}), 400
+
+    config = job['config']
+    done, total = int(job['done']), int(job['total'])
+    seeds = [job['base_seed'] + i
+             for i in range(done, min(done + CHUNK_ATTEMPTS, total))]
+
+    try:
+        # score_only: no files, because only the winning seed is written at the end.
+        sliced = run_scheduler(config, csv_paths, str(output_dir),
+                               config_name=job.get('config_name'),
+                               seeds=seeds, score_only=True)
+        st = sliced.get('stats') or {}
+        if not sliced.get('success'):
+            raise RuntimeError(sliced.get('error') or 'Attempt failed')
+
+        if job['best_score'] is None or st.get('best_score', 0) < job['best_score']:
+            job['best_score'] = st.get('best_score')
+            job['best_seed'] = st.get('best_seed')
+
+        job['done'] = done + len(seeds)
+        state['job'] = job
+        state['progress'] = {'done': job['done'], 'total': total,
+                             'best_score': job['best_score']}
+        state['log'] = (state.get('log') or '') + (sliced.get('log') or '')
+
+        finished = job['done'] >= total
+        if finished:
+            # Re-run the winner on its own to produce the real outputs. Sound only
+            # because attempts are independent and a seed reproduces its schedule.
+            final = run_scheduler(config, csv_paths, str(output_dir),
+                                  config_name=job.get('config_name'),
+                                  seeds=[job['best_seed']])
+            state['result'] = final
+            state['log'] = (state.get('log') or '') + (final.get('log') or '')
+            state['status'] = 'done' if final.get('success') else 'error'
+            state['job'] = None
+            if final.get('success'):
+                _append_history(current_user.home,
+                                _history_entry(final, job.get('config_name'), total))
+
+        _save_state(state, current_user.state_file)
+        return jsonify({'done': job['done'], 'total': total,
+                        'best_score': job['best_score'], 'finished': finished,
+                        'status': state['status']})
+
+    except Exception as e:                       # noqa: BLE001 - reported to the client
+        state['status'] = 'error'
+        state['job'] = None
+        state['log'] = (state.get('log') or '') + f'\nFatal error: {e}'
+        state['result'] = {'success': False, 'error': str(e), 'log': state.get('log', '')}
+        _save_state(state, current_user.state_file)
+        return jsonify({'error': str(e)}), 500
 
 
 @app.route('/api/status')

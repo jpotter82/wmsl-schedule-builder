@@ -4,13 +4,15 @@
 Every request starts a fresh Python process, so nothing survives in memory between
 them. That is fine here:
 
-  * SKEDWORX_SYNC_RUNS forces the scheduler to run inside the request rather than on a
-    background thread, which would be killed the moment the process exits.
+  * Runs are scored a slice per request, so no single request is long enough to be
+    killed and there is no background work to keep alive. SKEDWORX_SYNC_RUNS is no
+    longer read; leaving it set does nothing.
   * Run state is mirrored to .run_state.json by app.py, so /api/status and
     /api/results can read the result of a run performed by an earlier process.
 
-Startup cost is roughly 0.4s to import the scheduler, on top of a ~1.6s worst-case
-run, so even the slowest request stays well inside normal CGI limits.
+Startup is roughly 0.55s to import the scheduler, and a slice of attempts adds a
+few seconds, so the longest request is well inside normal CGI limits no matter how
+many attempts the run asks for.
 
 Setup:
   cp dispatch.cgi.example dispatch.cgi
@@ -27,8 +29,6 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
-
-os.environ.setdefault('SKEDWORX_SYNC_RUNS', '1')
 
 # Recommended on shared hosting: keep accounts, password hashes and the session
 # key outside the web root, so they cannot be fetched over HTTP even if .htaccess

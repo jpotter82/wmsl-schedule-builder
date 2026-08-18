@@ -533,12 +533,23 @@ def load_team_names(path):
     return names
 
 
-def run_scheduler(config, csv_paths, output_dir, config_name=None, progress=None):
+def run_scheduler(config, csv_paths, output_dir, config_name=None, progress=None,
+                  seeds=None, score_only=False):
     """Run the scheduler, optionally over several attempts, keeping the best result.
 
     config_name is used to suffix the output filenames so downloads from
     different season configs don't overwrite each other.
     progress is an optional callable(attempt, total, best_score) for status reporting.
+
+    seeds runs exactly those seeds instead of deriving them from attempts, which
+    lets a long run be split across several requests. score_only skips writing any
+    output files, so a slice can be scored cheaply and only the winning seed
+    re-run at the end. Both exist for chunked runs under CGI, where a single
+    90-second request risks being killed by the host.
+
+    Splitting a run this way is only sound because attempts are independent: each
+    one seeds RANDOM_SEED itself, so a seed scored in one slice produces the same
+    schedule when re-run alone later.
     """
     _patch_globals(config)
     os.makedirs(output_dir, exist_ok=True)
@@ -610,11 +621,17 @@ def run_scheduler(config, csv_paths, output_dir, config_name=None, progress=None
             'all_teams': all_teams,
         }
 
-        print(f"\nRunning {attempts} attempt(s)...")
+        # An explicit seed list drives a chunked run; otherwise derive as before.
+        seed_list = list(seeds) if seeds else None
+        total = len(seed_list) if seed_list else attempts
+
+        print(f"\nRunning {total} attempt(s)...")
         best = None
         attempt_log = []
-        for i in range(attempts):
-            if base_seed is None:
+        for i in range(total):
+            if seed_list:
+                seed = int(seed_list[i])
+            elif base_seed is None:
                 seed = int.from_bytes(os.urandom(4), "big")
             else:
                 # Derive distinct but reproducible seeds from the base seed
@@ -634,14 +651,14 @@ def run_scheduler(config, csv_paths, output_dir, config_name=None, progress=None
                 'dh_short': b['dh_short'],
                 'unscheduled': b['unscheduled'],
             })
-            print(f"  Attempt {i + 1}/{attempts} (seed {seed}): "
+            print(f"  Attempt {i + 1}/{total} (seed {seed}): "
                   f"{b['games_short']} games short, {b['dh_short']} DH short, "
                   f"{b['idle_weeks']} idle wks, {b['heavy_weeks']} heavy wks, "
                   f"score {attempt['score']}{marker}")
 
             if progress:
                 try:
-                    progress(i + 1, attempts, best['score'])
+                    progress(i + 1, total, best['score'])
                 except Exception:
                     pass
 
@@ -687,16 +704,20 @@ def run_scheduler(config, csv_paths, output_dir, config_name=None, progress=None
             'remaining': f'team_remaining_needs{suffix}.csv',
         }
 
-        sn.output_schedule_to_csv_full(field_availability, schedule, os.path.join(output_dir, names['csv']))
-        sn.output_unscheduled_matchups_csv(unscheduled, os.path.join(output_dir, names['unscheduled']))
-        sn.output_team_remaining_needs_csv(all_teams, team_stats, doubleheader_count,
-                                           os.path.join(output_dir, names['remaining']))
-        sn.export_schedule_to_xlsx(
-            field_availability, schedule, division_teams, os.path.join(output_dir, names['xlsx']),
-            remaining_matchups=unscheduled, team_stats=team_stats,
-            doubleheader_count=doubleheader_count, team_availability=team_availability,
-            team_blackouts=team_blackouts, diagnostics=diag_after
-        )
+        # A scored slice of a chunked run does not need files: only the winning
+        # seed is re-run at the end, and that pass writes them. Skipping the
+        # workbook is most of the saving -- twelve sheets is not free.
+        if not score_only:
+            sn.output_schedule_to_csv_full(field_availability, schedule, os.path.join(output_dir, names['csv']))
+            sn.output_unscheduled_matchups_csv(unscheduled, os.path.join(output_dir, names['unscheduled']))
+            sn.output_team_remaining_needs_csv(all_teams, team_stats, doubleheader_count,
+                                               os.path.join(output_dir, names['remaining']))
+            sn.export_schedule_to_xlsx(
+                field_availability, schedule, division_teams, os.path.join(output_dir, names['xlsx']),
+                remaining_matchups=unscheduled, team_stats=team_stats,
+                doubleheader_count=doubleheader_count, team_availability=team_availability,
+                team_blackouts=team_blackouts, diagnostics=diag_after
+            )
 
         print("\nSchedule Generation Complete")
         sn.print_schedule_summary(team_stats)
