@@ -6,6 +6,9 @@ venv/
 
 # Runtime directories — regenerated on every run, not source
 uploads/
+# Legacy pre-accounts data. Real league configs must not ship to every install:
+# the first account to register would inherit them.
+configs/
 output/
 
 # Shared run state, written per-run so it survives across worker processes

@@ -61,6 +61,11 @@ def unauthorized():
 # completes in about 1.6 seconds, well inside normal request timeouts.
 SYNC_RUNS = auth.env('SYNC_RUNS').strip().lower() in ('1', 'true', 'yes', 'on')
 
+# Copy leftover pre-accounts configs/ and uploads/ into the first account created.
+# Off by default: see _migrate_legacy_data for why this must not be automatic on a
+# deployment anyone can sign up to.
+MIGRATE_LEGACY = auth.env('MIGRATE_LEGACY').strip().lower() in ('1', 'true', 'yes', 'on')
+
 # One run at a time PER USER, not per server. A single global lock would mean one
 # league admin's run returns HTTP 409 to everyone else for its duration.
 #
@@ -129,10 +134,16 @@ def _safe_name(name):
 
 
 def _migrate_legacy_data(user):
-    """Move the pre-accounts configs/ and uploads/ into the first account.
+    """Copy the pre-accounts configs/ and uploads/ into the first account.
 
-    Runs once, when the first user registers, so the existing setup keeps working
-    instead of appearing to have lost its saved seasons.
+    OFF unless SKEDWORX_MIGRATE_LEGACY is set. This began as a one-time upgrade
+    path so the original single-user install did not appear to lose its saved
+    seasons — which was safe when the only person who could register was the owner.
+
+    With open signup it is not: on any fresh deployment the first stranger to
+    create an account would inherit whatever configs and uploads were sitting in
+    the application directory, which is somebody else's league data. Opt in on the
+    one install that needs it, and only for as long as it takes to run.
     """
     moved = []
     for legacy, name in ((LEGACY_CONFIGS_DIR, 'configs'), (LEGACY_UPLOADS_DIR, 'uploads')):
@@ -183,7 +194,7 @@ def register():
     user = auth.create_user(email, password)
     auth.record_signup(ip)
 
-    if first_account:
+    if first_account and MIGRATE_LEGACY:
         _migrate_legacy_data(user)
 
     login_user(user)
